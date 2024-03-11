@@ -8,9 +8,8 @@
 #include "src/mlx90632/u_mlx.h"
 #include "src/as7341/spec_meas.h"
 //#include "src/adpd/u_adpd6100.h"
-
+static const char* TAG1 = "DOCMD";
 //extern ADPD6 adpd;
-
 
 constexpr unsigned hash(const char *string)
 {
@@ -80,6 +79,8 @@ void do_command(char *choose){
       case hash("run"):
      {
       uint8_t cycles = Serial_Input_Long(",", 100);
+      ESP_LOGV(TAG1,"cycles:%d", cycles);
+
 
       uint8_t arr[cycles * 8] = {};
       long _tmp = 0;
@@ -91,6 +92,7 @@ void do_command(char *choose){
           arr[n] = (uint8_t) _tmp;
         }
         else{
+          ESP_LOGV(TAG1,"ARR BAD", cycles);
           break;
         }
         load_arr = true;
@@ -116,6 +118,7 @@ void do_command(char *choose){
 
 
     default:
+      Serial.println("BAD COMMAND");
     break;
 
 
