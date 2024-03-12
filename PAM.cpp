@@ -9,19 +9,29 @@ extern ADPD6 adpd;
 #define MAX_MEMORY_ALLOC 25000
 
 
-int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_dark){
+int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_par_ir, uint8_t gain_par_vis){
+
+  // Setup timeslot 1: two ambient light channels
+  adpd.led_config.driver1_current = 0;
+  adpd.led_config.driver2_current = 0;
+  adpd.SNR_config.TIA_gain_CH2 = gain_par_ir;
+  adpd.SNR_config.TIA_gain_CH1 = gain_par_vis;
+  adpd.preset_config_1(0, 4);
+
+  // Setup timeslot 2:  Fluor and Ref channels
+
+
     // LED 1A = 620nm
-  adpd.led_config.driver1_current = 40;
+  adpd.led_config.driver1_current = current;
   adpd.led_config.driver1_current = LED_A;
     // LED 2A = 730nm
-  adpd.led_config.driver2_current = 0;
+  adpd.led_config.driver2_current = current;
   adpd.led_config.led2_channel = LED_A;
 
-  
-  adpd.led_config.driver2_current = current;
   adpd.SNR_config.TIA_gain_CH1 = gain_fluo;
   adpd.SNR_config.TIA_gain_CH2 = gain_ref;
-  adpd.preset_config_2(0, 4);
+
+  adpd.preset_config_2(1, 4);
   ESP_LOGI(TAG, "Preset 1 set");
   return 0;
 }
@@ -110,36 +120,39 @@ int data_allocation(void** F_data, void **R_data, void **A_data, void **D_data, 
 
 
 
-
 int run_arr(uint8_t length, uint8_t* arr){
-  uint8_t pc = 0;
-  uint16_t data_count[] = {0, 0, 0, 0};
+  const uint8_t expected_readout = 6;
+  const uint8_t expected_readout_bytes = expected_readout * 3;
+  const uint8_t num_integration = 4;
 
+  // Run protocol preprecess, get storage size
+  uint16_t data_count[] = {0, 0, 0, 0};
   if (run_preprocess(length, arr, data_count) == -1) return -1;    // calculate data counts
   ESP_LOGV(TAG, "Sample: %d, ref: %d, amb: %d, dark: %d", data_count[0], data_count[1], data_count[2], data_count[3]);
-
   uint32_t *F_data = NULL;
   uint32_t *R_data = NULL;
   uint32_t *A_data = NULL;
   uint32_t *D_data = NULL;
   if (data_allocation((void**)(&F_data), (void**)&R_data, (void**)&A_data, (void**)&D_data, data_count) == -1) return -1;
   F_data[0] = 0;
+  ESP_LOGV(TAG, "Memory allocation completed");
 
-  detector_preset_1(100, 1, 1, 1);
+  // configure the timeslots
+  detector_preset_1(100, 1, 4, 4, 4);
 
-
+  // variables for each trace
+  uint8_t pc = 0;
   uint8_t _type = 0;
   uint8_t para1, actinic, subsampling = 0;
   uint16_t num_ptx, freq = 0;
 
-  uint8_t expected_readout = 4;
-  uint8_t expected_readout_bytes = expected_readout * 3;
-  uint32_t ret[8] = {0};
+  // data counter and buffer
+  // [sun-amb, leaf-ir, lit_leaf-ir, dark_leaf-ir, lit_leaf-ref, dark_leaf-ref]
+  uint32_t ret[expected_readout] = {0};
   uint32_t counter = 0;
   uint16_t fifo_c = 0;
   uint8_t watch_dog_timer = 0;
-  int32_t tmp_var = 0;
-  uint8_t num_integration = 4;
+  int32_t tmp_var = 0;  
 
 
   adpd.STOP();
@@ -164,20 +177,21 @@ int run_arr(uint8_t length, uint8_t* arr){
           adpd.readfifo(expected_readout, 3, ret);
           fifo_c -= expected_readout_bytes;
           if (counter == num_ptx) break;
-
-
-          tmp_var = (ret[1] - ret[0] + 250) - (0.006 / num_integration) * ((int)ret[0] - 16384 * num_integration);
+          tmp_var = (ret[3] - ret[2] + 250) - (0.006 / num_integration) * ((int)ret[2] - 16384 * num_integration);
           F_data[counter] = 0;
-          if (tmp_var > 0) F_data[counter] = tmp_var;
-          R_data[counter] = ret[3] - ret[2];
-          //A_data[counter] = ret[0];
+          if ((tmp_var > 0) && (ret[3] > ret[2])) F_data[counter] = tmp_var;
+          R_data[counter] = ret[5] - ret[4];
+          A_data[counter] = ret[0];
+          D_data[counter] = ret[1];
 
           if (true){
             Serial.print(F_data[counter]);
             Serial.print(",");
             Serial.print(R_data[counter]);
             Serial.print(",");
-            Serial.print(fifo_c);
+            Serial.print(A_data[counter]);
+            Serial.print(",");
+            Serial.print(D_data[counter]);
             Serial.println();
           }
           counter++;

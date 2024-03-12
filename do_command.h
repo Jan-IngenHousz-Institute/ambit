@@ -62,15 +62,16 @@ void do_command(char *choose){
     // }                                                                   
     //   break;
 
-      int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_dark);
+      int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_par_ir, uint8_t gain_par_vis);
 
       case hash("config"):
      {
       uint8_t current = Serial_Input_Long(",", 100);
       uint8_t gain_fluo = Serial_Input_Long(",", 100);
       uint8_t gain_ref = Serial_Input_Long(",", 100);
-      uint8_t gain_dark = Serial_Input_Long(",", 100);
-      detector_preset_1(current, gain_fluo, gain_ref, gain_dark);
+      uint8_t gain_par_ir = Serial_Input_Long(",", 100);
+      uint8_t gain_par_vis = Serial_Input_Long(",", 100);
+      detector_preset_1(current, gain_fluo, gain_ref, gain_par_ir, gain_par_vis);
     }                                                                   
       break;
 

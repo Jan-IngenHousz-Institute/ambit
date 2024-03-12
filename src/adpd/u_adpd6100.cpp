@@ -572,11 +572,17 @@ int32_t ADPD6::global_setup(struct system_config *init){
 
 
 
+
+
+
 int32_t ADPD6::preset_config_1(uint8_t ts, uint8_t num_integ){
   if (!(ADPD6::chip_check)){
     ESP_LOGE(TAG, "ADPD Not init in preset1");
     return -2;
   }
+
+  ESP_LOGV(TAG, "Preset_config 1 set for timeslot:%d. Two ambient channels. Total 6 bytes", ts);
+  // Channel 1: PD1 (sun-facing), channel 2: PD2 (leaf-facing IR)
 
   ADPD6::STOP();
   ADPD6::DI_config.period_min = 58;
@@ -599,9 +605,9 @@ int32_t ADPD6::preset_config_1(uint8_t ts, uint8_t num_integ){
   ADPD6::signal_config.INT2BUT = 1;
   ADPD6::signal_config.ac_type = 0;
 
-  ADPD6::DI_config.ch2_en = false;
-  ADPD6::signal_config.IN12 = 0B0000;
-  ADPD6::signal_config.IN34 = 0B0001;
+  ADPD6::DI_config.ch2_en = true;
+  ADPD6::signal_config.IN12 = 0B0101;
+  ADPD6::signal_config.IN34 = 0B0000;
   
   ADPD6::num_ts(ts + 1);
 
@@ -621,6 +627,9 @@ int32_t ADPD6::preset_config_2(uint8_t ts, uint8_t num_integ){
     ESP_LOGE(TAG, "ADPD Not init in preset 2");
     return -2;
   }
+
+  ESP_LOGV(TAG, "Preset_config 2 set for timeslot:%d. Total 8 bytes", ts);
+  // Channel 1: PD2 (leaf-facing IR), channel 2: PD4 (leaf-facing Vis)
 
   ADPD6::STOP();
   ADPD6::DI_config.period_min = 58;
