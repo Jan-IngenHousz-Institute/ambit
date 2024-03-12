@@ -177,7 +177,7 @@ int run_arr(uint8_t length, uint8_t* arr){
           adpd.readfifo(expected_readout, 3, ret);
           fifo_c -= expected_readout_bytes;
           if (counter == num_ptx) break;
-          tmp_var = (ret[3] - ret[2] + 250) - (0.006 / num_integration) * ((int)ret[2] - 16384 * num_integration);
+          tmp_var = ((int)ret[3] - (int)ret[2] + 250) - (0.006 / (int)num_integration) * ((int)ret[2] - 16384 * num_integration);
           F_data[counter] = 0;
           if ((tmp_var > 0) && (ret[3] > ret[2])) F_data[counter] = tmp_var;
           R_data[counter] = ret[5] - ret[4];
