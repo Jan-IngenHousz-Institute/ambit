@@ -7,7 +7,7 @@ static const char* TAG = "PAM";
 extern ADPD6 adpd;
 
 #define MAX_MEMORY_ALLOC 25000
-
+//
 
 int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_par_ir, uint8_t gain_par_vis){
 
