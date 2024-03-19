@@ -6,7 +6,7 @@
 static const char* TAG = "DO_C";
 
 
-
+double get_PAR();
 int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_par_ir, uint8_t gain_par_vis);
 int run_arr(uint8_t length, uint8_t* arr);
 
@@ -14,6 +14,11 @@ uint8_t wr_run_arr[WR_MAX_ARR] = {0};
 
 static void arr_reset(WRContext* c,const WRValue* argv,const int argn, WRValue& retVal, void* usr){
     for (uint8_t i = 0; i < WR_MAX_ARR; i++) wr_run_arr[i] = 0;
+}
+
+static void wr_get_par(WRContext* c,const WRValue* argv,const int argn, WRValue& retVal, void* usr){
+    float par = get_PAR();
+    wr_makeFloat(&retVal, par);
 }
 
 static void disp(WRContext* c,const WRValue* argv,const int argn, WRValue& retVal, void* usr){
@@ -58,16 +63,15 @@ static void run(WRContext* c,const WRValue* argv,const int argn, WRValue& retVal
 }
 
 
-
-
 void print( WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr )
 {
 	char buf[1024];
-    Serial.println(argn);
+    
 	for( int i=0; i<argn; ++i )
 	{
 		Serial.printf( "%s", argv[i].asString(buf, 1024) );
 	}
+    Serial.println('\r');
 }
 
 
@@ -96,7 +100,8 @@ void do_c(const char* c){
       wr_registerFunction( w, "disp", disp ); // bind a function
       wr_registerFunction( w, "run", run ); // bind a function
       wr_registerFunction( w, "reset", arr_reset ); // bind a function
-      
+      wr_registerFunction( w, "get_par", wr_get_par ); // bind a function
+      wr_loadMathLib( w );
 
       unsigned char* outBytes; // compiled code is alloc'ed
       int outLen;
