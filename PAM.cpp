@@ -138,7 +138,7 @@ int run_arr(uint8_t length, uint8_t* arr){
   ESP_LOGV(TAG, "Memory allocation completed");
 
   // configure the timeslots
-  detector_preset_1(100, 1, 4, 4, 4);
+  //detector_preset_1(100, 1, 4, 4, 4);
 
   // variables for each trace
   uint8_t pc = 0;

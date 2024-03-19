@@ -7,9 +7,14 @@
 #include "serial.h"
 #include "src/mlx90632/u_mlx.h"
 #include "src/as7341/spec_meas.h"
+#include "src/wrench.h"
+
 //#include "src/adpd/u_adpd6100.h"
 static const char* TAG1 = "DOCMD";
 //extern ADPD6 adpd;
+
+
+
 
 constexpr unsigned hash(const char *string)
 {
@@ -45,9 +50,21 @@ void do_command(char *choose){
     val = hash(choose);             // convert alpha command to an int
   }
 
+  void do_c(const char* c);
 
   // process single commands
   switch (val) {
+    case hash("C"):{
+
+      char c[500];
+
+      Serial_Input_Chars(c, "?", 10000, 500);
+      Serial.println(c);
+      do_c(c);
+    }
+    break;
+
+
     case hash("hello"):
      {
       Serial.print("NEW Name Here");
