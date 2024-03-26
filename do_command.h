@@ -8,10 +8,14 @@
 #include "src/mlx90632/u_mlx.h"
 #include "src/as7341/spec_meas.h"
 #include "src/wrench.h"
+#include "data_utils.h"
+
 
 //#include "src/adpd/u_adpd6100.h"
 static const char* TAG1 = "DOCMD";
 //extern ADPD6 adpd;
+
+dataclass data;
 
 
 
@@ -57,10 +61,9 @@ void do_command(char *choose){
     case hash("C"):{
 
       char c[500];
-
       Serial_Input_Chars(c, "?", 10000, 500);
-      Serial.println(c);
       do_c(c);
+      Serial.println();
     }
     break;
 
@@ -89,6 +92,7 @@ void do_command(char *choose){
       uint8_t gain_par_ir = Serial_Input_Long(",", 100);
       uint8_t gain_par_vis = Serial_Input_Long(",", 100);
       detector_preset_1(current, gain_fluo, gain_ref, gain_par_ir, gain_par_vis);
+
     }                                                                   
       break;
 
@@ -133,13 +137,69 @@ void do_command(char *choose){
       break;
 
 
+       case hash("reboot"):
+      {
+        ESP.restart();
+      }
+      break;
 
+
+      int wait_for_response_clear(const char* s, uint8_t slen, uint8_t timeout);
+      void write32(uint32_t v);
+
+      case hash("init"):
+      {
+       Serial.println("Wake!");
+       if (wait_for_response_clear("Ready", 5, 10) == 0){
+        Serial.println("2");
+        if (wait_for_response_clear("GO", 2, 10) == 0){
+          write32((uint32_t) 1234);
+          write32((uint32_t) 6543);
+          Serial.println("DONE");
+        }
+        
+       }
+      }
+      
+      break;
+
+      case hash("add"):
+      {
+        uint16_t l = Serial_Input_Long(",", 100);
+        data.put(l);
+      }
+      break;
+
+      case hash("pop"):
+      {
+        uint32_t l = 0;
+        data.pop(&l);
+        Serial.println(l);
+      }
+      break;
+
+      case hash("len"):
+      {
+        
+        Serial.println(data.get_length());
+      }
+      break;
+
+        case hash("printall"):
+      {
+        data.print_all();
+      }
+      break;
+
+      case hash("del"):
+      {
+        delete &data;
+      }
+      break;
 
     default:
       Serial.println("BAD COMMAND");
     break;
 
-
   }
-
 }

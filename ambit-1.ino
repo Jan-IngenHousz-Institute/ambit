@@ -7,6 +7,7 @@
 #include "do_command.h"
 #include "src/wrench.h"
 
+#include "config.h"
 
 static const char* TAG = "INO";
 ADPD6 adpd;

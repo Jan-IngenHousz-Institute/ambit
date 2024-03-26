@@ -2,6 +2,8 @@
 #include "src/as7341/spec_meas.h"
 #include "src/devices_init.h"
 #include "src/mlx90632/u_mlx.h"
+#include "data_utils.h"
+
 static const char* TAG = "PAM";
 
 extern ADPD6 adpd;
@@ -78,6 +80,127 @@ int run_preprocess(uint8_t length, uint8_t* arr, uint16_t* data_counter){
 
 }
 
+int send_binary_data(uint32_t* arr, uint16_t len){
+  char c;
+  Serial.setTimeout(100);
+  while(Serial.available()){
+    c = Serial.read();
+    Serial.print(c);
+  }
+  
+  Serial.println("Wake!");
+  
+  if (Serial.read("Ready", 5)){
+    while(Serial.available()){
+      c = Serial.read();
+      Serial.print(c);
+    }
+  }else{
+    Serial.println("No response");
+  }
+}
+
+
+int run_arr(uint8_t length, uint8_t* arr){ // old version
+  const uint8_t expected_readout = 6;
+  const uint8_t expected_readout_bytes = expected_readout * 3;
+  const uint8_t num_integration = 4;
+
+  // Run protocol preprecess, get storage size
+  uint16_t data_count[] = {0, 0, 0, 0};
+  if (run_preprocess(length, arr, data_count) == -1) return -1;    // calculate data counts
+  ESP_LOGV(TAG, "Sample: %d, ref: %d, amb: %d, dark: %d", data_count[0], data_count[1], data_count[2], data_count[3]);
+
+  dataclass *Fdata = new dataclass;
+  dataclass *Rdata = new dataclass;
+  dataclass *Adata = new dataclass;
+  dataclass *Ddata = new dataclass;
+
+  if (!(Fdata->init(data_count[0]) && Rdata->init(data_count[1]) && Adata->init(data_count[2]) && Ddata->init(data_count[3]))) return -1;
+  ESP_LOGV(TAG, "Memory allocation completed");
+
+  // configure the timeslots
+  //detector_preset_1(100, 1, 4, 4, 4);
+
+  // variables for each trace
+  uint8_t pc = 0;
+  uint8_t _type = 0;
+  uint8_t para1, actinic, subsampling = 0;
+  uint16_t num_ptx, freq = 0;
+
+  // data counter and buffer
+  // [sun-amb, leaf-ir, lit_leaf-ir, dark_leaf-ir, lit_leaf-ref, dark_leaf-ref]
+  uint32_t ret[expected_readout] = {0};
+  uint32_t counter = 0;
+  uint16_t fifo_c = 0;
+  uint8_t watch_dog_timer = 0;
+  int32_t tmp_var = 0;  
+
+
+  adpd.STOP();
+  while (pc < length){
+    _type = *(arr + pc * 8);
+    if (_type == 1){
+      arr_line_parse_type1((arr + pc * 8), &para1, &num_ptx, &freq, &actinic, &subsampling, data_count);
+      adpd.run_freq(freq);
+      adpd.clear_fifo();
+      if (actinic > 4){
+        AS_LED_Current(actinic);
+        AS_LED_ON();
+      }else{
+        AS_LED_OFF();
+      }
+      counter = 0;
+      adpd.RUN();
+
+      while (counter < num_ptx){
+        fifo_c = adpd.fifo_count();
+        while (fifo_c >= expected_readout_bytes){
+          adpd.readfifo(expected_readout, 3, ret);
+          fifo_c -= expected_readout_bytes;
+          if (counter == num_ptx) break;
+          tmp_var = ((int)ret[3] - (int)ret[2] + 250) - (0.006 / (int)num_integration) * ((int)ret[2] - 16384 * num_integration);
+          if ((tmp_var > 0) && (ret[3] > ret[2])){
+            Fdata->put(tmp_var);
+          }else{
+            Fdata->put(0);
+          }
+          Rdata->put(ret[5] - ret[4]);
+          Adata->put(ret[0]);
+          Ddata->put(ret[1]);
+          counter++;
+          watch_dog_timer = 0;
+        }
+
+
+        if (Fdata->length > 0){
+          Serial.printf("%d, %d, %d, %d\n", Fdata->pop(), Rdata->pop(), Adata->pop(),Ddata->pop());
+        }else{
+        // esp_sleep_enable_timer_wakeup(wait_time * 5000);
+        // esp_light_sleep_start();
+          delay(1);
+        }
+        
+      }
+      adpd.STOP();
+      AS_LED_OFF();
+    }    
+    pc += 1;
+  }
+
+  delete Ddata;
+  delete Adata;
+  delete Rdata;
+  delete Fdata;
+
+  return 0;
+
+}
+
+
+
+/*
+
 int data_allocation(void** F_data, void **R_data, void **A_data, void **D_data, uint16_t* data_count){
 
   if ((data_count[0] + data_count[1] + data_count[2] + data_count[3]) > MAX_MEMORY_ALLOC){
@@ -120,7 +243,9 @@ int data_allocation(void** F_data, void **R_data, void **A_data, void **D_data, 
 
 
 
-int run_arr(uint8_t length, uint8_t* arr){
+
+
+int run_arr(uint8_t length, uint8_t* arr){ // old version
   const uint8_t expected_readout = 6;
   const uint8_t expected_readout_bytes = expected_readout * 3;
   const uint8_t num_integration = 4;
@@ -345,3 +470,4 @@ int steady_state(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t g
 
   return 1;
 }
+*/

@@ -1,53 +1,36 @@
-#define MAX_DATACLASS_SIZE 2000
+#include "data_utils.h"
+
+
 static const char* TAG = "DATA_UTIL";
 
-
-class dataclass{
-
-    public:
-    uint32_t* arr = NULL;                  // data array handle
-    uint16_t write_ptr = 0;         // pointer to next input location
-    uint16_t read_ptr = 0;          // pointer to next read location
-    bool available = false;         // indicator of memory allocation
-    bool write_available = false;   // available to add data
-    bool read_available = false;    // available to read data
-    uint16_t length = 0;
-
-    
-
-
-    dataclass();
-    ~dataclass();
-    void clear(void);
-    void put(uint32_t data);
-    uint16_t get_length(void);
-    bool pop(uint32_t* data);
-    bool init(uint16_t length);
-
-
-    private:
-    bool loop_ahead = false;
-    uint16_t _overwritten_counter = 0;
-    uint16_t _length = 0;            // size of data inside
-
+dataclass::dataclass(){
+    dataclass::available = false;
+    dataclass::write_available = false;
+    dataclass::read_available = false;
+    ESP_LOGV(TAG, "DATACLASS Created");
+    return;
 };
 
-dataclass::dataclass(){
+dataclass::~dataclass(void){
+    ESP_LOGV(TAG, "DATACLASS destroied");    
+    if (dataclass::available) dataclass:clean();  
+    return;
+};
+
+void dataclass::clean(void){
+    if (dataclass::available) free((void*) (dataclass::arr));
+    ESP_LOGV(TAG, "Memory freed");
     dataclass::available = false;
     dataclass::write_available = false;
     dataclass::read_available = false;
     return;
 };
 
-dataclass::~dataclass(void){
-    if (dataclass::available) free(dataclass::arr);
-    return;
-};
 
 bool dataclass::init(uint16_t length){
     if ((length > 0) and length < MAX_DATACLASS_SIZE){
         ESP_LOGV(TAG, "Allocation %d bytes", length * 4);
-        (dataclass::arr) = (uint32_t*) (length, sizeof(uint32_t), MALLOC_CAP_32BIT);
+        (dataclass::arr) = (uint32_t*) heap_caps_calloc(length, sizeof(uint32_t), MALLOC_CAP_32BIT);
         if (dataclass::arr == NULL){
             ESP_LOGE(TAG, "Allocation %d bytes failed", length * 4);
             return false;
@@ -138,6 +121,8 @@ uint16_t dataclass::get_length(void){
 
 
 
+
+
 bool dataclass::pop(uint32_t* data){
     if (!(dataclass::available)){
         ESP_LOGE(TAG, "Add failed, not initialized");
@@ -150,6 +135,7 @@ bool dataclass::pop(uint32_t* data){
     
     if (dataclass::get_length() == 0){
         dataclass::read_available = false;
+        ESP_LOGW(TAG, "No data available");
         return false;
     }
 
@@ -167,3 +153,62 @@ bool dataclass::pop(uint32_t* data){
     }
     return true;   
 }
+
+uint32_t dataclass::pop(void){
+    uint32_t a;
+    if (dataclass::pop(&a)) return a;
+    return 0xABCDEF01;
+}
+
+
+#ifdef DEBUG_CODES
+
+void dataclass::print_all(void){
+
+    if (!(dataclass::available)){
+        ESP_LOGE(TAG, "Add failed, not initialized");
+        return;
+    }
+    for (uint8_t i = 0; i < dataclass::_length; i++){
+        Serial.print(dataclass::arr[i]);
+        Serial.print(",");
+    }
+    Serial.println();
+    return;
+}
+
+#endif
+
+
+int wait_for_response_clear(const char* s, uint8_t slen, uint8_t timeout){
+
+    unsigned long timer1 = millis();
+    uint16_t n = 0;
+    Serial.setTimeout(timeout);
+
+    if (Serial.find(s, slen)){
+        //ESP_LOGI(TAG, "Responsed in %d ms\n",  millis() - timer1);
+        while(Serial.available()){
+            Serial.read();
+            n += 1;
+        }
+        if (n > 0) ESP_LOGW(TAG, "received %d unexpected bytes after %s", n, s);
+        return 0;
+    }
+    return -1;
+}
+
+void write32(uint32_t v){
+    uint8_t a = (v) & 0xFF;
+    uint8_t b = ((v) >> 8) & 0xFF;
+    uint8_t c = ((v) >> 16) & 0xFF;
+    uint8_t d = ((v) >> 24) & 0xFF;
+    Serial.write(d);
+    Serial.write(c);
+    Serial.write(b);
+    Serial.write(a);
+    return;
+}
+
+
+    
