@@ -149,16 +149,12 @@ void do_command(char *choose){
 
       case hash("init"):
       {
-       Serial.println("Wake!");
-       if (wait_for_response_clear("Ready", 5, 10) == 0){
-        Serial.println("2");
-        if (wait_for_response_clear("GO", 2, 10) == 0){
-          write32((uint32_t) 1234);
-          write32((uint32_t) 6543);
-          Serial.println("DONE");
+        uint32_t arr[123];
+        for(uint16_t n = 0; n < 123; n++){
+          arr[n] = millis();
         }
-        
-       }
+        send_data(arr, 123);
+ 
       }
       
       break;

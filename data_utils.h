@@ -42,4 +42,8 @@ class dataclass{
 
 };
 
+bool send_and_wait_rsp(const char *s, const char *r, uint8_t rlen, uint8_t timeout);
+void send_data(uint32_t* arr, uint16_t len);
+
+
 #endif

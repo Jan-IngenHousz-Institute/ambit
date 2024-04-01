@@ -135,6 +135,7 @@ int run_arr(uint8_t length, uint8_t* arr){ // old version
   uint16_t fifo_c = 0;
   uint8_t watch_dog_timer = 0;
   int32_t tmp_var = 0;  
+  uint32_t send_arr[200];
 
 
   adpd.STOP();
@@ -173,8 +174,16 @@ int run_arr(uint8_t length, uint8_t* arr){ // old version
         }
 
 
-        if (Fdata->length > 0){
-          Serial.printf("%d, %d, %d, %d\n", Fdata->pop(), Rdata->pop(), Adata->pop(),Ddata->pop());
+        if (Fdata->length > 4){
+          // for (uint8_t z = 0; z < 4; z++){
+          //   send_arr[0 + z * 4] = Fdata->pop();
+          //   send_arr[1 + z * 4] = Rdata->pop();
+          //   send_arr[2 + z * 4] = Adata->pop();
+          //   send_arr[3 + z * 4] = Ddata->pop();
+          //   Serial.printf("%d, %d, %d, %d\n", send_arr[0 + z * 4], send_arr[1 + z * 4], send_arr[2 + z * 4],send_arr[3 + z * 4]);
+          // }
+          
+          send_data(send_arr, 16);
         }else{
         // esp_sleep_enable_timer_wakeup(wait_time * 5000);
         // esp_light_sleep_start();
@@ -182,6 +191,7 @@ int run_arr(uint8_t length, uint8_t* arr){ // old version
         }
         
       }
+      
       adpd.STOP();
       AS_LED_OFF();
     }    

@@ -198,6 +198,13 @@ int wait_for_response_clear(const char* s, uint8_t slen, uint8_t timeout){
     return -1;
 }
 
+bool send_and_wait_rsp(const char *s, const char *r, uint8_t rlen, uint8_t timeout){
+    Serial.println(s);
+    uint8_t i = wait_for_response_clear(r, rlen, timeout);
+    if (i == 0) return true;
+    return false;
+}
+
 void write32(uint32_t v){
     uint8_t a = (v) & 0xFF;
     uint8_t b = ((v) >> 8) & 0xFF;
@@ -208,6 +215,27 @@ void write32(uint32_t v){
     Serial.write(b);
     Serial.write(a);
     return;
+}
+
+void send_data(uint32_t* arr, uint16_t len){
+
+    char c[10];
+
+    // Wake up sleep device
+    if (send_and_wait_rsp("Wake!", "Ready", 5, 10)){        
+        // send data size
+        sprintf(c, "%d", len);
+        if (send_and_wait_rsp(c, "GO", 2, 10)){
+          uint32_t checksum = 0;
+          for (uint16_t n = 0; n < len; n++){
+            write32((uint32_t) arr[n]);
+            checksum += arr[n];
+          }
+          write32(checksum);          
+          send_and_wait_rsp("DONE", "Check", 5, 10);
+        }               
+       }
+
 }
 
 
