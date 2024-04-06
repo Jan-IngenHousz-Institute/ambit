@@ -9,6 +9,7 @@ static const char* TAG = "DO_C";
 double get_PAR();
 int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_par_ir, uint8_t gain_par_vis);
 int run_arr(uint8_t length, uint8_t* arr);
+void far_red(uint8_t, uint8_t, uint8_t);
 
 uint8_t wr_run_arr[WR_MAX_ARR] = {0};
 
@@ -19,6 +20,13 @@ static void arr_reset(WRContext* c,const WRValue* argv,const int argn, WRValue& 
 static void wr_get_par(WRContext* c,const WRValue* argv,const int argn, WRValue& retVal, void* usr){
     float par = get_PAR();
     wr_makeFloat(&retVal, par);
+}
+
+static void wr_FR(WRContext* c,const WRValue* argv,const int argn, WRValue& retVal, void* usr){
+    uint8_t a = (uint8_t) argv[0].asInt();
+    uint8_t g = (uint8_t) argv[1].asInt();
+    uint8_t r = (uint8_t) argv[2].asInt();
+    far_red(a, g, r);
 }
 
 static void disp(WRContext* c,const WRValue* argv,const int argn, WRValue& retVal, void* usr){
@@ -101,6 +109,7 @@ void do_c(const char* c){
       wr_registerFunction( w, "run", run ); // bind a function
       wr_registerFunction( w, "reset", arr_reset ); // bind a function
       wr_registerFunction( w, "get_par", wr_get_par ); // bind a function
+      wr_registerFunction( w, "IR", wr_FR ); // bind a function      
       wr_loadMathLib( w );
 
       unsigned char* outBytes; // compiled code is alloc'ed

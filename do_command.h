@@ -146,14 +146,14 @@ void do_command(char *choose){
 
       int wait_for_response_clear(const char* s, uint8_t slen, uint8_t timeout);
       void write32(uint32_t v);
+      uint8_t far_red(uint8_t current, uint8_t gain_par_ir, uint8_t repeats);
 
       case hash("init"):
       {
-        uint32_t arr[123];
-        for(uint16_t n = 0; n < 123; n++){
-          arr[n] = millis();
-        }
-        send_data(arr, 123);
+        uint16_t a = Serial_Input_Long(",", 100);
+        uint16_t g = Serial_Input_Long(",", 100);
+        uint16_t r = Serial_Input_Long(",", 100);
+        far_red(a, g, r);
  
       }
       
@@ -190,6 +190,23 @@ void do_command(char *choose){
       case hash("del"):
       {
         delete &data;
+      }
+      break;
+
+
+      case hash("test"):
+      {
+        Serial.println(mlx_measure());
+        Serial.println(get_PAR());
+        for (uint8_t i = 0; i < 10; i++){
+            AS_LED_OFF();
+            AS_LED_Current(20 * i);
+            AS_LED_ON();
+            delay(10);
+            AS_LED_OFF();
+        }
+
+
       }
       break;
 

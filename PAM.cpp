@@ -21,13 +21,11 @@ int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint
   adpd.preset_config_1(0, 4);
 
   // Setup timeslot 2:  Fluor and Ref channels
-
-
     // LED 1A = 620nm
   adpd.led_config.driver1_current = current;
-  adpd.led_config.driver1_current = LED_A;
+  adpd.led_config.led1_channel = LED_A;
     // LED 2A = 730nm
-  adpd.led_config.driver2_current = current;
+  adpd.led_config.driver2_current = 0;
   adpd.led_config.led2_channel = LED_A;
 
   adpd.SNR_config.TIA_gain_CH1 = gain_fluo;
@@ -37,6 +35,29 @@ int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint
   ESP_LOGI(TAG, "Preset 1 set");
   return 0;
 }
+
+
+int detector_preset_2(uint8_t current, uint8_t gain_par_ir, uint8_t repeats){
+
+
+    // LED 1A = 620nm
+  adpd.led_config.driver1_current = 0;
+  adpd.led_config.led1_channel = LED_A;
+    // LED 2A = 730nm
+  adpd.led_config.driver2_current = current;
+  adpd.led_config.led2_channel = LED_A;
+
+  adpd.SNR_config.TIA_gain_CH1 = gain_par_ir;
+
+  adpd.preset_config_3(1, 1, repeats);
+  ESP_LOGI(TAG, "Far red set");
+  return 0;
+}
+
+
+
+
+
 
 uint32_t arr_line_parse_type1(uint8_t* line, uint8_t* num1, uint16_t* num2, uint16_t* num3, uint8_t* num4, uint8_t* num5, uint16_t* data_count){
   uint16_t _sub_count = 0;
@@ -73,7 +94,7 @@ int run_preprocess(uint8_t length, uint8_t* arr, uint16_t* data_counter){
         arr_line_parse_type1(arr + pc * 8, &para1, &num_ptx, &freq, &actinic, &subsampling, _data_counter);
         ESP_LOGV(TAG, "Run type:%d, number:%d, freq: %d, actinic: %d, subfactor %d", _type, num_ptx, freq, actinic, subsampling);
         for (uint8_t i = 0; i < 4; i++) data_counter[i] += _data_counter[i];
-      }      
+      }
       pc += 1;
     }
     return 0;
@@ -146,11 +167,17 @@ int run_arr(uint8_t length, uint8_t* arr){ // old version
       adpd.run_freq(freq);
       adpd.clear_fifo();
       if (actinic > 4){
-        AS_LED_Current(actinic);
+        if (actinic == 255){
+          AS_LED_Current(255);
+          AS_LED_ON();
+          digitalWrite(1, HIGH);
+        }
+        AS_LED_Current(actinic - 1);
         AS_LED_ON();
       }else{
         AS_LED_OFF();
       }
+
       counter = 0;
       adpd.RUN();
 
@@ -166,6 +193,9 @@ int run_arr(uint8_t length, uint8_t* arr){ // old version
           }else{
             Fdata->put(0);
           }
+
+          //  Serial.printf("%d, %d, %d, %d, %d, %d\n", ret[0], ret[1], ret[2], ret[3], ret[4], ret[5]);
+          
           Rdata->put(ret[5] - ret[4]);
           Adata->put(ret[0]);
           Ddata->put(ret[1]);
@@ -173,17 +203,16 @@ int run_arr(uint8_t length, uint8_t* arr){ // old version
           watch_dog_timer = 0;
         }
 
-
         if (Fdata->length > 4){
-          // for (uint8_t z = 0; z < 4; z++){
-          //   send_arr[0 + z * 4] = Fdata->pop();
-          //   send_arr[1 + z * 4] = Rdata->pop();
-          //   send_arr[2 + z * 4] = Adata->pop();
-          //   send_arr[3 + z * 4] = Ddata->pop();
-          //   Serial.printf("%d, %d, %d, %d\n", send_arr[0 + z * 4], send_arr[1 + z * 4], send_arr[2 + z * 4],send_arr[3 + z * 4]);
-          // }
+          for (uint8_t z = 0; z < 4; z++){
+            send_arr[0 + z * 4] = Fdata->pop();
+            send_arr[1 + z * 4] = Rdata->pop();
+            send_arr[2 + z * 4] = Adata->pop();
+            send_arr[3 + z * 4] = Ddata->pop();
+            Serial.printf("%d, %d, %d, %d\n", send_arr[0 + z * 4], send_arr[1 + z * 4], send_arr[2 + z * 4],send_arr[3 + z * 4]);
+          }
           
-          send_data(send_arr, 16);
+          //send_data(send_arr, 16);
         }else{
         // esp_sleep_enable_timer_wakeup(wait_time * 5000);
         // esp_light_sleep_start();
@@ -194,7 +223,15 @@ int run_arr(uint8_t length, uint8_t* arr){ // old version
       
       adpd.STOP();
       AS_LED_OFF();
+      digitalWrite(1, LOW);
     }    
+    if (_type == 2){
+      //flash duration
+      para1 = *(arr + pc * 8 + 6);
+      digitalWrite(1, HIGH);
+      delay(para1);
+      digitalWrite(1, LOW);
+    }
     pc += 1;
   }
 
@@ -205,6 +242,16 @@ int run_arr(uint8_t length, uint8_t* arr){ // old version
 
   return 0;
 
+}
+
+void far_red(uint8_t current, uint8_t gain_par_ir, uint8_t repeats){
+  detector_preset_2(current, gain_par_ir, repeats);
+  adpd.run_freq(10);
+  adpd.clear_fifo();
+  adpd.RUN();
+  delay(1000);
+  adpd.STOP();
+  return;
 }
 
 

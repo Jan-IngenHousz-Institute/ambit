@@ -18,14 +18,20 @@ ADPD6 adpd;
 
 
 void setup(){
+    pinMode(1, OUTPUT);
+    digitalWrite(1, LOW);
+
     Serial.begin(115200);
     delay(2500);
     Serial.println("BOOT");
-
+    digitalWrite(1, HIGH);
+    delay(1);
+    digitalWrite(1, LOW);
     init_i2c_bus();
     init_spi_bus();
     adpd.begin();
-    as7341.begin();
+    if (as7341.begin()) ESP_LOGV(TAG, "AS7341 Found");
+    check_AS7341();
     mlx_init();
 
 }

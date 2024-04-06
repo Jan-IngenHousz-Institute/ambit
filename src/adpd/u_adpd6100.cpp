@@ -316,11 +316,18 @@ int32_t ADPD6::ts_setup(adi_adpd6000_slot_e timeslot_no, struct ts_DI_timing *in
     int32_t ret;
 	uint16_t data = 0;
 
+
+  data =  init->num_integration << 8|
+            init->num_repeats << 0;
+	ret = ADPD6::write_reg(REG_COUNTS_A_ADDR + (timeslot_no) * 0x20, &data);
+	if(ret != API_ADPD6000_ERROR_OK)
+  return ret;
+
     data =  init->Modulation_type << 12|
             init->period_min << 0;
 	ret = ADPD6::write_reg(REG_PERIOD_A_ADDR + (timeslot_no) * 0x20, &data);
 	if(ret != API_ADPD6000_ERROR_OK)
-		return ret;
+  return ret;
 
     data = 0;
     data = init->LED_pulse_width << 8|
@@ -594,6 +601,8 @@ int32_t ADPD6::preset_config_1(uint8_t ts, uint8_t num_integ){
   ADPD6::DI_config.sample_type = 3;
   ADPD6::DI_config.signal_size = 0;
   ADPD6::DI_config.num_integration = num_integ;
+  ADPD6::DI_config.num_repeats = 1;
+
   ADPD6::DI_config.dark_size = 3;
   ADPD6::DI_config.lit_size = 0;
 
@@ -641,6 +650,7 @@ int32_t ADPD6::preset_config_2(uint8_t ts, uint8_t num_integ){
   ADPD6::DI_config.sample_type = 3;
   ADPD6::DI_config.signal_size = 0;
   ADPD6::DI_config.num_integration = num_integ;
+  ADPD6::DI_config.num_repeats = 1;
   ADPD6::DI_config.dark_size = 3;
   ADPD6::DI_config.lit_size = 3;
 
@@ -669,6 +679,57 @@ int32_t ADPD6::preset_config_2(uint8_t ts, uint8_t num_integ){
 
 }
 
+
+
+
+// far-red
+int32_t ADPD6::preset_config_3(uint8_t ts, uint8_t num_integ, uint8_t repeats){
+  if (!(ADPD6::chip_check)){
+    ESP_LOGE(TAG, "ADPD Not init in preset 3");
+    return -2;
+  }
+
+  ESP_LOGV(TAG, "Preset_config 4 set for timeslot:%d. Total 3 bytes", ts);
+  // Channel 1: PD2 (leaf-facing IR), channel 2: PD4 (leaf-facing Vis)
+
+  ADPD6::STOP();
+  ADPD6::DI_config.period_min = 320;
+  ADPD6::DI_config.LIT_OFFSET = 100;
+  ADPD6::DI_config.DARK_OFFSET1 = 48;
+  ADPD6::DI_config.DARK_OFFSET2 = 300;
+  ADPD6::DI_config.LED_pulse_offset = 60;
+  ADPD6::DI_config.LED_pulse_width = 200;
+  ADPD6::DI_config.sample_type = 3;
+  ADPD6::DI_config.signal_size = 0;
+  ADPD6::DI_config.num_integration = num_integ;
+  ADPD6::DI_config.num_repeats = repeats;
+  ADPD6::DI_config.dark_size = 3;
+  ADPD6::DI_config.lit_size = 0;
+
+  ADPD6::signal_config.pre_condition_type = 5;
+  ADPD6::SNR_config.Ch1_R_int = 1;
+  ADPD6::SNR_config.C_int_CH1 = 1;
+  ADPD6::SNR_config.Ch2_R_int = 1;
+  ADPD6::SNR_config.C_int_CH2 = 1;
+  ADPD6::signal_config.INT2BUT = 1;
+  ADPD6::signal_config.ac_type = 0;
+
+  ADPD6::DI_config.ch2_en = false;
+  ADPD6::signal_config.IN12 = 0B0011;
+  ADPD6::signal_config.IN34 = 0B0100;
+
+
+  
+  ADPD6::num_ts(ts + 1);
+
+  ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::DI_config));
+  ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::signal_config));
+  ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::SNR_config));
+  ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::led_config));
+
+  return 0;
+
+}
 
 
 
