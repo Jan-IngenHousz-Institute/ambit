@@ -146,18 +146,7 @@ void do_command(char *choose){
 
       int wait_for_response_clear(const char* s, uint8_t slen, uint8_t timeout);
       void write32(uint32_t v);
-      uint8_t far_red(uint8_t current, uint8_t gain_par_ir, uint8_t repeats);
-
-      case hash("init"):
-      {
-        uint16_t a = Serial_Input_Long(",", 100);
-        uint16_t g = Serial_Input_Long(",", 100);
-        uint16_t r = Serial_Input_Long(",", 100);
-        far_red(a, g, r);
- 
-      }
       
-      break;
 
       case hash("add"):
       {

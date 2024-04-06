@@ -9,6 +9,267 @@ static const char* TAG = "PAM";
 extern ADPD6 adpd;
 
 #define MAX_MEMORY_ALLOC 25000
+
+// Slow measurements with 4 time slots
+// @param I620 measuring light current (0 - 127)
+// @param I730 IR reflection current (0 - 127)
+// @param I_FR Far-red treatment current (0 - 127)
+// @param G_Fluor fluorescence signal gain (0 - 5)
+// @param G_FluorRef fluorescence rerefence gain (0 - 5)
+// @param G_Sun Sun facing PD gain (0 - 5)
+// @param G_IR Leaf facing PD gain (0 - 5)
+// @param G_FR IR reflection signal gain (0 - 5)
+// @param G_FRref IR reflection reference gain (0 - 5)
+int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, uint8_t G_FluorRef, uint8_t G_Sun, uint8_t G_IR, uint8_t G_FR, uint8_t G_FRref){
+  
+  // Setup timeslot 1: two ambient light channels, 2 x 3 bytes
+  adpd.led_config.driver1_current = 0;
+  adpd.led_config.driver2_current = 0;
+  adpd.SNR_config.TIA_gain_CH2 = G_IR;       // channel 2: leaf IR reflection
+  adpd.SNR_config.TIA_gain_CH1 = G_Sun;      // channel 1: sun vis
+  adpd.preset_config_1(0, 4);
+
+
+
+  // Setup timeslot 2:  Fluor and Ref channels,  4 x 3 bytes
+    // LED 1A = 620nm
+  adpd.led_config.driver1_current = I620;
+  adpd.led_config.led1_channel = LED_A;
+    // LED 2A = 730nm
+  adpd.led_config.driver2_current = 0;
+  adpd.led_config.led2_channel = LED_A;
+  adpd.SNR_config.TIA_gain_CH1 = G_Fluor;
+  adpd.SNR_config.TIA_gain_CH2 = G_FluorRef;
+  adpd.preset_config_2(1, 4);
+
+
+  // Setup timeslot 3:  IR leave reflection, 2 x 3 bytes
+     // LED 1A = 620nm
+  adpd.led_config.driver1_current = 0;
+  adpd.led_config.led1_channel = LED_A;
+    // LED 2A = 730nm
+  adpd.led_config.driver2_current = I730;
+  adpd.led_config.led2_channel = LED_A;
+  adpd.SNR_config.TIA_gain_CH1 = G_FR;
+  adpd.SNR_config.TIA_gain_CH2 = G_FRref;
+  adpd.preset_config_3(2, 4);
+
+  // Setup timeslot 4-5-6:  Far-red illumination, 0 data
+    // LED 1A = 620nm
+  adpd.led_config.driver1_current = 0;
+  adpd.led_config.led1_channel = LED_A;
+    // LED 2A = 730nm
+  adpd.led_config.driver2_current = I_FR;
+  adpd.led_config.led2_channel = LED_A;
+
+  //make 3 time slots, ~ 1 ms without repeats, can get 200 repeats ~ 200ms target 5Hz
+  adpd.preset_config_4(3);
+  adpd.preset_config_4(4);
+  adpd.preset_config_4(5);
+
+  return 0;
+}
+
+
+uint32_t arr_line_parse_type1(uint8_t* line, uint8_t* num1, uint16_t* num2, uint16_t* num3, uint8_t* num4, uint8_t* num5, uint16_t* data_count){
+  // type 1: Must have: Fluor/Ref
+  // optional: leaf IR, sun VIs, Reflect/Ref
+
+
+  uint16_t _sub_count = 0;
+
+  uint8_t type = line[0];                 // run type 1 = steady state, 0 = skip, 2 = flash, 3 = skip
+  *num1 = line[1];                        // FR on / off
+  *num2 = line[3] + (line[2] << 8);       // sample number
+  *num3 = line[5] + (line[4] << 8);       // frequency
+  *num4 = line[6];                        // actinic
+  *num5 = line[7];                        // sub-sampling factor (0 / every 8 points)
+  data_count[0] = *num2;
+  data_count[1] = *num2;
+
+  if (line[7] == 0){
+    _sub_count = 0;
+  }
+  else{
+    _sub_count = ((*num2) / 8);
+  }
+  data_count[2] = _sub_count;
+  data_count[3] = _sub_count;
+  return _sub_count + _sub_count + *num2 + *num2;
+}
+
+
+int run_preprocess_type1(uint8_t length, uint8_t* arr, uint16_t* data_counter){
+    uint8_t pc = 0;
+    uint8_t _type = 0;
+    uint8_t para1, actinic, subsampling = 0;
+    uint16_t num_ptx, freq = 0;
+    uint16_t _data_counter[4] = {0};
+
+    while (pc < length){
+      _type = *(arr + pc * 8);
+      if (_type == 1){
+        arr_line_parse_type1(arr + pc * 8, &para1, &num_ptx, &freq, &actinic, &subsampling, _data_counter);
+        ESP_LOGV(TAG, "Run type:%d, number:%d, freq: %d, actinic: %d, subfactor %d", _type, num_ptx, freq, actinic, subsampling);
+        for (uint8_t i = 0; i < 4; i++) data_counter[i] += _data_counter[i];
+      }
+      pc += 1;
+    }
+    return 0;
+}
+
+
+
+int run_arr_type1(uint8_t length, uint8_t* arr){
+  const uint8_t expected_readout = 8;
+  const uint8_t expected_readout_bytes = expected_readout * 3;
+  const uint8_t num_integration = 4;
+
+  // Run protocol preprecess, get storage size
+  uint16_t data_count[] = {0, 0, 0, 0};
+  if (run_preprocess(length, arr, data_count) == -1) return -1;    // calculate data counts
+  ESP_LOGV(TAG, "Sample: %d, ref: %d, amb: %d, dark: %d", data_count[0], data_count[1], data_count[2], data_count[3]);
+
+  dataclass *Fdata = new dataclass;
+  dataclass *Rdata = new dataclass;
+  dataclass *Adata = new dataclass;
+  dataclass *Ddata = new dataclass;
+
+  if (!(Fdata->init(data_count[0]) && Rdata->init(data_count[1]) && Adata->init(data_count[2]) && Ddata->init(data_count[3]))) return -1;
+  ESP_LOGV(TAG, "Memory allocation completed");
+
+
+  // variables for each trace
+  uint8_t pc = 0;
+  uint8_t _type = 0;
+  uint8_t para1, actinic, subsampling = 0;
+  uint16_t num_ptx, freq = 0;
+
+  // data counter and buffer
+  // [sun-amb, leaf-ir, lit_leaf-ir, dark_leaf-ir, lit_leaf-ref, dark_leaf-ref]
+  uint32_t ret[expected_readout] = {0};
+  uint32_t counter = 0;
+  uint16_t fifo_c = 0;
+  uint8_t watch_dog_timer = 0;
+  int32_t tmp_var = 0;  
+  uint32_t send_arr[200];
+
+
+  adpd.STOP();
+  while (pc < length){
+    _type = *(arr + pc * 8);
+    if (_type == 1){
+      arr_line_parse_type1((arr + pc * 8), &para1, &num_ptx, &freq, &actinic, &subsampling, data_count);
+      adpd.run_freq(freq);
+      adpd.clear_fifo();
+      if (actinic > 4){
+        if (actinic == 255){
+          AS_LED_Current(255);
+          AS_LED_ON();
+          digitalWrite(1, HIGH);
+        }
+        AS_LED_Current(actinic - 1);
+        AS_LED_ON();
+      }else{
+        AS_LED_OFF();
+      }
+
+      counter = 0;
+      adpd.RUN();
+
+      while (counter < num_ptx){
+        fifo_c = adpd.fifo_count();
+        while (fifo_c >= expected_readout_bytes){
+          adpd.readfifo(expected_readout, 3, ret);
+          fifo_c -= expected_readout_bytes;
+          if (counter == num_ptx) break;
+          tmp_var = ((int)ret[3] - (int)ret[2] + 250) - (0.006 / (int)num_integration) * ((int)ret[2] - 16384 * num_integration);
+          if ((tmp_var > 0) && (ret[3] > ret[2])){
+            Fdata->put(tmp_var);
+          }else{
+            Fdata->put(0);
+          }
+
+          //  Serial.printf("%d, %d, %d, %d, %d, %d\n", ret[0], ret[1], ret[2], ret[3], ret[4], ret[5]);
+          
+          Rdata->put(ret[5] - ret[4]);
+          Adata->put(ret[0]);
+          Ddata->put(ret[1]);
+          counter++;
+          watch_dog_timer = 0;
+        }
+
+        if (Fdata->length > 4){
+          for (uint8_t z = 0; z < 4; z++){
+            send_arr[0 + z * 4] = Fdata->pop();
+            send_arr[1 + z * 4] = Rdata->pop();
+            send_arr[2 + z * 4] = Adata->pop();
+            send_arr[3 + z * 4] = Ddata->pop();
+            Serial.printf("%d, %d, %d, %d\n", send_arr[0 + z * 4], send_arr[1 + z * 4], send_arr[2 + z * 4],send_arr[3 + z * 4]);
+          }
+          
+          //send_data(send_arr, 16);
+        }else{
+        // esp_sleep_enable_timer_wakeup(wait_time * 5000);
+        // esp_light_sleep_start();
+          delay(1);
+        }
+        
+      }
+      
+      adpd.STOP();
+      AS_LED_OFF();
+      digitalWrite(1, LOW);
+    }    
+    if (_type == 2){
+      //flash duration
+      para1 = *(arr + pc * 8 + 6);
+      digitalWrite(1, HIGH);
+      delay(para1);
+      digitalWrite(1, LOW);
+    }
+    pc += 1;
+  }
+
+  delete Ddata;
+  delete Adata;
+  delete Rdata;
+  delete Fdata;
+
+  return 0;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 //
 
 int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_par_ir, uint8_t gain_par_vis){
@@ -37,49 +298,9 @@ int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint
 }
 
 
-int detector_preset_2(uint8_t current, uint8_t gain_par_ir, uint8_t repeats){
-
-
-    // LED 1A = 620nm
-  adpd.led_config.driver1_current = 0;
-  adpd.led_config.led1_channel = LED_A;
-    // LED 2A = 730nm
-  adpd.led_config.driver2_current = current;
-  adpd.led_config.led2_channel = LED_A;
-
-  adpd.SNR_config.TIA_gain_CH1 = gain_par_ir;
-
-  adpd.preset_config_3(1, 1, repeats);
-  ESP_LOGI(TAG, "Far red set");
-  return 0;
-}
 
 
 
-
-
-
-uint32_t arr_line_parse_type1(uint8_t* line, uint8_t* num1, uint16_t* num2, uint16_t* num3, uint8_t* num4, uint8_t* num5, uint16_t* data_count){
-  uint16_t _sub_count = 0;
-  uint8_t type = line[0];                 // run type 1 = steady state
-  *num1 = line[1];                        // reserved
-  *num2 = line[3] + (line[2] << 8);       // sample number
-  *num3 = line[5] + (line[4] << 8);       // frequency
-  *num4 = line[6];                        // actinic
-  *num5 = line[7];                        // sub-sampling factor
-  data_count[0] = *num2;
-  data_count[1] = *num2;
-
-  if (line[7] == 0){
-    _sub_count = 0;
-  }
-  else{
-    _sub_count = ((*num2) / line[7]);
-  }
-  data_count[2] = _sub_count;
-  data_count[3] = _sub_count;
-  return _sub_count + _sub_count + *num2 + *num2;
-}
 
 int run_preprocess(uint8_t length, uint8_t* arr, uint16_t* data_counter){
     uint8_t pc = 0;
@@ -98,7 +319,6 @@ int run_preprocess(uint8_t length, uint8_t* arr, uint16_t* data_counter){
       pc += 1;
     }
     return 0;
-
 }
 
 int send_binary_data(uint32_t* arr, uint16_t len){
@@ -242,16 +462,6 @@ int run_arr(uint8_t length, uint8_t* arr){ // old version
 
   return 0;
 
-}
-
-void far_red(uint8_t current, uint8_t gain_par_ir, uint8_t repeats){
-  detector_preset_2(current, gain_par_ir, repeats);
-  adpd.run_freq(10);
-  adpd.clear_fifo();
-  adpd.RUN();
-  delay(1000);
-  adpd.STOP();
-  return;
 }
 
 

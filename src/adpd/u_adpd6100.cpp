@@ -588,7 +588,7 @@ int32_t ADPD6::preset_config_1(uint8_t ts, uint8_t num_integ){
     return -2;
   }
 
-  ESP_LOGV(TAG, "Preset_config 1 set for timeslot:%d. Two ambient channels. Total 6 bytes", ts);
+  ESP_LOGV(TAG, "Preset_config 1 set for timeslot:%d. Two ambient channels. Total 2 x 3 bytes", ts);
   // Channel 1: PD1 (sun-facing), channel 2: PD2 (leaf-facing IR)
 
   ADPD6::STOP();
@@ -637,7 +637,7 @@ int32_t ADPD6::preset_config_2(uint8_t ts, uint8_t num_integ){
     return -2;
   }
 
-  ESP_LOGV(TAG, "Preset_config 2 set for timeslot:%d. Total 8 bytes", ts);
+  ESP_LOGV(TAG, "Preset_config 2 set for timeslot:%d. Total 2 x 2 x 3 bytes", ts);
   // Channel 1: PD2 (leaf-facing IR), channel 2: PD4 (leaf-facing Vis)
 
   ADPD6::STOP();
@@ -676,14 +676,59 @@ int32_t ADPD6::preset_config_2(uint8_t ts, uint8_t num_integ){
   ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::led_config));
 
   return 0;
+}
 
+// reflection channel setup
+int32_t ADPD6::preset_config_3(uint8_t ts, uint8_t num_integ){
+  if (!(ADPD6::chip_check)){
+    ESP_LOGE(TAG, "ADPD Not init in preset 2");
+    return -2;
+  }
+
+  ESP_LOGV(TAG, "Preset_config 3 set for timeslot:%d. Total 2 x 3 bytes", ts);
+  // Channel 1: PD2 (leaf-facing IR), channel 2: PD4 (leaf-facing Vis)
+
+  ADPD6::STOP();
+  ADPD6::DI_config.period_min = 58;
+  ADPD6::DI_config.LIT_OFFSET = 64;
+  ADPD6::DI_config.DARK_OFFSET1 = 48;
+  ADPD6::DI_config.DARK_OFFSET2 = 90;
+  ADPD6::DI_config.LED_pulse_offset = 60;
+  ADPD6::DI_config.LED_pulse_width = 19;
+  ADPD6::DI_config.sample_type = 3;
+  ADPD6::DI_config.signal_size = 1;
+  ADPD6::DI_config.num_integration = num_integ;
+  ADPD6::DI_config.num_repeats = 1;
+  ADPD6::DI_config.dark_size = 0;
+  ADPD6::DI_config.lit_size = 0;
+
+  ADPD6::signal_config.pre_condition_type = 5;
+  ADPD6::SNR_config.Ch1_R_int = 1;
+  ADPD6::SNR_config.C_int_CH1 = 1;
+  ADPD6::SNR_config.Ch2_R_int = 1;
+  ADPD6::SNR_config.C_int_CH2 = 1;
+  ADPD6::signal_config.INT2BUT = 1;
+  ADPD6::signal_config.ac_type = 2;
+
+  ADPD6::DI_config.ch2_en = true;
+  ADPD6::signal_config.IN12 = 0B0011;
+  ADPD6::signal_config.IN34 = 0B0100;
+
+  
+  ADPD6::num_ts(ts + 1);
+
+  ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::DI_config));
+  ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::signal_config));
+  ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::SNR_config));
+  ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::led_config));
+
+  return 0;
 }
 
 
 
-
 // far-red
-int32_t ADPD6::preset_config_3(uint8_t ts, uint8_t num_integ, uint8_t repeats){
+int32_t ADPD6::preset_config_4(uint8_t ts){
   if (!(ADPD6::chip_check)){
     ESP_LOGE(TAG, "ADPD Not init in preset 3");
     return -2;
@@ -701,8 +746,8 @@ int32_t ADPD6::preset_config_3(uint8_t ts, uint8_t num_integ, uint8_t repeats){
   ADPD6::DI_config.LED_pulse_width = 200;
   ADPD6::DI_config.sample_type = 3;
   ADPD6::DI_config.signal_size = 0;
-  ADPD6::DI_config.num_integration = num_integ;
-  ADPD6::DI_config.num_repeats = repeats;
+  ADPD6::DI_config.num_integration = 1;
+  ADPD6::DI_config.num_repeats = 1;
   ADPD6::DI_config.dark_size = 3;
   ADPD6::DI_config.lit_size = 0;
 
@@ -728,7 +773,16 @@ int32_t ADPD6::preset_config_3(uint8_t ts, uint8_t num_integ, uint8_t repeats){
   ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::led_config));
 
   return 0;
+}
 
+int32_t ADPD6::repeats_only(uint8_t ts, uint16_t num_integration, uint8_t num_repeats){
+  	uint16_t data = 0;
+    int32_t ret;
+    data =  num_integration << 8|
+              num_repeats << 0;
+    ret = ADPD6::write_reg(REG_COUNTS_A_ADDR + (API_ADPD6000_SLOT_D) * 0x20, &data);
+    if(ret != API_ADPD6000_ERROR_OK)
+    return ret;
 }
 
 
