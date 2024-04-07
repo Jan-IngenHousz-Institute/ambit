@@ -82,59 +82,50 @@ void do_command(char *choose){
     // }                                                                   
     //   break;
 
-      int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_par_ir, uint8_t gain_par_vis);
+    //   int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_par_ir, uint8_t gain_par_vis);
 
-      case hash("config"):
-     {
-      uint8_t current = Serial_Input_Long(",", 100);
-      uint8_t gain_fluo = Serial_Input_Long(",", 100);
-      uint8_t gain_ref = Serial_Input_Long(",", 100);
-      uint8_t gain_par_ir = Serial_Input_Long(",", 100);
-      uint8_t gain_par_vis = Serial_Input_Long(",", 100);
-      detector_preset_1(current, gain_fluo, gain_ref, gain_par_ir, gain_par_vis);
+    //   case hash("config"):
+    //  {
+    //   uint8_t current = Serial_Input_Long(",", 100);
+    //   uint8_t gain_fluo = Serial_Input_Long(",", 100);
+    //   uint8_t gain_ref = Serial_Input_Long(",", 100);
+    //   uint8_t gain_par_ir = Serial_Input_Long(",", 100);
+    //   uint8_t gain_par_vis = Serial_Input_Long(",", 100);
+    //   detector_preset_1(current, gain_fluo, gain_ref, gain_par_ir, gain_par_vis);
 
-    }                                                                   
-      break;
+    // }                                                                   
+    //   break;
 
-      int run_arr(uint8_t length, uint8_t* arr);
+    //   int run_arr(uint8_t length, uint8_t* arr);
 
-      case hash("run"):
-     {
-      uint8_t cycles = Serial_Input_Long(",", 100);
-      ESP_LOGV(TAG1,"cycles:%d", cycles);
+    //   case hash("run"):
+    //  {
+    //   uint8_t cycles = Serial_Input_Long(",", 100);
+    //   ESP_LOGV(TAG1,"cycles:%d", cycles);
 
 
-      uint8_t arr[cycles * 8] = {};
-      long _tmp = 0;
-      bool load_arr = false;
-      uint16_t num = cycles * 8;
-      for (uint16_t n = 0; n < num; n++){
-        _tmp = Serial_Input_Long(",", 100);
-        if ((_tmp >= 0) && (_tmp < 256)){
-          arr[n] = (uint8_t) _tmp;
-        }
-        else{
-          ESP_LOGV(TAG1,"ARR BAD", cycles);
-          break;
-        }
-        load_arr = true;
-      }
-      if (load_arr){
+    //   uint8_t arr[cycles * 8] = {};
+    //   long _tmp = 0;
+    //   bool load_arr = false;
+    //   uint16_t num = cycles * 8;
+    //   for (uint16_t n = 0; n < num; n++){
+    //     _tmp = Serial_Input_Long(",", 100);
+    //     if ((_tmp >= 0) && (_tmp < 256)){
+    //       arr[n] = (uint8_t) _tmp;
+    //     }
+    //     else{
+    //       ESP_LOGV(TAG1,"ARR BAD", cycles);
+    //       break;
+    //     }
+    //     load_arr = true;
+    //   }
+    //   if (load_arr){
 
-        run_arr(cycles, arr);
-        // for (uint16_t n = 0; n < num; n++){
-        //   Serial.print(arr[n]);
-        //   if (n % 8 == 7){
-        //     Serial.println();
-        //   }
-        //   else{
-        //     Serial.print(",");
-        //   }
-        // }
-      }
+    //     run_arr(cycles, arr);
+    //   }
       
-    }                                                                   
-      break;
+    // }                                                                   
+    //   break;
 
 
        case hash("reboot"):

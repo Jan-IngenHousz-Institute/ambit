@@ -22,7 +22,7 @@ void setup(){
     digitalWrite(1, LOW);
 
     Serial.begin(115200);
-    delay(2500);
+    delay(500);
     Serial.println("BOOT");
     digitalWrite(1, HIGH);
     delay(1);

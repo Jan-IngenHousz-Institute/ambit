@@ -4,6 +4,8 @@
         "string_view": "cpp",
         "*.tcc": "cpp",
         "string": "cpp",
-        "unordered_map": "cpp"
+        "unordered_map": "cpp",
+        "complex.h": "c",
+        "math.h": "c"
     }
 }

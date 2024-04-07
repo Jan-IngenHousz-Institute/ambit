@@ -7,8 +7,8 @@ static const char* TAG = "DO_C";
 
 
 double get_PAR();
-int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_par_ir, uint8_t gain_par_vis);
-int run_arr(uint8_t length, uint8_t* arr);
+int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, uint8_t G_FluorRef, uint8_t G_Sun, uint8_t G_IR, uint8_t G_FR, uint8_t G_FRref);
+int run_arr_type1(uint8_t length, uint8_t* arr);
 
 uint8_t wr_run_arr[WR_MAX_ARR] = {0};
 
@@ -34,16 +34,18 @@ static void disp(WRContext* c,const WRValue* argv,const int argn, WRValue& retVa
 
 static void arr_set(WRContext* c,const WRValue* argv,const int argn, WRValue& retVal, void* usr){
     // line num, linetype, sample num, frequency, actinic, subsampling
-    if (argn == 6){
+    if (argn == 7){
         uint8_t line_num = (uint8_t) argv[0].asInt() - 1;
-        uint8_t line_type = (uint8_t) argv[1].asInt();
-        uint16_t sample_num = (uint16_t) argv[2].asInt();
-        uint16_t freq = (uint16_t) argv[3].asInt();
-        uint8_t actinic = (uint8_t) argv[4].asInt();
-        uint8_t subsampling = (uint8_t) argv[5].asInt();
-        ESP_LOGV(TAG,"Set line %d to type %d with %d x %dHz samples, actinic:%d, sub:%d", line_num, line_type, sample_num, freq, actinic, subsampling);
+        uint8_t ir_on = (uint8_t) argv[1].asInt();
+        uint8_t line_type = (uint8_t) argv[2].asInt();
+        uint16_t sample_num = (uint16_t) argv[3].asInt();
+        uint16_t freq = (uint16_t) argv[4].asInt();
+        uint8_t actinic = (uint8_t) argv[5].asInt();
+        uint8_t subsampling = (uint8_t) argv[6].asInt();
+        ESP_LOGV(TAG,"Set line %d to type %d with %d x %dHz samples, actinic:%d, sub:%d, IR:%d", line_num, line_type, sample_num, freq, actinic, subsampling, ir_on);
         if (line_num >= (WR_MAX_ARR / 8)) return;
         wr_run_arr[line_num * 8 + 0] = (uint8_t) line_type;
+        wr_run_arr[line_num * 8 + 1] = (uint8_t) ir_on;
 
         wr_run_arr[line_num * 8 + 2] = (uint8_t) (sample_num >> 8);
         wr_run_arr[line_num * 8 + 3] = (uint8_t) (sample_num & 0x00FF);
@@ -60,7 +62,7 @@ static void arr_set(WRContext* c,const WRValue* argv,const int argn, WRValue& re
 }
 
 static void run(WRContext* c,const WRValue* argv,const int argn, WRValue& retVal, void* usr){
-    run_arr(8, wr_run_arr);
+    run_arr_type1(8, wr_run_arr);
 }
 
 
@@ -79,9 +81,10 @@ void print( WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, 
 
 void detector_preset(WRContext* c,const WRValue* argv,const int argn, WRValue& retVal, void* usr){
     Serial.println(argn);
-    if (argn == 6){
-        detector_preset_1((uint8_t) argv[1].asInt(),(uint8_t) argv[2].asInt(),(uint8_t) argv[3].asInt(),(uint8_t) argv[4].asInt(),(uint8_t) argv[5].asInt());
-        ESP_LOGV(TAG,"ADPD detector preset with current: %d", (uint8_t) argv[1].asInt());
+    if (argn == 9){
+        conf_slow_FR_1((uint8_t)argv[0].asInt(), (uint8_t)argv[1].asInt(), (uint8_t)argv[2].asInt(), (uint8_t)argv[3].asInt(), \
+        (uint8_t)argv[4].asInt(), (uint8_t)argv[5].asInt(), (uint8_t)argv[6].asInt(), (uint8_t)argv[7].asInt(), (uint8_t)argv[8].asInt());
+        ESP_LOGV(TAG,"ADPD detector preset with current: %d", (uint8_t) argv[0].asInt());
         return;
     }
     else{
