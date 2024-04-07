@@ -11,7 +11,7 @@ spi_bus_config_t SPI_bus_cfg = {
 		.sclk_io_num=ADPD_SPI_SCK, 
     .quadwp_io_num=-1,
     .quadhd_io_num=-1,
-    .max_transfer_sz = 4000,
+    .max_transfer_sz = 4092,
 	};
 
 bool init_spi_bus(void){

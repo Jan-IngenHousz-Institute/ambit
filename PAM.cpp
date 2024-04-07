@@ -274,6 +274,75 @@ int run_arr_type1(uint8_t length, uint8_t* arr){
 
 
 
+int sandbox(uint16_t length, uint16_t n){
+
+  const uint8_t expected_readout = 48;
+  const uint8_t expected_readout_bytes = expected_readout * 3;
+  const uint8_t num_integration = 4;
+  
+  // variables for each trace
+
+  // data counter and buffer
+  // [sun-amb, leaf-ir, lit_leaf-ir, dark_leaf-ir, lit_leaf-ref, dark_leaf-ref]
+  uint32_t ret[expected_readout] = {0};
+  uint16_t fifo_c = 0;
+  uint16_t fifo_c1 = 0;
+
+
+  adpd.STOP();
+  adpd.gpio_config.GPIO0_cfg = 1;
+  adpd.gpio_config.SYNC_GPIO = 0;
+  adpd.gpio_config.EXT_SYNC_EN = 1;
+  adpd.gpio_setup(&(adpd.gpio_config));
+
+  adpd.led_config.driver1_current = 110;
+  adpd.led_config.driver2_current = 0;
+  adpd.SNR_config.TIA_gain_CH2 = 1;
+  adpd.SNR_config.TIA_gain_CH1 = 4;
+
+
+  for (uint8_t i = 0; i < 12; i++){
+    adpd.preset_config_ext_fast(i);
+  }
+  
+  adpd.run_freq(10);
+  adpd.clear_fifo();
+
+  adpd.RUN();
+  delay(1);
+  int64_t timer = 0;
+
+
+  for (uint16_t i = 0; i < n; i++){
+    digitalWrite(10, HIGH);
+    delayMicroseconds(1);
+    digitalWrite(10, LOW);
+    timer = esp_timer_get_time();
+    if (i > 0){
+      Serial.println(adpd.fifo_count());
+      adpd.readfifo(48, 3, ret);
+      delayMicroseconds(500);
+      
+    }else{
+      delayMicroseconds(1500);
+    }
+    Serial.println(esp_timer_get_time() - timer);
+
+  }
+  Serial.println(adpd.fifo_count());
+  adpd.readfifo(48, 3, ret);
+
+  adpd.STOP();   
+
+
+  return 0;
+
+}
+
+
+
+
+
 
 
 

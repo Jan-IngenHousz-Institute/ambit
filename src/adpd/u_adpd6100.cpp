@@ -574,7 +574,34 @@ int32_t ADPD6::global_setup(struct system_config *init){
     ret = ADPD6::write_reg(REG_SYS_CTL_ADDR, &data);
 	if(ret != API_ADPD6000_ERROR_OK)
 		return ret; 
+}
 
+void ADPD6::load_default(struct GPIO0_config *ts){
+  ts->GPIO0_cfg = 0;
+  ts->GPIO0_output = 0;
+  ts->EXT_SYNC_EN = 0;
+  ts->SYNC_GPIO = 0;
+}
+
+int32_t ADPD6::gpio_setup(struct GPIO0_config *init){
+  int32_t ret;
+	uint16_t data = 0;
+  data =  init->EXT_SYNC_EN << 2|
+          init->SYNC_GPIO << 0;
+	ret = ADPD6::write_reg(REG_GPIO_EXT_ADDR, &data);
+	if(ret != API_ADPD6000_ERROR_OK) return ret;
+
+  data = 0;
+  data = init->GPIO0_output << 0;
+	ret = ADPD6::write_reg(REG_GPIO01_ADDR, &data);
+	if(ret != API_ADPD6000_ERROR_OK) return ret;
+
+  data = 0;
+  data = init->GPIO0_cfg;
+	ret = ADPD6::write_reg(REG_GPIO_CFG_ADDR, &data);
+	if(ret != API_ADPD6000_ERROR_OK) return ret;
+
+  return 0;
 }
 
 
@@ -784,14 +811,14 @@ int32_t ADPD6::repeats_only(uint8_t ts, uint16_t num_integration, uint8_t num_re
     return ret;
 }
 
-// fluo and ref channel setup
+// external trigger
 int32_t ADPD6::preset_config_ext_fast(uint8_t ts){
   if (!(ADPD6::chip_check)){
     ESP_LOGE(TAG, "ADPD Not init in preset 2");
     return -2;
   }
 
-  ESP_LOGV(TAG, "Preset_config 2 set for timeslot:%d. Total 2 x 2 x 3 bytes", ts);
+  ESP_LOGV(TAG, "External trigger test: %d", ts);
   // Channel 1: PD2 (leaf-facing IR), channel 2: PD4 (leaf-facing Vis)
 
   ADPD6::STOP();
@@ -818,14 +845,11 @@ int32_t ADPD6::preset_config_ext_fast(uint8_t ts){
 
   ADPD6::DI_config.ch2_en = true;
   ADPD6::signal_config.IN12 = 0B0011;
-  ADPD6::signal_config.IN34 = 0B0100;
-
-  
+  ADPD6::signal_config.IN34 = 0B0100;  
 
 
   
   ADPD6::num_ts(ts + 1);
-
   ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::DI_config));
   ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::signal_config));
   ADPD6::ts_setup((adi_adpd6000_slot_e)ts, &(ADPD6::SNR_config));

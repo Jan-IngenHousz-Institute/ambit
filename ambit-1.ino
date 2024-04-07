@@ -18,12 +18,17 @@ ADPD6 adpd;
 
 
 void setup(){
+    esp_timer_early_init();
     pinMode(1, OUTPUT);
+    pinMode(10, OUTPUT);
     digitalWrite(1, LOW);
+    digitalWrite(10, LOW);
 
     Serial.begin(115200);
     delay(500);
     Serial.println("BOOT");
+    Serial.println(esp_timer_get_time());
+
     digitalWrite(1, HIGH);
     delay(1);
     digitalWrite(1, LOW);

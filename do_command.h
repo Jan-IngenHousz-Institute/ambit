@@ -16,6 +16,7 @@ static const char* TAG1 = "DOCMD";
 //extern ADPD6 adpd;
 
 dataclass data;
+int sandbox(uint16_t length, uint16_t n);
 
 
 
@@ -75,6 +76,15 @@ void do_command(char *choose){
 
     }                                                                   
       break;
+
+      
+    case hash("ext"):
+     {
+      uint16_t l = Serial_Input_Long(",", 100);
+      uint16_t n = Serial_Input_Long(",", 100);
+      sandbox(l, n);
+    }                                                                   
+      break;  
 
     //   case hash("adpd"):
     //  {

@@ -36,12 +36,16 @@ class ADPD6{
     struct ts_DI_timing DI_config;
     struct ts_AI_timing AI_config;
     struct ts_signal signal_config;
+    struct GPIO0_config gpio_config;
+
 
     int32_t ts_setup(adi_adpd6000_slot_e timeslot_no,struct ts_led *init);
     int32_t ts_setup(adi_adpd6000_slot_e timeslot_no, struct ts_SNR *init);
     int32_t ts_setup(adi_adpd6000_slot_e timeslot_no, struct ts_signal *init);
     int32_t ts_setup(adi_adpd6000_slot_e timeslot_no, struct ts_DI_timing *init);
     int32_t ts_setup(adi_adpd6000_slot_e timeslot_no, struct ts_AI_timing *init);
+    
+    int32_t gpio_setup(struct GPIO0_config *init);
     int32_t global_setup(struct system_config *init);
 
 
@@ -81,6 +85,7 @@ class ADPD6{
     void load_default(struct ts_DI_timing *ts);
     void load_default(struct ts_AI_timing *ts);
     void load_default(struct system_config *ts);
+    void load_default(struct GPIO0_config *ts);
 
 };
 

@@ -1,8 +1,8 @@
 {
-    "configuration": "JTAGAdapter=default,CDCOnBoot=default,PartitionScheme=minimal,CPUFreq=160,FlashMode=qio,FlashFreq=80,FlashSize=2M,UploadSpeed=460800,DebugLevel=verbose,EraseFlash=none",
+    "configuration": "JTAGAdapter=default,CDCOnBoot=default,PartitionScheme=minimal,CPUFreq=160,FlashMode=qio,FlashFreq=80,FlashSize=2M,UploadSpeed=921600,DebugLevel=verbose,EraseFlash=none",
     "board": "esp32:esp32:esp32c3",
     "sketch": "ambit-1.ino",
-    "port": "/dev/tty.usbserial-54FC0365321",
+    "port": "COM6",
     "output": "../tmp",
     "programmer": "esptool"
 }

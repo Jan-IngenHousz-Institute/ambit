@@ -578,3 +578,33 @@ struct system_config{
 };
 
 
+
+struct GPIO0_config{
+   
+     /**GPIO0 pin configuration.
+     * 000: disabled (tristate, input buffer off).      <<
+     * 001: enabled input.
+     * 010: output–normal.
+     * 011: output–inverted.
+     * 100: pull-down only–normal.
+     * 101: pull-down only–inverted.
+     * 110: pull-up only–normal.
+     * 111: pull-up only–inverted.
+    */
+    uint8_t GPIO0_cfg;
+
+    /*GPIO0 output signal select.*/
+    uint8_t GPIO0_output;
+
+    /* External sync enable. When enabled, use the GPIO selected
+    by EXT_SYNC_GPIO to trigger samples rather than the period
+    counter. = 0(1)
+    */
+    uint8_t EXT_SYNC_EN;
+
+    /* External sync GPIO select. = 0 (0, 01, 10)*/
+    uint8_t SYNC_GPIO;
+
+};
+
+
