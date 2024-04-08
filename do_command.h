@@ -17,9 +17,9 @@ static const char* TAG1 = "DOCMD";
 
 dataclass data;
 int sandbox(uint16_t length, uint16_t n);
+int MPF(uint16_t length, uint16_t n);
 
-
-
+uint8_t arr[4] = {0};
 
 constexpr unsigned hash(const char *string)
 {
@@ -78,13 +78,32 @@ void do_command(char *choose){
       break;
 
       
-    case hash("ext"):
+    case hash("mpf"):
      {
       uint16_t l = Serial_Input_Long(",", 100);
       uint16_t n = Serial_Input_Long(",", 100);
-      sandbox(l, n);
+      MPF(l, n);
     }                                                                   
       break;  
+
+
+    case hash("set"):
+     {
+      
+
+      uint16_t l = Serial_Input_Long(",", 100);
+      arr[0] = 1;
+      arr[1] = 2;
+      arr[3] = l;
+      Serial.printf("%d, %d, %d, %d\n", arr[0], arr[1], arr[2], arr[3]);
+
+      memset(arr, 0, sizeof(arr));
+      Serial.printf("%d, %d, %d, %d\n", arr[0], arr[1], arr[2], arr[3]);
+
+
+    }                                                                   
+      break;  
+
 
     //   case hash("adpd"):
     //  {

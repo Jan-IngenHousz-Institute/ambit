@@ -235,8 +235,39 @@ void send_data(uint32_t* arr, uint16_t len){
           send_and_wait_rsp("DONE", "Check", 5, 10);
         }               
        }
-
 }
 
+/*
+    insert a number to an array with order
+    large number will insert towards the end
+    used for get median
+    @param arr: array with sorted data
+    @param length: length of the array
+    @param c: new data to be inserted
+*/
+void sorted_insert(uint32_t arr[], uint16_t length, uint32_t c){
+  uint16_t n = 0;
+  uint16_t nM = length - 1;
+
+  while (n < nM){
+    if (arr[n] == 0){
+      arr[n] = c;
+      break;
+    }
+    else if (c < arr[n]){
+      for (uint8_t g = nM; g > n; g--){
+        arr[g] = arr[g - 1];
+      }
+      arr[n] = c;
+      break;
+    } else if (arr[n + 1] == 0){
+      arr[n + 1] = c;
+      break;
+    }else{
+      n += 1;
+    }
+  }
+  return;
+}
 
     

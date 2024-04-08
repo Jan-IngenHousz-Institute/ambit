@@ -269,6 +269,142 @@ int run_arr_type1(uint8_t length, uint8_t* arr){
 }
 
 
+int MPF(uint16_t length, uint16_t n){
+
+  const uint8_t expected_readout = 12 * 4;    // 12 timeslots, 4 data per ts
+  const uint8_t expected_readout_bytes = expected_readout * 3;
+  const uint8_t num_integration = 4;
+
+  dataclass *d_fluor = new dataclass; // fluorescence signal
+  dataclass *d_fluoRef = new dataclass; // fluorescence reference
+  if (!( (d_fluor->init(1080)) && (d_fluoRef->init(1080)) )) return -1;
+  ESP_LOGV(TAG, "Memory allocation completed");
+
+
+  adpd.STOP();
+  adpd.gpio_config.GPIO0_cfg = 1;
+  adpd.gpio_config.SYNC_GPIO = 0;
+  adpd.gpio_config.EXT_SYNC_EN = 1;
+  adpd.gpio_setup(&(adpd.gpio_config));
+
+  adpd.led_config.driver1_current = 100;
+  adpd.led_config.driver2_current = 0;
+  adpd.SNR_config.TIA_gain_CH2 = 5;
+  adpd.SNR_config.TIA_gain_CH1 = 2;
+
+
+  for (uint8_t i = 0; i < 12; i++){
+    adpd.preset_config_ext_fast(i);
+  }
+
+   // data counter and buffer
+  uint32_t ret[expected_readout] = {0};
+  uint16_t fifo_c = 0;
+  uint16_t fifo_c1 = 0;
+  int32_t tmp_var = 0;
+  uint32_t avg_arr1[12] = {0};
+  uint32_t avg_arr2[12] = {0};
+  uint32_t avg_arr3[12] = {0};
+  uint32_t avg_arr4[12] = {0};
+
+  AS_LED_OFF();
+  
+  AS_LED_Current(200);
+
+  adpd.run_freq(10);
+  adpd.clear_fifo();
+
+  adpd.RUN();
+  delay(1);
+  
+  // get a baseline
+  AS_LED_ON();
+
+  delayMicroseconds(length);  
+
+
+  digitalWrite(10, HIGH);
+  delayMicroseconds(1);  
+  digitalWrite(10, LOW);
+  delayMicroseconds(1500);  
+  
+
+  int64_t timer = esp_timer_get_time();
+
+
+  // data read is one cycle delay
+  // 12 ts data is usually available 1.2 ms after trigger
+  // do 1.5ms interval
+
+  for (uint16_t i = 0; i < 500; i++){
+
+
+
+    digitalWrite(10, HIGH);
+    delayMicroseconds(1);
+    digitalWrite(10, LOW);
+
+    //Serial.print(esp_timer_get_time() - timer);
+    timer = esp_timer_get_time();
+    adpd.readfifo(expected_readout, 3, ret);
+
+
+
+
+    if (i < 5){
+      for (uint8_t m = 0; m < 12; m++){
+        tmp_var = ((int)ret[1 + m * 4] - (int)ret[0 + m * 4] + 250) - (0.006 / (int)num_integration) * ((int)ret[0 + m * 4] - 16384 * num_integration);
+        //Serial.printf("%d, %d, %d, %d\n", ret[0 + m * 4], ret[1 + m * 4], ret[2 + m * 4], ret[3 + m * 4]);
+        d_fluor->put(tmp_var);
+        tmp_var = ((int)ret[3 + m * 4] - (int)ret[2 + m * 4] + 250) - (0.006 / (int)num_integration) * ((int)ret[2 + m * 4] - 16384 * num_integration);
+        d_fluoRef->put(tmp_var);
+      }      
+    }
+    else{
+      memset(avg_arr1, 0, sizeof(avg_arr1));
+      memset(avg_arr2, 0, sizeof(avg_arr2));
+      memset(avg_arr3, 0, sizeof(avg_arr3));
+      memset(avg_arr4, 0, sizeof(avg_arr4));
+      for (uint8_t m = 0; m < 12; m++){
+        sorted_insert(avg_arr1, 12, ret[0 + m * 4]);
+        sorted_insert(avg_arr2, 12, ret[1 + m * 4]);
+        sorted_insert(avg_arr3, 12, ret[2 + m * 4]);
+        sorted_insert(avg_arr4, 12, ret[3 + m * 4]);
+      }
+      tmp_var = ((int)avg_arr2[6] - (int)avg_arr1[6] + 250) - (0.006 / (int)num_integration) * ((int)avg_arr1[6] - 16384 * num_integration);
+      d_fluor->put(tmp_var);
+      tmp_var = ((int)avg_arr4[6] - (int)avg_arr3[6] + 250) - (0.006 / (int)num_integration) * ((int)avg_arr3[6] - 16384 * num_integration);
+      d_fluoRef->put(tmp_var);
+    }
+
+
+    if (i == 300) AS_LED_Current(100);
+    if (i == 350) AS_LED_Current(50);
+    if (i == 400) AS_LED_Current(0);
+
+
+    delayMicroseconds(500);
+  }
+
+
+  AS_LED_OFF();
+  adpd.readfifo(48, 3, ret);
+
+  adpd.STOP();
+
+  for (uint16_t i = 0; i < 555; i++){
+    Serial.printf("%d, %d\n", d_fluor->pop(), d_fluoRef->pop());
+  }
+  
+  delete d_fluor;
+  delete d_fluoRef;
+  return 0;
+
+}
+
+
+
+
 
 
 
