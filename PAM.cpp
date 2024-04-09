@@ -123,7 +123,7 @@ int run_preprocess_type1(uint8_t length, uint8_t* arr, uint16_t* data_counter){
 
 
 
-int run_arr_type1(uint8_t length, uint8_t* arr){
+int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
   const uint8_t expected_readout = 8;
   const uint8_t expected_readout_bytes = expected_readout * 3;
   const uint8_t num_integration = 4;
@@ -170,24 +170,26 @@ int run_arr_type1(uint8_t length, uint8_t* arr){
 
   adpd.STOP();
   while (pc < length){
-    _type = *(arr + pc * 8);
-    if (_type == 1){
+    _type = *(arr + pc * 8);   //get line type
+    if (_type == 1){  // all channels
       arr_line_parse_type1((arr + pc * 8), &farred, &num_ptx, &freq, &actinic, &subsampling, data_count);
       adpd.run_freq(freq);
+      adpd.clear_fifo();
+      // whether use actinic IR 
       if (farred == 1){
         adpd.num_ts(9);
         _repeats = int(400/freq);
         if (freq < 3) _repeats = 250;
         if (_repeats == 0) _repeats = 1;
-
         for (uint8_t i = 3; i < 9;i++) adpd.repeats_only(i, 1, _repeats);
       }
       else{
         adpd.num_ts(3);
       }
-      adpd.clear_fifo();
+
+      // setup red actinic
       if (actinic > 4){
-        AS_LED_Current(actinic - 1);
+        AS_LED_Current(actinic);
         AS_LED_ON();
       }else{
         AS_LED_OFF();
@@ -195,24 +197,22 @@ int run_arr_type1(uint8_t length, uint8_t* arr){
 
       counter = 0;
       for (uint8_t i = 0; i < 4; i++) buf_opt[i] = 0;
-      adpd.RUN();
 
+
+      adpd.RUN();
+      delay(2);
       while (counter < num_ptx){
         fifo_c = adpd.fifo_count();
-        while (fifo_c >= expected_readout_bytes){
+        while (fifo_c >= expected_readout_bytes){ // read all bytes from FIFO
           adpd.readfifo(expected_readout, 3, ret);
           fifo_c -= expected_readout_bytes;
           if (counter == num_ptx) break;
           // 0: sun-vis; 1: leaf-ir; 2: fluoS_dark; 3: fluoS_lit; 4: fluoR_dark; 5: fluoR_lit; 6: Reflect_signal; 7: reflect_ref
+          // save fluor signal and ref
+          d_fluor->put(calc_signal((int)ret[2], (int)ret[3], (int)num_integration));       
+          d_fluoRef->put(calc_signal((int)ret[4], (int)ret[5], (int)num_integration));
 
-          tmp_var = ((int)ret[3] - (int)ret[2] + 250) - (0.006 / (int)num_integration) * ((int)ret[2] - 16384 * num_integration);
-          if ((tmp_var > 0) && (ret[3] > ret[2])){
-            d_fluor->put(tmp_var);
-          }else{
-            d_fluor->put(0);
-          }          
-          d_fluoRef->put(ret[5] - ret[4]);
-
+          // save option data?
           if (subsampling > 0){
             if (subsampling == 1){
               d_sun->put(ret[0]);d_leaf->put(ret[1]);d_730->put(ret[6]);d_730Ref->put(ret[7]);
@@ -222,41 +222,37 @@ int run_arr_type1(uint8_t length, uint8_t* arr){
               buf_opt[2] += ret[6];
               buf_opt[3] += ret[7];
               if (counter % 8 == 7){
-                d_sun->put(buf_opt[0]);d_leaf->put(buf_opt[1]);d_730->put(buf_opt[2]);d_730Ref->put(buf_opt[3]);
+                d_sun->put(buf_opt[0]/8);d_leaf->put(buf_opt[1]/8);d_730->put(buf_opt[2]/8);d_730Ref->put(buf_opt[3]/8);
                 for (uint8_t i = 0; i < 4; i++) buf_opt[i] = 0;
               }
             }
           }
-
           counter++;
           watch_dog_timer = 0;
         }
-
-        if (d_fluor->length > 0){
-          if (d_sun->length > 0){
-            _tmparr[0] = d_sun->pop();
-            _tmparr[1] = d_leaf->pop();
-            _tmparr[2] = d_730->pop();
-            _tmparr[3] = d_730Ref->pop();
-          }
-           
-          Serial.printf("%d, %d, %d, %d, %d, %d\n", d_fluor->pop(), d_fluoRef->pop(), _tmparr[0], _tmparr[1], _tmparr[2], _tmparr[3]);
-          
-          //send_data(send_arr, 16);
-        }else{
+         
+        //send_data(send_arr, 16);
         // esp_sleep_enable_timer_wakeup(wait_time * 5000);
         // esp_light_sleep_start();
-          delay(1);
-        }
-        
+        delay(1);               
       }
       
       adpd.STOP();
-      AS_LED_OFF();
+      
+      if (!led_persist) AS_LED_OFF();
       digitalWrite(1, LOW);
     }    
     pc += 1;
   }
+
+  d_fluor->send_serial("Fluo");
+  d_fluoRef->send_serial("Fluoref");
+  d_sun->send_serial("SUN");
+  d_leaf->send_serial("leaf");
+  d_730->send_serial("730");
+  d_730Ref->send_serial("730ref");
+
+  Serial.println("Data sent");
 
   delete d_fluor;
   delete d_fluoRef;
@@ -276,20 +272,12 @@ void adpd_trigger(void){
     digitalWrite(10, LOW);
 }
 
-uint32_t calc_signal(int dark, int lit, int p){
-  if (lit < dark) return 0;
-  int32_t tmp_var = (lit - dark + 250) - (0.006 / p) * (dark - 16384 * p);
-  if (tmp_var > 0) return tmp_var;
-  return 0;
-}
 
-int MPF(uint16_t mode, uint16_t current, uint16_t dc_current){
+int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain, uint8_t ref_gain){
 
   
   const uint8_t num_integration = 4;
   const uint16_t _data_size = 1080;
-  const uint8_t sign_gain = 1;
-  const uint8_t ref_gain = 5;
   
   ESP_LOGV(TAG, "RUN MPF with mode:%d, pulse current:%d, DC current %d", mode, current, dc_current);
 
@@ -331,10 +319,10 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current){
     adpd.preset_config_ext_fast(0);
     expected_readout = 4;
     adpd.RUN();
-    delayMicroseconds(1000);
+    delayMicroseconds(1500);
     adpd_trigger();
     delayMicroseconds(1500);
-
+    ESP_LOGV(TAG, "Phase-0 Started");
     for (uint8_t i = 0; i < 20; i++){
       adpd_trigger(); 
       adpd.readfifo(expected_readout, 3, ret); 
@@ -345,13 +333,14 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current){
       d_fluoRef->put(calc_signal((int)avg_buf[2], (int)avg_buf[3], (int)num_integration));
       delay(500);
     }
+    ESP_LOGV(TAG, "Phase-0 Completed");
   }
 
   
   // PHASE 1---------------------------------------------------
   // 12 timeslots
   // Rapid induction, all timeslot saved
-
+  ESP_LOGV(TAG, "Phase-1 Config");
   expected_readout = 48;
   for (uint8_t i = 0; i < 12; i++){
     adpd.preset_config_ext_fast(i);
@@ -361,7 +350,7 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current){
   AS_LED_OFF();
   AS_LED_Current(255);
   delay(1);
-
+  ESP_LOGV(TAG, "Phase-1 LED ON");
   // Light ON
   AS_LED_ON();
   delayMicroseconds(1);  
@@ -377,6 +366,7 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current){
     }
     delayMicroseconds(500);
   }
+  ESP_LOGV(TAG, "Phase-1 Completed; Phase-2 start");
 
   // PHASE 2------------------------------------
   // 300ms induction, 200x12ts, 200 final pts
@@ -399,12 +389,14 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current){
     delayMicroseconds(500);
   }
 
+  ESP_LOGV(TAG, "Phase-2 Completed; Phase-3 Start");
 
 
   // PHASE 3------------------------------------
   // 150ms induction X cycles, 100x12ts, 50 final pts
   for (uint8_t j = 0; j < 8; j++){
     AS_LED_Current(220 - j * 30);
+    ESP_LOGV(TAG, "LED set to %d", 220 - j * 30);
     memset(avg_buf, 0, sizeof(avg_buf));
     for (uint8_t i = 0; i < 40; i++){
       adpd_trigger(); 
@@ -427,7 +419,7 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current){
     }    
   }
 
-
+  ESP_LOGV(TAG, "Phase-3 Completed; Phase-4 Start");
   // PHASE 4------------------------------------
   AS_LED_Current(as_current);
   // prepare for single timeslot decay kinetic
@@ -458,10 +450,12 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current){
     delayMicroseconds(1400);
   }
 
-
+  ESP_LOGV(TAG, "Phase-4 Completed");
 // PHASE -1 ---------------------------
 // Dark decay with increasing interval
   if (mode == 0){
+    ESP_LOGV(TAG, "Phase-minus1 Started");
+    AS_LED_OFF();
     for (uint8_t i = 0; i < 160; i++){
       adpd_trigger(); 
       adpd.readfifo(expected_readout, 3, ret); 
@@ -478,20 +472,17 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current){
       delay(decay_interval);
     }
   }
- 
 
+  ESP_LOGV(TAG, "Measurement Completed");
+  // Completed
 
-
-
-  AS_LED_OFF();
   adpd.STOP();
 
-  tmp_var = d_fluor->get_length();
+  d_fluor->send_serial("Fluo");
+  d_fluoRef->send_serial("Fluoref");
 
-  for (uint16_t i = 0; i < tmp_var; i++){
-    Serial.printf("%d, %d\n", d_fluor->pop(), d_fluoRef->pop());
-  }
-  Serial.println("Done!");
+  ESP_LOGV(TAG, "All Completed");
+  Serial.println("Data sent");
 
   adpd.gpio_config.GPIO0_cfg = 0;
   adpd.gpio_config.SYNC_GPIO = 0;
@@ -501,7 +492,6 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current){
   delete d_fluor;
   delete d_fluoRef;
   return 0;
-
 }
 
 

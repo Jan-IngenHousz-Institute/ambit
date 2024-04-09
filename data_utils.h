@@ -33,6 +33,7 @@ class dataclass{
     uint32_t pop(void);
     bool init(uint16_t length);
     void print_all();
+    void send_serial(const char[]);
 
 
     private:
@@ -45,5 +46,5 @@ class dataclass{
 bool send_and_wait_rsp(const char *s, const char *r, uint8_t rlen, uint8_t timeout);
 void send_data(uint32_t* arr, uint16_t len);
 void sorted_insert(uint32_t arr[], uint16_t length, uint32_t c);
-
+uint32_t calc_signal(int dark, int lit, int p);
 #endif

@@ -15,11 +15,19 @@
 static const char* TAG1 = "DOCMD";
 //extern ADPD6 adpd;
 
+extern uint8_t pulsed_620_current, pulsed_720_current, dc_current;
+extern uint8_t gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf;
+extern uint8_t status_run_config_set;
+
+
+
 dataclass data;
 int sandbox(uint16_t length, uint16_t n);
-int MPF(uint16_t length, uint16_t n);
+int MPF(uint16_t mode, uint16_t current, uint16_t dc_current,uint8_t,uint8_t);
+int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, uint8_t G_FluorRef, uint8_t G_Sun, uint8_t G_IR, uint8_t G_FR, uint8_t G_FRref);
+int run_arr_type1(uint8_t length, uint8_t* arr, bool);
 
-uint8_t arr[4] = {0};
+
 
 constexpr unsigned hash(const char *string)
 {
@@ -73,36 +81,69 @@ void do_command(char *choose){
      {
       Serial.print("NEW Name Here");
       Serial.println(" Ready");
-
     }                                                                   
       break;
 
       
     case hash("mpf"):
      {
+      uint16_t m = Serial_Input_Long(",", 100);
       uint16_t l = Serial_Input_Long(",", 100);
       uint16_t n = Serial_Input_Long(",", 100);
-      MPF(l, n);
+      uint16_t g1 = Serial_Input_Long(",", 100);
+      uint16_t g2 = Serial_Input_Long(",", 100);
+      MPF(m, l, n, g1, g2);
     }                                                                   
-      break;  
+      break;
 
 
-    case hash("set"):
+    case hash("set_currents"):
      {
-      
+      pulsed_620_current = (uint8_t) Serial_Input_Long(",", 10);
+      pulsed_720_current = (uint8_t) Serial_Input_Long(",", 10);
+      dc_current = (uint8_t) Serial_Input_Long(",", 10);
+     }                                                
+    break;  
 
-      uint16_t l = Serial_Input_Long(",", 100);
-      arr[0] = 1;
-      arr[1] = 2;
-      arr[3] = l;
-      Serial.printf("%d, %d, %d, %d\n", arr[0], arr[1], arr[2], arr[3]);
+    case hash("set_gains"):
+     {
+      gain_fluor = (uint8_t) Serial_Input_Long(",", 10);
+      gain_fluref = (uint8_t) Serial_Input_Long(",", 10);
+      gain_720 = (uint8_t) Serial_Input_Long(",", 10);
+      gain_720ref = (uint8_t) Serial_Input_Long(",", 10);
+      gain_sun = (uint8_t) Serial_Input_Long(",", 10);
+      gain_leaf = (uint8_t) Serial_Input_Long(",", 10);
+     }                                                
+    break;  
 
-      memset(arr, 0, sizeof(arr));
-      Serial.printf("%d, %d, %d, %d\n", arr[0], arr[1], arr[2], arr[3]);
 
 
+
+
+    case hash("arrun"):
+     {
+      uint8_t checksum = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t arr[64] = {0};
+      uint8_t tmp_8 = 0;
+      for (uint8_t i = 0; i < 8; i++){
+        for (uint8_t j = 0; j < 8; j++){
+          arr[i * 8 + j] = (uint8_t) Serial_Input_Long(",", 10);
+          tmp_8 += arr[i * 8 + j];
+        }
+      }
+
+      if (checksum == tmp_8){
+        Serial.println("arr checked");
+        if (status_run_config_set == 0){
+          conf_slow_FR_1(pulsed_620_current, pulsed_720_current, dc_current, gain_fluor, gain_fluref, gain_sun, gain_leaf, gain_720, gain_720ref);
+          status_run_config_set = 1;
+        }
+        run_arr_type1(8, arr, 0);
+      }
     }                                                                   
       break;  
+
+   
 
 
     //   case hash("adpd"):

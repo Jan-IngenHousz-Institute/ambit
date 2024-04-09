@@ -160,6 +160,20 @@ uint32_t dataclass::pop(void){
     return 0xABCDEF01;
 }
 
+void dataclass::send_serial(const char* tag){
+    uint16_t tmp_var = dataclass::get_length();
+    Serial.printf("Data:%s,Length:%d\t", tag, tmp_var);
+    if (tmp_var == 0){
+        Serial.println();
+        return;
+    }
+    for (uint16_t i = 0; i < tmp_var; i++){
+        Serial.printf("%d,", dataclass::pop());
+    }
+    Serial.print("\n");
+    return;
+}
+
 
 #ifdef DEBUG_CODES
 
@@ -270,4 +284,11 @@ void sorted_insert(uint32_t arr[], uint16_t length, uint32_t c){
   return;
 }
 
+
+uint32_t calc_signal(int dark, int lit, int p){
+  if (lit < dark) return 0;
+  int32_t tmp_var = (lit - dark + 250) - (0.006 / p) * (dark - 16384 * p);
+  if (tmp_var > 0) return tmp_var;
+  return 0;
+}
     

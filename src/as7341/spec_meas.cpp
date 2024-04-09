@@ -30,6 +30,7 @@ void AS_LED_OFF(){
 
 void AS_LED_Current(uint16_t current){
     as7341.setLEDCurrent(current);  // set actinic LED current
+    if (current == 0) as7341.enableLED(false);
 }
 
 	
