@@ -64,7 +64,7 @@ void do_command(char *choose){
   }
 
   void do_c(const char* c);
-
+  void do_E(const char* c);
   // process single commands
   switch (val) {
     case hash("C"):{
@@ -72,7 +72,17 @@ void do_command(char *choose){
       char c[500];
       Serial_Input_Chars(c, "?", 10000, 500);
       do_c(c);
-      Serial.println();
+      //Serial.println();
+    }
+    break;
+
+
+    case hash("E"):{
+
+      char c[500];
+      Serial_Input_Chars(c, "?", 10000, 500);
+      do_E(c);
+      //Serial.println();
     }
     break;
 
