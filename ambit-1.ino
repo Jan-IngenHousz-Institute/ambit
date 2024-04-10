@@ -11,11 +11,7 @@
 
 static const char* TAG = "INO";
 ADPD6 adpd;
-
-
-
-
-
+uint8_t CONNECTION_TYPE = 0;
 
 
 void setup(){
@@ -39,7 +35,7 @@ void setup(){
     if (as7341.begin()) ESP_LOGV(TAG, "AS7341 Found");
     check_AS7341();
     mlx_init();
-
+    CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;    
 }
 
 

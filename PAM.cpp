@@ -159,7 +159,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
   // data counter and buffer
   // [sun-amb, leaf-ir, lit_leaf-ir, dark_leaf-ir, lit_leaf-ref, dark_leaf-ref]
   uint32_t ret[expected_readout] = {0};
-  uint32_t counter = 0;
+  uint32_t counter, ploter1, ploter2 = 0;
   uint16_t fifo_c = 0;
   uint8_t watch_dog_timer = 0;
   int32_t tmp_var = 0;
@@ -227,6 +227,15 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
               }
             }
           }
+
+          if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
+            ploter1 = calc_signal((int)ret[2], (int)ret[3], (int)num_integration);
+            ploter2 = calc_signal((int)ret[4], (int)ret[5], (int)num_integration);
+            Serial.printf("%f,%d,%d,%d,%d,%d,%d\n", (float)ploter1/ (float)ploter2, ploter1, ploter2, ret[6], ret[7], ret[0], ret[1]);
+          }
+
+
+
           counter++;
           watch_dog_timer = 0;
         }
@@ -245,14 +254,15 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
     pc += 1;
   }
 
-  d_fluor->send_serial("Fluo");
-  d_fluoRef->send_serial("Fluoref");
-  d_sun->send_serial("SUN");
-  d_leaf->send_serial("leaf");
-  d_730->send_serial("730");
-  d_730Ref->send_serial("730ref");
-
-  Serial.println("Data sent");
+  if  (CONNECTION_TYPE != CONNECTION_TYPES::PLOTTING){
+    d_fluor->send_serial("Fluo");
+    d_fluoRef->send_serial("Fluoref");
+    d_sun->send_serial("SUN");
+    d_leaf->send_serial("leaf");
+    d_730->send_serial("730");
+    d_730Ref->send_serial("730ref");
+    Serial.println("Data sent");
+  }
 
   delete d_fluor;
   delete d_fluoRef;
@@ -478,11 +488,25 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
 
   adpd.STOP();
 
-  d_fluor->send_serial("Fluo");
-  d_fluoRef->send_serial("Fluoref");
+  if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
+    uint16_t l = d_fluor->get_length();
+    uint16_t ploter1, ploter2;
+    for (uint16_t i = 0; i < l; i++){
+      ploter1 = d_fluor->pop();
+      ploter2 = d_fluoRef->pop();
+      Serial.printf("%f, %d, %d\n", (float)ploter1/(float)ploter2, ploter1, ploter2);      
+    }   
+  }else{
+    d_fluor->send_serial("Fluo");
+    d_fluoRef->send_serial("Fluoref");
+    Serial.println("Data sent");
+  }
 
   ESP_LOGV(TAG, "All Completed");
-  Serial.println("Data sent");
+
+
+
+
 
   adpd.gpio_config.GPIO0_cfg = 0;
   adpd.gpio_config.SYNC_GPIO = 0;

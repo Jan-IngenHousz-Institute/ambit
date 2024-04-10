@@ -5,8 +5,10 @@
 #define WR_MAX_ARR 640
 static const char* TAG = "DO_C";
 
-uint8_t pulsed_620_current, pulsed_720_current, dc_current = 0;
-uint8_t gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf = 5;
+uint8_t pulsed_620_current = 110;
+uint8_t pulsed_720_current = 50, dc_current = 50;
+uint8_t gain_fluor = 1;
+uint8_t gain_fluref = 5, gain_720 = 5, gain_720ref = 1, gain_sun = 5, gain_leaf = 4;
 uint8_t status_run_config_set = 0;
 
 

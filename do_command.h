@@ -112,6 +112,8 @@ void do_command(char *choose){
       pulsed_620_current = (uint8_t) Serial_Input_Long(",", 10);
       pulsed_720_current = (uint8_t) Serial_Input_Long(",", 10);
       dc_current = (uint8_t) Serial_Input_Long(",", 10);
+      Serial.printf("Currents set to %d, %d, %d\n", pulsed_620_current, pulsed_720_current, dc_current);
+      status_run_config_set = 0;
      }                                                
     break;  
 
@@ -123,6 +125,8 @@ void do_command(char *choose){
       gain_720ref = (uint8_t) Serial_Input_Long(",", 10);
       gain_sun = (uint8_t) Serial_Input_Long(",", 10);
       gain_leaf = (uint8_t) Serial_Input_Long(",", 10);
+      Serial.printf("Gains set to %d, %d, %d, %d, %d, %d\n", gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf);
+      status_run_config_set = 0;
      }                                                
     break;  
 
@@ -150,6 +154,36 @@ void do_command(char *choose){
         }
         run_arr_type1(8, arr, 0);
       }
+    }                                                                   
+      break;  
+
+
+      case hash("q"):
+     {
+      uint8_t arr[24] = {1, 0, 2, 0, 0, 50, 0, 1, \
+                        1, 0, 2, 0, 0, 100, 200, 1,\
+                        1, 0, 2, 0, 0, 50, 0, 1};
+
+      CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
+      if (status_run_config_set == 0){
+        conf_slow_FR_1(pulsed_620_current, pulsed_720_current, dc_current, gain_fluor, gain_fluref, gain_sun, gain_leaf, gain_720, gain_720ref);
+        status_run_config_set = 1;
+      }
+      run_arr_type1(3, arr, 0);
+      CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
+      
+    }                                                                   
+      break;
+
+      case hash("w"):
+     {
+      uint8_t m = (uint8_t) Serial_Input_Long(",", 10);
+
+      CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
+      MPF(m, pulsed_620_current, 0, gain_fluor, gain_fluref);
+      status_run_config_set = 0;
+      CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
+      
     }                                                                   
       break;  
 
