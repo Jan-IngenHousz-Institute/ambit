@@ -9,6 +9,7 @@
 #include "src/as7341/spec_meas.h"
 #include "src/wrench.h"
 #include "data_utils.h"
+#include "data_transfer.h"
 
 
 //#include "src/adpd/u_adpd6100.h"
@@ -85,6 +86,17 @@ void do_command(char *choose){
       //Serial.println();
     }
     break;
+
+    case hash("R"):{
+      Serial.println("R mode");
+
+      DataPtk a;
+      a.get_arr_len();
+      a.allocate(0);
+      //Serial.println();
+    }
+    break;
+
 
 
     case hash("hello"):
