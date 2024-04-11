@@ -16,51 +16,69 @@ DataPtk::~DataPtk(void){
     }
 }
 
-int DataPtk::get_arr_len(){
-    const uint16_t timeout = 50;
-    unsigned long start_t = millis();
-    uint8_t b, counter = 0;
-    uint8_t arr[4];
 
-    while (((millis() - start_t)  < timeout) && (counter < 10)){
-        if (Serial.available() > (NUM_ALL_ARR * 4 - 1)){
+
+int DataPtk::_get_serial_arr(const uint8_t id, const uint8_t len, uint8_t* out){
+    unsigned long start_t = millis();
+    const uint8_t c_max = len + 10;
+    uint8_t counter, b = 0;
+
+    while (((millis() - start_t)  < this->timeout) && (counter < c_max)){
+        if (Serial.available() > (len - 1)){
             b = Serial.peek();
-            if (b == ID_ARR_LENGTH) break;
-            counter += 1;
+            if (b == id){
+                Serial.readBytes(out, len);
+                //ESP_LOGV(TAG, "Got %d extra bytes with id %d in %d ms", counter, id, millis() - start_t);
+                return 0;
+            }
+            else{
+                b = Serial.read();
+                counter += 1;
+            }
         }
         else{
             delay(1);
         }
     }
-
-    if (b == ID_ARR_LENGTH){
-        for (uint8_t i = 0; i < NUM_ALL_ARR; i++){
-            Serial.readBytes(arr, 4);
-            if (arr[0] == ID_ARR_LENGTH){
-                DataPtk::arr_length[i] = arr[2] * 256 + arr[3];
-            }
-            else{
-                ESP_LOGE(TAG, "GET Array length id unmatched");
-                return -1;
-            }
-        }
-        ESP_LOGV(TAG, "GET Array length %d, %d, %d, %d, %d, %d", DataPtk::arr_length[0], DataPtk::arr_length[1], DataPtk::arr_length[2], DataPtk::arr_length[3], DataPtk::arr_length[4], DataPtk::arr_length[5]);
-        return 0;        
-    }
-
-    ESP_LOGE(TAG, "TIMEOUT before getting ID");
+    ESP_LOGE(TAG, "Get serial timeout without id, but got %d bytes", counter);
     return -1;
 }
 
+
+// wait for array type and data length
+
+int DataPtk::get_arr_len(){
+    const uint8_t pkg_size = 6;//id, #arr, size1, size2, res1, checksum
+
+    uint8_t arr[pkg_size] = {3, 4, 2, 3, 5, 1};//something rnd
+
+    unsigned long start_t = millis();
+    uint8_t arr_num, counter = 0;
+    uint16_t arr_length = 0;
+       
+
+    this->_flush_serial();
+    Serial.write(RDY_LENGTH);
+    if (this->_get_serial_arr(ID_ARR_LENGTH, pkg_size, arr) == -1) return -1;
+    arr_num = arr[1];
+    arr_length = arr[2] * 256 + arr[3];
+    this->arr_length[arr_num] = arr_length;
+    if (this->allocate(arr_num) == -1) return -1;
+    this->active_arr = arr_num;
+
+    return 0;
+}
+
 int DataPtk::allocate(uint8_t id){
-    if ((DataPtk::arr[id]) != NULL){
-        free(DataPtk::arr[id]);
+    if ((this->arr[id]) != NULL){
+        free(this->arr[id]);
         ESP_LOGV(TAG, "output array %d freed", id);
     }
-    if (DataPtk::arr_length > 0){
-        ESP_LOGV(TAG, "Allocation %d bytes", (DataPtk::arr_length[id]) * 4);        
-       (DataPtk::arr[id]) = (uint32_t*) heap_caps_calloc((DataPtk::arr_length[id]), sizeof(uint32_t), MALLOC_CAP_32BIT);
-       if ((DataPtk::arr[id]) == NULL){
+
+    if (this->arr_length > 0){
+        ESP_LOGV(TAG, "Allocation %d bytes", (this->arr_length[id]) * 4);        
+        (this->arr[id]) = (uint32_t*) heap_caps_calloc((this->arr_length[id]), sizeof(uint32_t), MALLOC_CAP_32BIT);
+        if ((this->arr[id]) == NULL){
             ESP_LOGE(TAG, "Allocation failed");
             return -1;
         }
@@ -71,31 +89,112 @@ int DataPtk::allocate(uint8_t id){
 
 
 int DataPtk::get_data_arr(uint8_t id){
-    if (DataPtk::arr_length[id] == 0){
+
+
+    if (this->arr_length[id] == 0){
         ESP_LOGE(TAG, "array expected length is 0");
         return -1;
     }
 
-    if (DataPtk::arr[id] == NULL){
-        DataPtk::allocate(id);
+    if (this->arr[id] == NULL){
+        ESP_LOGE(TAG, "Array not initialized");
     }
     
-    const uint16_t timeout = 50;
+    unsigned long start_t,start_t1 = 0;
+    uint8_t b = 0;
+    uint8_t arr[4] = {4, 3, 2, 1};
+    uint16_t counter = 0;
+
+    // Send ready for data
+    this->_flush_serial();
+    Serial.write(RDY_DATA);
+    // Get data header
+    if (this->_get_serial_arr(ID_ARR_DATA, 4, arr) == -1) return -1;
+      
+  
+
+    // get data
+    counter = 0;
+    start_t1 = millis();
+    for (uint16_t n = 0; n < this->arr_length[id]; n++){
+        start_t = millis();
+        //------ get a data point and save to arr
+        b = 0;
+        while (((millis() - start_t) < 5)){
+            if (Serial.available() > 3){
+                Serial.read(arr, 4);
+                this->arr[id][n] = arr[0] * 0 + arr[1] * 65536 + arr[2] * 256 + arr[3];
+                b = 1;
+                counter += 1;
+                break;
+            }else{
+                delayMicroseconds(1);
+            }
+        }
+        if (b == 0){
+            ESP_LOGE(TAG, "Data point 5ms timeout, got %d pts", counter);
+            break;
+        }
+        //-----
+    }
+    ESP_LOGV(TAG, "Transfered %d data in %d ms", counter, millis() - start_t1);
+    ESP_LOGV(TAG, "flushed extra %d", DataPtk::_flush_serial());
+    if (counter == DataPtk::arr_length[id]) return 0;
+    
+
+
+    
+    return -1;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void DataPtk::_print_all(){
+    for (uint8_t i = 0; i < NUM_ALL_ARR; i++){
+        if (this->arr[i] == NULL){
+            Serial.printf("Arr %d not init\n", i);
+            continue;;
+        }
+        Serial.printf("data arr %d:  ", i);
+        for (uint16_t j = 0; j < this->arr_length[i]; j++){
+            Serial.printf("%d,", *(this->arr[i] + j));            
+        }
+        Serial.println();
+    }
+}
+
+
+
+
+
+
+
+
+
+uint16_t DataPtk::_flush_serial(){
+    if (Serial.available() == 0) return 0;
+    uint16_t c = 0;
     unsigned long start_t = millis();
-    uint8_t b, counter = 0;
-    uint8_t arr[4];
+    
 
-
-
-    while (((millis() - start_t)  < timeout)){
-        if (Serial.available() > 4){
-            b = Serial.peek();
-            if (b == ID_ARR_DATA) break;
+    while (((millis() - start_t) < 5)){
+        if (Serial.available() > 0){
+            Serial.read();
+            c += 1;
+        }else{
+            break;
         }
     }
-
-
-
-    ESP_LOGE(TAG, "TIMEOUT before getting ID");
-    return -1;
+    return c;
 }

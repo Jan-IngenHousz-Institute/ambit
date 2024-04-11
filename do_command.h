@@ -92,7 +92,9 @@ void do_command(char *choose){
 
       DataPtk a;
       a.get_arr_len();
-      a.allocate(0);
+      Serial.println(a.get_data_arr(a.active_arr));
+      a._print_all();
+
       //Serial.println();
     }
     break;

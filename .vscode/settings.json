@@ -7,6 +7,12 @@
         "unordered_map": "cpp",
         "complex.h": "c",
         "math.h": "c",
-        "new": "cpp"
+        "new": "cpp",
+        "fstream": "cpp",
+        "iosfwd": "cpp",
+        "istream": "cpp",
+        "limits": "cpp",
+        "sstream": "cpp",
+        "streambuf": "cpp"
     }
 }
