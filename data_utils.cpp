@@ -183,7 +183,7 @@ void dataclass::print_all(void){
         ESP_LOGE(TAG, "Add failed, not initialized");
         return;
     }
-    for (uint8_t i = 0; i < dataclass::_length; i++){
+    for (uint16_t i = 0; i < dataclass::_length; i++){
         Serial.print(dataclass::arr[i]);
         Serial.print(",");
     }
@@ -285,12 +285,13 @@ void sorted_insert(uint32_t arr[], uint16_t length, uint32_t c){
 }
 
 
-uint32_t calc_signal(int dark, int lit, int p){
-  if (lit < dark) return 0;
-  int32_t tmp_var = (lit - dark + 250) - (0.006 / p) * (dark - 16384 * p);
-  if (tmp_var > 0) return tmp_var;
-  return 0;
+uint32_t calc_signal(const uint32_t dark, const uint32_t lit, const uint8_t num){
+    if (lit + 250 < dark) return 0;
+    uint32_t a = (lit - dark + 250);
+    int32_t b = a + 98 - dark * 0.006 / num;
+
+    //int32_t tmp_var = (lit - dark + 250) - (0.006 / p) * (dark - 16384UL * p);
+    if (b > 0) return b;
+    return 0;
 }
-
-
 

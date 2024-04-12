@@ -209,8 +209,14 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
           if (counter == num_ptx) break;
           // 0: sun-vis; 1: leaf-ir; 2: fluoS_dark; 3: fluoS_lit; 4: fluoR_dark; 5: fluoR_lit; 6: Reflect_signal; 7: reflect_ref
           // save fluor signal and ref
-          d_fluor->put(calc_signal((int)ret[2], (int)ret[3], (int)num_integration));       
-          d_fluoRef->put(calc_signal((int)ret[4], (int)ret[5], (int)num_integration));
+          
+          d_fluor->put(calc_signal(ret[2], ret[3], num_integration));       
+          d_fluoRef->put(calc_signal(ret[4], ret[5], num_integration));
+
+          // d_fluor->put(ret[2]);       
+          // d_fluoRef->put(ret[3]);
+
+
 
           // save option data?
           if (subsampling > 0){
@@ -229,9 +235,9 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
           }
 
           if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
-            ploter1 = calc_signal((int)ret[2], (int)ret[3], (int)num_integration);
-            ploter2 = calc_signal((int)ret[4], (int)ret[5], (int)num_integration);
-            Serial.printf("%f,%d,%d,%d,%d,%d,%d\n", (float)ploter1/ (float)ploter2, ploter1, ploter2, ret[6], ret[7], ret[0], ret[1]);
+            ploter1 = calc_signal(ret[2], ret[3], num_integration);
+            ploter2 = calc_signal(ret[4], ret[5], num_integration);
+            Serial.printf("%f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", (float)ploter1/ (float)ploter2, ploter1, ploter2, ret[6], ret[7], ret[0], ret[1], ret[2], ret[3],ret[4], ret[5]);
           }
 
 
@@ -286,7 +292,7 @@ void adpd_trigger(void){
 int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain, uint8_t ref_gain){
 
   
-  const uint8_t num_integration = 4;
+  const uint8_t num_integration = 1;
   const uint16_t _data_size = 1080;
   
   ESP_LOGV(TAG, "RUN MPF with mode:%d, pulse current:%d, DC current %d", mode, current, dc_current);
@@ -339,8 +345,8 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
       for (uint8_t m = 0; m < 4; m++){    // sign-dark, sign-lit, ref-dark, ref lit
         avg_buf[m] = ret[m];
       }
-      d_fluor->put(calc_signal((int)avg_buf[0], (int)avg_buf[1], (int)num_integration));
-      d_fluoRef->put(calc_signal((int)avg_buf[2], (int)avg_buf[3], (int)num_integration));
+      d_fluor->put(calc_signal(avg_buf[0], avg_buf[1], num_integration));
+      d_fluoRef->put(calc_signal(avg_buf[2], avg_buf[3], num_integration));
       delay(500);
     }
     ESP_LOGV(TAG, "Phase-0 Completed");
@@ -358,8 +364,8 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
   adpd.RUN();
   // AS Light kept until this point
   AS_LED_OFF();
-  AS_LED_Current(255);
-  delay(1);
+  AS_LED_Current(0);
+  delay(2);
   ESP_LOGV(TAG, "Phase-1 LED ON");
   // Light ON
   AS_LED_ON();
@@ -371,8 +377,9 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
     adpd_trigger(); 
     adpd.readfifo(expected_readout, 3, ret); 
     for (uint8_t j = 0; j < 12; j++){
-      d_fluor->put(calc_signal((int)ret[0 + j * 4], (int)ret[1 + j * 4], (int)num_integration));
-      d_fluoRef->put(calc_signal((int)ret[2 + j * 4], (int)ret[3 + j * 4], (int)num_integration));
+
+      d_fluor->put(calc_signal(ret[0 + j * 4], ret[1 + j * 4], num_integration));
+      d_fluoRef->put(calc_signal(ret[2 + j * 4], ret[3 + j * 4], num_integration));
     }
     delayMicroseconds(500);
   }
@@ -393,9 +400,14 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
     }
 
 
-    d_fluor->put(calc_signal((int)avg_buf[0], (int)avg_buf[1], (int)num_integration));
-    d_fluoRef->put(calc_signal((int)avg_buf[2], (int)avg_buf[3], (int)num_integration));
+    // Serial.printf("P2, %d, %d, %d\n", avg_buf[0], avg_buf[1], calc_signal(avg_buf[0], avg_buf[1], num_integration));
+    // Serial.printf("P2, %d, %d, %d\n", avg_buf[2], avg_buf[3], calc_signal(avg_buf[2], avg_buf[3], num_integration));
+
    
+    d_fluor->put(calc_signal(avg_buf[0], avg_buf[1], num_integration));
+    // Serial.println(d_fluor->arr[d_fluor->write_ptr - 1]);
+    d_fluoRef->put(calc_signal(avg_buf[2], avg_buf[3], num_integration));
+    // Serial.println(d_fluoRef->arr[d_fluoRef->write_ptr - 1]);
     delayMicroseconds(500);
   }
 
@@ -421,8 +433,8 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
       }
 
       if (i % 2 == 1){
-        d_fluor->put(calc_signal((int)avg_buf[0] / 2, (int)avg_buf[1] / 2, (int)num_integration));
-        d_fluoRef->put(calc_signal((int)avg_buf[2] / 2, (int)avg_buf[3] / 2, (int)num_integration));
+        d_fluor->put(calc_signal(avg_buf[0] / 2, avg_buf[1] / 2, num_integration));
+        d_fluoRef->put(calc_signal(avg_buf[2] / 2, avg_buf[3] / 2, num_integration));
         memset(avg_buf, 0, sizeof(avg_buf));
       }   
       delayMicroseconds(500);
@@ -449,8 +461,17 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
       avg_buf[m] += ret[m];
     }
     if (i % 4 == 3){
-      d_fluor->put(calc_signal((int)avg_buf[0] / 4, (int)avg_buf[1] / 4, (int)num_integration));
-      d_fluoRef->put(calc_signal((int)avg_buf[2] / 4, (int)avg_buf[3] / 4, (int)num_integration));
+
+
+
+      // Serial.printf("P4, %d, %d, %d\n", avg_buf[0]/4, avg_buf[1]/4, calc_signal(avg_buf[0]/4, avg_buf[1]/4, num_integration));
+      // Serial.printf("P4, %d, %d, %d\n", avg_buf[2]/4, avg_buf[3]/4, calc_signal(avg_buf[2]/4, avg_buf[3]/4, num_integration));
+
+
+      d_fluor->put(calc_signal(avg_buf[0] / 4, avg_buf[1] / 4, num_integration));
+      // Serial.println(d_fluor->arr[d_fluor->write_ptr - 1]);
+      d_fluoRef->put(calc_signal(avg_buf[2] / 4, avg_buf[3] / 4, num_integration));
+      // Serial.println(d_fluoRef->arr[d_fluoRef->write_ptr - 1]);
       memset(avg_buf, 0, sizeof(avg_buf));
     }
     if (i == 149) {
@@ -473,8 +494,8 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
         avg_buf[m] += ret[m];
       }
       if (i % 4 == 3){
-        d_fluor->put(calc_signal((int)avg_buf[0] / 4, (int)avg_buf[1] / 4, (int)num_integration));
-        d_fluoRef->put(calc_signal((int)avg_buf[2] / 4, (int)avg_buf[3] / 4, (int)num_integration));
+        d_fluor->put(calc_signal(avg_buf[0] / 4, avg_buf[1] / 4, num_integration));
+        d_fluoRef->put(calc_signal(avg_buf[2] / 4, avg_buf[3] / 4, num_integration));
         memset(avg_buf, 0, sizeof(avg_buf));
         decay_interval += 5;
       }
@@ -490,7 +511,7 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
 
   if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
     uint16_t l = d_fluor->get_length();
-    uint16_t ploter1, ploter2;
+    uint32_t ploter1, ploter2;
     for (uint16_t i = 0; i < l; i++){
       ploter1 = d_fluor->pop();
       ploter2 = d_fluoRef->pop();
@@ -503,9 +524,6 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
   }
 
   ESP_LOGV(TAG, "All Completed");
-
-
-
 
 
   adpd.gpio_config.GPIO0_cfg = 0;
