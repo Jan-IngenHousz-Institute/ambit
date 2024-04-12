@@ -175,6 +175,38 @@ void dataclass::send_serial(const char* tag){
 }
 
 
+void dataclass::send_esp(const char* tag){
+
+    uint8_t target = 202;
+    Serial.setTimeout(100);
+    uint16_t tmp_var = dataclass::get_length();
+
+    Serial.write(65);
+    if (!Serial.find(&target, 1)) return;
+    
+    Serial.printf("Data:%s,Length:%d\t", tag, tmp_var);
+
+    Serial.write(150);
+    Serial.write(1);
+    Serial.write(((tmp_var >> 8) & 0xFF));
+    Serial.write(((tmp_var) & 0xFF));
+    Serial.write(0);
+    Serial.write(0);
+
+    target = 151;
+    if (!Serial.find(&target, 1)) return;
+    
+    
+    Serial.println("Done!");
+
+
+
+
+    return;
+}
+
+
+
 #ifdef DEBUG_CODES
 
 void dataclass::print_all(void){

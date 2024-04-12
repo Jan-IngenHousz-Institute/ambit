@@ -23,7 +23,7 @@ extern uint8_t status_run_config_set;
 
 
 dataclass data;
-int sandbox(uint16_t length, uint16_t n);
+int sandbox(uint8_t I620, uint8_t g1, uint8_t g2);
 int MPF(uint16_t mode, uint16_t current, uint16_t dc_current,uint8_t,uint8_t);
 int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, uint8_t G_FluorRef, uint8_t G_Sun, uint8_t G_IR, uint8_t G_FR, uint8_t G_FRref);
 int run_arr_type1(uint8_t length, uint8_t* arr, bool);
@@ -94,6 +94,15 @@ void do_command(char *choose){
       a.get_arr_len();
       Serial.println(a.get_data_arr(a.active_arr));
       a._print_all();
+
+      //Serial.println();
+    }
+    break;
+
+      case hash("S"):{
+      data.init(10);
+      data.put(777);
+      data.send_esp("test");
 
       //Serial.println();
     }
@@ -204,11 +213,12 @@ void do_command(char *choose){
    
 
 
-    //   case hash("adpd"):
-    //  {
-    //   adpd.begin();
-    // }                                                                   
-    //   break;
+      case hash("sd"):
+     {
+       sandbox(pulsed_620_current, gain_fluor, 4);
+       Serial.println("Cmd Done!");
+    }                                                                   
+      break;
 
     //   int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_par_ir, uint8_t gain_par_vis);
 

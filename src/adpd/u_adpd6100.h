@@ -55,6 +55,7 @@ class ADPD6{
     int32_t preset_config_4(uint8_t ts);
     int32_t repeats_only(uint8_t ts, uint16_t num_integration, uint8_t num_repeats);
     int32_t preset_config_ext_fast(uint8_t ts);
+    int32_t preset_config_ext_fast(uint8_t ts, uint8_t);
 
 
 

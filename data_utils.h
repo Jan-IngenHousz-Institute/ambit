@@ -34,6 +34,7 @@ class dataclass{
     bool init(uint16_t length);
     void print_all();
     void send_serial(const char[]);
+    void send_esp(const char[]);
 
 
     private:

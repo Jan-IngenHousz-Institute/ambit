@@ -41,7 +41,7 @@ int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, ui
   adpd.led_config.led2_channel = LED_A;
   adpd.SNR_config.TIA_gain_CH1 = G_Fluor;
   adpd.SNR_config.TIA_gain_CH2 = G_FluorRef;
-  adpd.preset_config_2(1, 4);
+  adpd.preset_config_2(1, 1);
 
 
   // Setup timeslot 3:  IR leave reflection, 2 x 3 bytes
@@ -544,17 +544,14 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
 
 
 
-int sandbox(uint16_t length, uint16_t n){
+int sandbox(uint8_t I620, uint8_t g1, uint8_t g2){
 
-  const uint8_t expected_readout = 48;
-  const uint8_t expected_readout_bytes = expected_readout * 3;
-  const uint8_t num_integration = 4;
   
   // variables for each trace
 
   // data counter and buffer
   // [sun-amb, leaf-ir, lit_leaf-ir, dark_leaf-ir, lit_leaf-ref, dark_leaf-ref]
-  uint32_t ret[expected_readout] = {0};
+  uint32_t ret[16] = {0};
   uint16_t fifo_c = 0;
   uint16_t fifo_c1 = 0;
 
@@ -565,15 +562,15 @@ int sandbox(uint16_t length, uint16_t n){
   adpd.gpio_config.EXT_SYNC_EN = 1;
   adpd.gpio_setup(&(adpd.gpio_config));
 
-  adpd.led_config.driver1_current = 110;
+  adpd.led_config.driver1_current = I620;
   adpd.led_config.driver2_current = 0;
-  adpd.SNR_config.TIA_gain_CH2 = 1;
-  adpd.SNR_config.TIA_gain_CH1 = 4;
+  adpd.SNR_config.TIA_gain_CH2 = 5;
+  adpd.SNR_config.TIA_gain_CH1 = 1;
 
-
-  for (uint8_t i = 0; i < 12; i++){
-    adpd.preset_config_ext_fast(i);
-  }
+  adpd.preset_config_ext_fast(0, 1);
+  adpd.preset_config_ext_fast(1, 2);
+  adpd.preset_config_ext_fast(2, 3);
+  adpd.preset_config_ext_fast(3, 4);
   
   adpd.run_freq(10);
   adpd.clear_fifo();
@@ -583,24 +580,31 @@ int sandbox(uint16_t length, uint16_t n){
   int64_t timer = 0;
 
 
-  for (uint16_t i = 0; i < n; i++){
+  for (uint16_t i = 0; i < 200; i++){
     digitalWrite(10, HIGH);
     delayMicroseconds(1);
     digitalWrite(10, LOW);
     timer = esp_timer_get_time();
     if (i > 0){
-      Serial.println(adpd.fifo_count());
-      adpd.readfifo(48, 3, ret);
-      delayMicroseconds(500);
+      
+      adpd.readfifo(16, 3, ret);
+
+      Serial.printf("Data:%d,%d,%d,%d,", ret[0], ret[1], ret[2],ret[3]);
+      Serial.printf("%d,%d,%d,%d,", ret[4], ret[5], ret[6],ret[7]);
+      Serial.printf("%d,%d,%d,%d,", ret[8], ret[9], ret[10],ret[11]);
+      Serial.printf("%d,%d,%d,%d\n", ret[12], ret[13], ret[14],ret[15]);
+
+      
+      delay(100);
       
     }else{
       delayMicroseconds(1500);
     }
-    Serial.println(esp_timer_get_time() - timer);
+    //Serial.println(esp_timer_get_time() - timer);
 
   }
-  Serial.println(adpd.fifo_count());
-  adpd.readfifo(48, 3, ret);
+  //Serial.println(adpd.fifo_count());
+  adpd.readfifo(16, 3, ret);
 
   adpd.STOP();   
 

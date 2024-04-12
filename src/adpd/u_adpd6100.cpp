@@ -813,6 +813,11 @@ int32_t ADPD6::repeats_only(uint8_t ts, uint16_t num_integration, uint8_t num_re
 
 // external trigger
 int32_t ADPD6::preset_config_ext_fast(uint8_t ts){
+  return ADPD6::preset_config_ext_fast(ts, 1);
+
+}
+
+int32_t ADPD6::preset_config_ext_fast(uint8_t ts, uint8_t integ){
   if (!(ADPD6::chip_check)){
     ESP_LOGE(TAG, "ADPD Not init in preset 2");
     return -2;
@@ -830,7 +835,7 @@ int32_t ADPD6::preset_config_ext_fast(uint8_t ts){
   ADPD6::DI_config.LED_pulse_width = 19;
   ADPD6::DI_config.sample_type = 3;
   ADPD6::DI_config.signal_size = 0;
-  ADPD6::DI_config.num_integration = 1;
+  ADPD6::DI_config.num_integration = integ;
   ADPD6::DI_config.num_repeats = 1;
   ADPD6::DI_config.dark_size = 3;
   ADPD6::DI_config.lit_size = 3;
