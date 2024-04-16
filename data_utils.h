@@ -6,6 +6,11 @@
 
 
 #define MAX_DATACLASS_SIZE 2000
+#define WAKE_AMBYTE 212
+#define AMBYTE_AWAKE 202
+#define AMBYTE_READY_FOR_ARRAY 200
+
+
 
 
 class dataclass{
@@ -14,6 +19,7 @@ class dataclass{
     uint32_t *arr = NULL;           // data array handle
     uint16_t write_ptr = 0;         // pointer to next input location
     uint16_t read_ptr = 0;          // pointer to next read location
+    uint16_t peek_ptr = 0;          // pointer to next read location
     bool available = false;         // indicator of memory allocation
     bool write_available = false;   // available to add data
     bool read_available = false;    // available to read data
@@ -31,10 +37,13 @@ class dataclass{
     uint16_t get_length(void);
     bool pop(uint32_t* data);
     uint32_t pop(void);
+    uint32_t send(void (*func) (uint32_t*, uint16_t));
     bool init(uint16_t length);
     void print_all();
     void send_serial(const char[]);
-    void send_esp(const char[]);
+
+
+    void send_esp(uint8_t);
 
 
     private:

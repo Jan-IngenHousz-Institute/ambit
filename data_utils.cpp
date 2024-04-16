@@ -20,6 +20,7 @@ dataclass::~dataclass(void){
 void dataclass::clean(void){
     if (dataclass::available) free((void*) (dataclass::arr));
     ESP_LOGV(TAG, "Memory freed");
+    dataclass::arr = NULL;
     dataclass::available = false;
     dataclass::write_available = false;
     dataclass::read_available = false;
@@ -43,6 +44,7 @@ bool dataclass::init(uint16_t length){
         dataclass::read_ptr = 0;
         dataclass::read_available = false;
         dataclass::_overwritten_counter = 0;
+        dataclass::loop_ahead = false;
         return true;
     }
     else{
@@ -58,6 +60,7 @@ void dataclass::clear(void){
         for(uint16_t i = 0; i < dataclass::_length; i++) (dataclass::arr)[i] = 0;
         dataclass::write_ptr = 0;
         dataclass::read_ptr = 0;
+        dataclass::loop_ahead = false;
         ESP_LOGV(TAG, "ARR reset to 0");
     }else{
         ESP_LOGE(TAG,"RESET failed, not initialized");
@@ -121,7 +124,35 @@ uint16_t dataclass::get_length(void){
 
 
 
+uint32_t dataclass::send(void (*func) (uint32_t*, uint16_t)){
+    if (dataclass::get_length() == 0){
+        dataclass::read_available = false;
+        ESP_LOGW(TAG, "No data available");
+        return 0;
+    }
 
+    if (dataclass::loop_ahead){
+        if (dataclass::write_ptr <= dataclass::read_ptr){
+            func(this->arr + this->read_ptr, this->_length - this->read_ptr);
+            func(this->arr, this->read_ptr);
+            return 1;
+        }
+        ESP_LOGW(TAG, "write_ptr > read_ptr After loop around!!!!");
+        return 0;
+    }else{
+        if (dataclass::write_ptr > dataclass::read_ptr){
+            func(this->arr + this->read_ptr, this->write_ptr - this->read_ptr);
+            return 1;}
+
+        if (dataclass::write_ptr == dataclass::read_ptr){
+            dataclass::read_available = false;
+            return 0;
+        }
+        ESP_LOGW(TAG, "write_ptr < read_ptr WITHOUT loop around!!!!");
+        return 0;
+    }
+    return 0;   
+}
 
 bool dataclass::pop(uint32_t* data){
     if (!(dataclass::available)){
@@ -174,33 +205,75 @@ void dataclass::send_serial(const char* tag){
     return;
 }
 
+enum AMBYTE_STATUS {
+    IDEL,
+    AWAKE,
+    WAIT_FOR_DATA,
+};
 
-void dataclass::send_esp(const char* tag){
+static void send_binary_array(uint32_t* arr, uint16_t len){
+    Serial.write((uint8_t*) arr, len * 4);
+}
 
-    uint8_t target = 202;
-    Serial.setTimeout(100);
-    uint16_t tmp_var = dataclass::get_length();
 
-    Serial.write(65);
-    if (!Serial.find(&target, 1)) return;
+void dataclass::send_esp(uint8_t arr_num){
+
+    uint8_t ambyte_status, target = 0;
+    unsigned int timer1 = 0;
+    Serial.setTimeout(20);
+    uint16_t tmp_var = dataclass::get_length();    
     
-    Serial.printf("Data:%s,Length:%d\t", tag, tmp_var);
+    //--- step one, wake up ambyte
+    timer1 = millis();
+    target = AMBYTE_AWAKE;
+    for (uint8_t i = 0; i <5; i++){
+        Serial.write(WAKE_AMBYTE);
+        if (Serial.find(&target, 1)){
+            ambyte_status = AMBYTE_STATUS::AWAKE;
+            ESP_LOGV(TAG, "Wake response in %d ms", millis() - timer1);
+            break;
+        };
+    }
 
-    Serial.write(150);
-    Serial.write(1);
-    Serial.write(((tmp_var >> 8) & 0xFF));
-    Serial.write(((tmp_var) & 0xFF));
-    Serial.write(0);
-    Serial.write(0);
+    if (ambyte_status != AMBYTE_STATUS::AWAKE){
+        ESP_LOGE(TAG, "Awake failed");
+        return;
+    }
 
-    target = 151;
-    if (!Serial.find(&target, 1)) return;
+    //------------------------------
+    //--- step two, send array type and length
+    // 150, array number, sizeH, sizeL, 0, checksum
+    uint8_t arr[6] = {150, arr_num, 0, 0, 0, 0};
+    arr[2] = ((tmp_var >> 8) & 0xFF);
+    arr[3] = (((tmp_var) & 0xFF));
+    for (uint8_t i = 0; i < 5; i++) arr[5] += arr[i];
     
+    timer1 = millis();
+    target = AMBYTE_READY_FOR_ARRAY;
     
-    Serial.println("Done!");
+    for (uint8_t i = 0; i < 3; i++){
+        Serial.write(arr, 6);
+        if (Serial.find(&target, 1)){
+            ambyte_status = AMBYTE_STATUS::WAIT_FOR_DATA;
+            ESP_LOGV(TAG, "ready for data %d", millis() - timer1);
+            break;
+        };
+    }
 
+    if (ambyte_status != AMBYTE_STATUS::WAIT_FOR_DATA){
+        ESP_LOGE(TAG, "Not available for data");
+        return;
+    }
 
-
+    //--------------------------------
+    // --- step three, send data
+    // 151, res, res, res 4 bytes array
+    memset(arr, 0, sizeof(arr));
+    arr[0] = 151;
+    timer1 = millis();
+    Serial.write(arr, 4);
+    this->send(send_binary_array);
+    ESP_LOGV(TAG, "Spend %d ms sending %d data", millis() - timer1, tmp_var);
 
     return;
 }
@@ -227,7 +300,6 @@ void dataclass::print_all(void){
 
 
 int wait_for_response_clear(const char* s, uint8_t slen, uint8_t timeout){
-
     unsigned long timer1 = millis();
     uint16_t n = 0;
     Serial.setTimeout(timeout);

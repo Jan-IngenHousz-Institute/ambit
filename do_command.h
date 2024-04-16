@@ -9,7 +9,6 @@
 #include "src/as7341/spec_meas.h"
 #include "src/wrench.h"
 #include "data_utils.h"
-#include "data_transfer.h"
 
 
 //#include "src/adpd/u_adpd6100.h"
@@ -66,6 +65,8 @@ void do_command(char *choose){
 
   void do_c(const char* c);
   void do_E(const char* c);
+
+  Serial.printf("cmd: %s", choose);
   // process single commands
   switch (val) {
     case hash("C"):{
@@ -87,22 +88,32 @@ void do_command(char *choose){
     }
     break;
 
-    case hash("R"):{
-      Serial.println("R mode");
+    case hash("S"):{
+      data.init(100);
+      for (uint16_t i = 0; i < 100; i++){
+        data.put(i);
+      }      
+      data.send_esp(0);
+      data.clear();
 
-      DataPtk a;
-      a.get_arr_len();
-      Serial.println(a.get_data_arr(a.active_arr));
-      a._print_all();
+      for (uint16_t i = 0; i < 100; i++){
+        data.put(100 - i);
+      } 
 
-      //Serial.println();
-    }
-    break;
+      data.send_esp(1);
+      data.clear();
 
-      case hash("S"):{
-      data.init(10);
-      data.put(777);
-      data.send_esp("test");
+
+      for (uint16_t i = 0; i < 100; i++){
+        data.put(200 - i);
+      }
+      data.send_esp(2);
+      data.clear();
+
+
+
+
+      data.clean();
 
       //Serial.println();
     }
