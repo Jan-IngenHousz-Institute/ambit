@@ -260,7 +260,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
     pc += 1;
   }
 
-  if  (CONNECTION_TYPE != CONNECTION_TYPES::PLOTTING){
+  if  (CONNECTION_TYPE == CONNECTION_TYPES::COMPUTER){
     d_fluor->send_serial("Fluo");
     d_fluoRef->send_serial("Fluoref");
     d_sun->send_serial("SUN");
@@ -268,6 +268,13 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
     d_730->send_serial("730");
     d_730Ref->send_serial("730ref");
     Serial.println("Data sent");
+  }else if(CONNECTION_TYPE == CONNECTION_TYPES::AMBYTE){
+    d_fluor->send_esp(0);
+    d_fluoRef->send_esp(1);
+    d_sun->send_esp(2);
+    d_leaf->send_esp(3);
+    d_730->send_esp(4);
+    d_730Ref->send_esp(5);
   }
 
   delete d_fluor;

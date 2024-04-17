@@ -254,7 +254,8 @@ int dataclass::send_esp(uint8_t arr_num){
     uint8_t ambyte_status, target = 0;
     unsigned int timer1 = 0;
     Serial.setTimeout(50);
-    uint16_t tmp_var = dataclass::get_length();    
+    uint16_t tmp_var = dataclass::get_length();
+    if (tmp_var == 0) return 0;
     
     //--- step one, wake up ambyte
     timer1 = millis();
