@@ -5,7 +5,7 @@
 
 static uint8_t pulsed_620_current, pulsed_720_current, ir_lumination_current;
 static uint8_t gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf;
-static uint8_t status_run_config_set;
+extern uint8_t status_run_config_set;
 
 
 extern uint8_t CONNECTION_TYPE;
@@ -66,13 +66,18 @@ int do_esp_cmd(){
     
     case 10: // array run config
         conf_slow_FR_1(pulsed_620_current, pulsed_720_current, ir_lumination_current, gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf);
+        status_run_config_set = 1;
         Serial.write(ESP_CMD_DONE);
         break;
 
     case 20: // run mpf
         MPF(cmd_arr[1], pulsed_620_current, cmd_arr[2], gain_fluor, gain_fluref);
+        status_run_config_set = 0;
         Serial.write(ESP_CMD_DONE);
         break;
+
+
+
     default:
         break;
     }
