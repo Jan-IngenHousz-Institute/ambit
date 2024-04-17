@@ -39,42 +39,30 @@ void setup(){
 }
 
 
-
+int do_esp_cmd();
+int c = -1;
+char choose[50];
 
 void loop(){
+    c = -1;
 
-    int c = -1;
+    
     for (;;) {
         c = Serial.available();
-        if (c > 1){            // received something
+        if (c > 1){            // received something        
             break;        
         }
         delay(10);
-    }  
-    char choose[50]; //buffer to hold commands    
-    Serial_Input_Chars(choose, ":,", 500, sizeof(choose) - 1);
-    do_command(choose);
-
-
+    }
     
-    // WRState* w = wr_newState(); // create the state
+    c = Serial.peek();
 
-	// wr_registerFunction( w, "print", print ); // bind a function
-
-	// unsigned char* outBytes; // compiled code is alloc'ed
-	// int outLen;
-
-	// int err = wr_compile( wrenchCode, strlen(wrenchCode), &outBytes, &outLen ); // compile it
-	// if ( err == 0 )
-	// {
-	// 	wr_run( w, outBytes, outLen ); // load and run the code!
-	// 	delete[] outBytes; // clean up 
-	// }
-
-	// wr_destroyState( w );
-
-
-
+    if (c > 127) {
+        do_esp_cmd();
+    }else{
+        Serial_Input_Chars(choose, ":,", 500, sizeof(choose) - 1);
+        do_command(choose);
+    }
 
 
 }

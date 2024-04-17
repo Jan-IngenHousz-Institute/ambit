@@ -517,7 +517,11 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
       ploter2 = d_fluoRef->pop();
       Serial.printf("%f, %d, %d\n", (float)ploter1/(float)ploter2, ploter1, ploter2);      
     }   
-  }else{
+  }else if (CONNECTION_TYPE == CONNECTION_TYPES::AMBYTE){
+    d_fluor->send_esp(0);
+    d_fluoRef->send_esp(1);
+  }
+  else{
     d_fluor->send_serial("Fluo");
     d_fluoRef->send_serial("Fluoref");
     Serial.println("Data sent");

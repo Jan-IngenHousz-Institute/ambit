@@ -124,7 +124,8 @@ uint16_t dataclass::get_length(void){
 
 
 
-uint32_t dataclass::send(void (*func) (uint32_t*, uint16_t)){
+uint32_t dataclass::send(void (*func) (uint32_t*, uint16_t), uint8_t* c){
+    uint8_t checksum = 0;
     if (dataclass::get_length() == 0){
         dataclass::read_available = false;
         ESP_LOGW(TAG, "No data available");
@@ -135,6 +136,9 @@ uint32_t dataclass::send(void (*func) (uint32_t*, uint16_t)){
         if (dataclass::write_ptr <= dataclass::read_ptr){
             func(this->arr + this->read_ptr, this->_length - this->read_ptr);
             func(this->arr, this->read_ptr);
+            for (uint16_t i = 0; i < this->_length - this->read_ptr; i++) checksum += this->arr[this->read_ptr + i];
+            for (uint16_t i = 0; i < this->read_ptr; i++) checksum += this->arr[i];
+            *c = checksum;
             return 1;
         }
         ESP_LOGW(TAG, "write_ptr > read_ptr After loop around!!!!");
@@ -142,6 +146,8 @@ uint32_t dataclass::send(void (*func) (uint32_t*, uint16_t)){
     }else{
         if (dataclass::write_ptr > dataclass::read_ptr){
             func(this->arr + this->read_ptr, this->write_ptr - this->read_ptr);
+            for (uint16_t i = 0; i < this->write_ptr - this->read_ptr; i++) checksum += this->arr[this->read_ptr + i];
+            *c = checksum;
             return 1;}
 
         if (dataclass::write_ptr == dataclass::read_ptr){
@@ -215,67 +221,109 @@ static void send_binary_array(uint32_t* arr, uint16_t len){
     Serial.write((uint8_t*) arr, len * 4);
 }
 
+static int wait_for_cmd(uint8_t cmd, uint16_t timeout, uint8_t cmd2 = 0){
+    unsigned long start_t = millis();
+    uint8_t counter, b = 0;
 
-void dataclass::send_esp(uint8_t arr_num){
+    while (((millis() - start_t) < timeout)){
+        if (Serial.available() > 0){
+            b = Serial.peek();
+            if (b == cmd){
+                return 0;
+            }else if ((b == cmd2) && (cmd2 > 127)){
+                return 1;
+            }
+            else{
+                if (b < 127){
+                    Serial.write(Serial.read());
+                }else{
+                    Serial.print(Serial.read());
+                }
+            }
+        }
+        else{
+            delay(1);
+        }
+    }
+    return -1;
+}
 
+
+int dataclass::send_esp(uint8_t arr_num){
+    int _tmp;
     uint8_t ambyte_status, target = 0;
     unsigned int timer1 = 0;
-    Serial.setTimeout(20);
+    Serial.setTimeout(50);
     uint16_t tmp_var = dataclass::get_length();    
     
     //--- step one, wake up ambyte
     timer1 = millis();
     target = AMBYTE_AWAKE;
-    for (uint8_t i = 0; i <5; i++){
+    for (uint8_t i = 0; i < 5; i++){
+        ESP_LOGV(TAG, "#%d wakeup call", i);
         Serial.write(WAKE_AMBYTE);
-        if (Serial.find(&target, 1)){
+        delay(20);        
+        if (wait_for_cmd(AMBYTE_AWAKE, 50) == 0){
+            Serial.read();
             ambyte_status = AMBYTE_STATUS::AWAKE;
             ESP_LOGV(TAG, "Wake response in %d ms", millis() - timer1);
             break;
-        };
+        }
     }
 
     if (ambyte_status != AMBYTE_STATUS::AWAKE){
         ESP_LOGE(TAG, "Awake failed");
-        return;
+        return -1;
     }
 
     //------------------------------
     //--- step two, send array type and length
     // 150, array number, sizeH, sizeL, 0, checksum
-    uint8_t arr[6] = {150, arr_num, 0, 0, 0, 0};
-    arr[2] = ((tmp_var >> 8) & 0xFF);
-    arr[3] = (((tmp_var) & 0xFF));
-    for (uint8_t i = 0; i < 5; i++) arr[5] += arr[i];
+    uint8_t arr[8] = {212, 150, arr_num, 0, 0, 0, 0, 0};
+    arr[3] = ((tmp_var >> 8) & 0xFF);
+    arr[4] = (((tmp_var) & 0xFF));
+    for (uint8_t i = 0; i < 7; i++) arr[7] += arr[i];
     
     timer1 = millis();
     target = AMBYTE_READY_FOR_ARRAY;
     
     for (uint8_t i = 0; i < 3; i++){
-        Serial.write(arr, 6);
-        if (Serial.find(&target, 1)){
+        ESP_LOGV(TAG, "#%d data call", i);
+        Serial.write(arr, 8);
+        delay(5);
+        if (wait_for_cmd(AMBYTE_READY_FOR_ARRAY, 25) == 0){
+            Serial.read();
             ambyte_status = AMBYTE_STATUS::WAIT_FOR_DATA;
-            ESP_LOGV(TAG, "ready for data %d", millis() - timer1);
+            //ESP_LOGV(TAG, "ready for data %d", millis() - timer1);
             break;
         };
     }
 
     if (ambyte_status != AMBYTE_STATUS::WAIT_FOR_DATA){
         ESP_LOGE(TAG, "Not available for data");
-        return;
+        return -1;
     }
 
     //--------------------------------
     // --- step three, send data
     // 151, res, res, res 4 bytes array
-    memset(arr, 0, sizeof(arr));
-    arr[0] = 151;
-    timer1 = millis();
-    Serial.write(arr, 4);
-    this->send(send_binary_array);
-    ESP_LOGV(TAG, "Spend %d ms sending %d data", millis() - timer1, tmp_var);
+    
+    for (uint8_t n = 0; n < 3; n++){
+        memset(arr, 0, sizeof(arr));
+        arr[0] = 212;
+        timer1 = millis();
+        this->send(send_binary_array, &arr[3]);
+        Serial.write(arr, 4);
+        ESP_LOGV(TAG, "Spend %d ms sending %d data", millis() - timer1, tmp_var);
+        delay(5);
+        _tmp = wait_for_cmd(180, 50, 200);
+        Serial.read();
+        if (_tmp == 0) return 0;
+        if (_tmp == 1) continue;
+        if (_tmp == -1) return -1;        
+    }
 
-    return;
+    return -1;
 }
 
 

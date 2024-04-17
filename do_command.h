@@ -79,15 +79,6 @@ void do_command(char *choose){
     break;
 
 
-    case hash("E"):{
-
-      char c[500];
-      Serial_Input_Chars(c, "?", 10000, 500);
-      do_E(c);
-      //Serial.println();
-    }
-    break;
-
     case hash("S"):{
       data.init(100);
       for (uint16_t i = 0; i < 100; i++){
@@ -100,6 +91,8 @@ void do_command(char *choose){
         data.put(100 - i);
       } 
 
+      delay(1000);
+
       data.send_esp(1);
       data.clear();
 
@@ -107,6 +100,8 @@ void do_command(char *choose){
       for (uint16_t i = 0; i < 100; i++){
         data.put(200 - i);
       }
+
+      delay(1000);
       data.send_esp(2);
       data.clear();
 
@@ -114,6 +109,7 @@ void do_command(char *choose){
 
 
       data.clean();
+      Serial.write(240);
 
       //Serial.println();
     }

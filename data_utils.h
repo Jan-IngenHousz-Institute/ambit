@@ -37,13 +37,13 @@ class dataclass{
     uint16_t get_length(void);
     bool pop(uint32_t* data);
     uint32_t pop(void);
-    uint32_t send(void (*func) (uint32_t*, uint16_t));
+    uint32_t send(void (*func) (uint32_t*, uint16_t), uint8_t*);
     bool init(uint16_t length);
     void print_all();
     void send_serial(const char[]);
 
 
-    void send_esp(uint8_t);
+    int send_esp(uint8_t);
 
 
     private:

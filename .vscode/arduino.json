@@ -2,7 +2,7 @@
     "configuration": "JTAGAdapter=default,CDCOnBoot=default,PartitionScheme=minimal,CPUFreq=160,FlashMode=qio,FlashFreq=80,FlashSize=2M,UploadSpeed=921600,DebugLevel=verbose,EraseFlash=none",
     "board": "esp32:esp32:esp32c3",
     "sketch": "ambit-1.ino",
-    "port": "COM6",
+    "port": "COM31",
     "output": "../tmp",
     "programmer": "esptool"
 }
