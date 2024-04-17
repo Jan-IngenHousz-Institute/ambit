@@ -71,9 +71,11 @@ int do_esp_cmd(){
         break;
 
     case 20: // run mpf
+        Serial.write(ESP_CMD_DONE);
         MPF(cmd_arr[1], pulsed_620_current, cmd_arr[2], gain_fluor, gain_fluref);
         status_run_config_set = 0;
-        Serial.write(ESP_CMD_DONE);
+        Serial.write(240);
+        
         break;
 
     case 21:// run
@@ -81,18 +83,25 @@ int do_esp_cmd(){
         uint8_t arr_length = cmd_arr[1];
         uint8_t led_persist = cmd_arr[2];
         uint8_t cc = 0;
-        if ((arr_length == 0) || (arr_length > 7)){
+        if ((arr_length == 0) || (arr_length > 8)){
             ESP_LOGE(TAG, "run array wrong length: %d", arr_length);
             break;
         }
         uint8_t run_arr[arr_length * 8];
+        if (status_run_config_set == 0){
+            conf_slow_FR_1(pulsed_620_current, pulsed_720_current, ir_lumination_current, gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf);
+            status_run_config_set = 1;
+        }
+
         cc = Serial.readBytes(run_arr, arr_length * 8);
         if (cc != (arr_length * 8)){
             ESP_LOGE(TAG, "run array elements count %d not match config %d", cc, arr_length);
             break;
         }
-        run_arr_type1(arr_length, run_arr, led_persist);
         Serial.write(ESP_CMD_DONE);
+        run_arr_type1(arr_length, run_arr, led_persist);
+        Serial.write(240);
+        
     }
     break;
 
