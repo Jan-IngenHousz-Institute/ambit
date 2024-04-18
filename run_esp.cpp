@@ -1,11 +1,19 @@
 #include <Arduino.h>
 #include "data_utils.h"
+#include "src/as7341/spec_meas.h"
+#include "src/mlx90632/u_mlx.h"
 
 #define TAG "ESP"
+#define ESP_CMD_HEADER 160
+#define ESP_CMD_DONE 161
+#define ESP_CMD_END 240
 
+
+// save the current and gain settings within the esp_cmd scope
 static uint8_t pulsed_620_current, pulsed_720_current, ir_lumination_current;
 static uint8_t gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf;
-extern uint8_t status_run_config_set;
+static uint8_t status_run_config_set;
+
 
 
 extern uint8_t CONNECTION_TYPE;
@@ -13,9 +21,6 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current,uint8_t,uint8_t);
 int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, uint8_t G_FluorRef, uint8_t G_Sun, uint8_t G_IR, uint8_t G_FR, uint8_t G_FRref);
 int run_arr_type1(uint8_t length, uint8_t* arr, bool);
 
-
-#define ESP_CMD_HEADER 160
-#define ESP_CMD_DONE 161
 
 int do_esp_cmd(){
     uint8_t target, c;
@@ -105,7 +110,29 @@ int do_esp_cmd(){
     }
     break;
 
+    case 31: // get spec
+    {
+        uint16_t spec[12] = {0};
+        uint16_t par10x = (uint16_t) (get_PAR(spec) * 10);
+        spec[10] = par10x;
+        Serial.write(ESP_CMD_DONE);
+        Serial.write((uint8_t*) spec, 24);
+        Serial.write(ESP_CMD_END);
+    }
+    break;
 
+    case 32: // get spec
+    {
+        double leaf, chip;
+        mlx_measure(&leaf, &chip);
+        Serial.write(ESP_CMD_DONE);
+        int16_t t1 = (int16_t) (leaf * 10);
+        int16_t t2 = (int16_t) (chip * 10);
+        Serial.write((uint8_t*) (&t1), 2);
+        Serial.write((uint8_t*) (&t2), 2);
+        Serial.write(ESP_CMD_END);
+    }
+    break;
 
     default:
         break;
