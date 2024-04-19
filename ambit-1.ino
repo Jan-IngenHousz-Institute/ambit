@@ -6,8 +6,8 @@
 #include "serial.h"
 #include "do_command.h"
 #include "src/wrench.h"
-
 #include "config.h"
+#include "driver/uart.h"
 
 static const char* TAG = "INO";
 ADPD6 adpd;
@@ -36,6 +36,14 @@ void setup(){
     check_AS7341();
     mlx_init();
     CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;    
+
+    uart_set_wakeup_threshold(UART_NUM_0, 3);
+    esp_sleep_enable_uart_wakeup(UART_NUM_0);
+
+    gpio_sleep_set_direction(GPIO_NUM_20, GPIO_MODE_INPUT);
+    gpio_sleep_set_pull_mode(GPIO_NUM_20, GPIO_PULLUP_ONLY);
+
+    //esp_sleep_enable_timer_wakeup(1000000);
 }
 
 
@@ -45,20 +53,39 @@ char choose[50];
 
 void loop(){
     c = -1;
+    unsigned int sleep_timer = millis();
 
     
     for (;;) {
         c = Serial.available();
-        if (c > 1){            // received something        
-            break;        
+        if (c > 0){
+            sleep_timer = millis();
+            c = Serial.peek();
+            if (c == 255) Serial.read();
+            if (c < 255) break;
+        }else{
+            if (millis() - sleep_timer > 100){
+                ESP_LOGV(TAG, "SLEEP");
+                Serial.flush();
+                esp_sleep_enable_timer_wakeup(40000000);
+                esp_light_sleep_start();
+                sleep_timer = millis();
+                Serial.write(128);
+                Serial.flush();
+            }
+            
+
         }
-        delay(10);
     }
     
     c = Serial.peek();
-
     if (c > 127) {
-        do_esp_cmd();
+        if (c == 170){
+            Serial.read();
+            Serial.write(128);
+        }else{
+            do_esp_cmd();
+        }
     }else{
         Serial_Input_Chars(choose, ":,", 500, sizeof(choose) - 1);
         do_command(choose);

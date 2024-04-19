@@ -2,6 +2,7 @@
 #include "data_utils.h"
 #include "src/as7341/spec_meas.h"
 #include "src/mlx90632/u_mlx.h"
+#include "PAM.h"
 
 #define TAG "ESP"
 #define ESP_CMD_HEADER 160
@@ -9,17 +10,39 @@
 #define ESP_CMD_END 240
 
 
-// save the current and gain settings within the esp_cmd scope
-static uint8_t pulsed_620_current, pulsed_720_current, ir_lumination_current;
-static uint8_t gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf;
-static uint8_t status_run_config_set;
-
-
+// keep a local copy of settings for run-time change
+static adpd_current_config_t adpd_current_config_local;
+static adpd_gains_config_t adpd_gains_config_local;
 
 extern uint8_t CONNECTION_TYPE;
-int MPF(uint16_t mode, uint16_t current, uint16_t dc_current,uint8_t,uint8_t);
-int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, uint8_t G_FluorRef, uint8_t G_Sun, uint8_t G_IR, uint8_t G_FR, uint8_t G_FRref);
-int run_arr_type1(uint8_t length, uint8_t* arr, bool);
+
+static int read_until(uint8_t target, uint16_t timeout, bool remove = true){
+    unsigned long start_t = millis();
+    uint8_t counter, b = 0;
+
+    while (((millis() - start_t) < timeout)){
+        if (Serial.available() > 0){
+            b = Serial.peek();
+            if (b == target){
+                if (remove) Serial.read();
+                return 1;
+            };
+        
+            b = Serial.read();            
+            if (b > 127){
+                Serial.print(b);
+            }else{
+                Serial.write(b);
+            }            
+        }
+        else{
+            delayMicroseconds(10);
+        }
+    }
+    return -1;
+}
+
+
 
 
 int do_esp_cmd(){
@@ -30,7 +53,7 @@ int do_esp_cmd(){
 
     //search for cmd header
     target = ESP_CMD_HEADER;
-    if (!Serial.find(&target, 1)){
+    if (read_until(target, 10, true) == -1){
         ESP_LOGE(TAG, "ESP cmd header failed");
         return -1;
     }
@@ -48,21 +71,23 @@ int do_esp_cmd(){
     switch (cmd_arr[0])
     {
     case 1:  // set PD gains
-        if ((cmd_arr[1] > 0) && (cmd_arr[1] < 7)) gain_fluor = cmd_arr[1] - 1;
-        if ((cmd_arr[2] > 0) && (cmd_arr[2] < 7)) gain_fluref = cmd_arr[2] - 1;
-        if ((cmd_arr[3] > 0) && (cmd_arr[3] < 7)) gain_720 = cmd_arr[3] - 1;
-        if ((cmd_arr[4] > 0) && (cmd_arr[4] < 7)) gain_720ref = cmd_arr[4] - 1;
-        if ((cmd_arr[5] > 0) && (cmd_arr[5] < 7)) gain_sun = cmd_arr[5] - 1;
-        if ((cmd_arr[6] > 0) && (cmd_arr[6] < 7)) gain_leaf = cmd_arr[6] - 1; 
-        ESP_LOGV(TAG, "gains are %d, %d, %d, %d, %d, %d", gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf);
+        if ((cmd_arr[1] > 0) && (cmd_arr[1] < 7)) adpd_gains_config_local.Fluo = cmd_arr[1] - 1;
+        if ((cmd_arr[2] > 0) && (cmd_arr[2] < 7)) adpd_gains_config_local.FluoRef = cmd_arr[2] - 1;
+        if ((cmd_arr[3] > 0) && (cmd_arr[3] < 7)) adpd_gains_config_local.IR = cmd_arr[3] - 1;
+        if ((cmd_arr[4] > 0) && (cmd_arr[4] < 7)) adpd_gains_config_local.IRRef = cmd_arr[4] - 1;
+        if ((cmd_arr[5] > 0) && (cmd_arr[5] < 7)) adpd_gains_config_local.Sun = cmd_arr[5] - 1;
+        if ((cmd_arr[6] > 0) && (cmd_arr[6] < 7)) adpd_gains_config_local.Leaf = cmd_arr[6] - 1;
+        adpd_gains_config_local.init = true;
+        ESP_LOGV(TAG, "gains are %d, %d, %d, %d, %d, %d", adpd_gains_config_local.Fluo, adpd_gains_config_local.FluoRef, adpd_gains_config_local.IR, adpd_gains_config_local.IRRef, adpd_gains_config_local.Sun, adpd_gains_config_local.Leaf);
         Serial.write(ESP_CMD_DONE);
         break;
 
     case 2:  // set currents
-        if ((cmd_arr[1] < 127)) pulsed_620_current = cmd_arr[1];
-        if ((cmd_arr[2] < 127)) pulsed_720_current = cmd_arr[2];
-        if ((cmd_arr[3] < 127)) ir_lumination_current = cmd_arr[3];
-        ESP_LOGV(TAG, "currents are %d, %d, %d", pulsed_620_current, pulsed_720_current, ir_lumination_current);
+        if ((cmd_arr[1] < 127)) adpd_current_config_local.I620 = cmd_arr[1];
+        if ((cmd_arr[2] < 127)) adpd_current_config_local.I720 = cmd_arr[2];
+        if ((cmd_arr[3] < 127)) adpd_current_config_local.IR = cmd_arr[3];
+        adpd_current_config_local.init = true;
+        ESP_LOGV(TAG, "currents are %d, %d, %d", adpd_current_config_local.I620, adpd_current_config_local.I720, adpd_current_config_local.IR);
         Serial.write(ESP_CMD_DONE);
 
         break;
@@ -70,15 +95,19 @@ int do_esp_cmd(){
     
     
     case 10: // array run config
-        conf_slow_FR_1(pulsed_620_current, pulsed_720_current, ir_lumination_current, gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf);
-        status_run_config_set = 1;
+        if (adpd_gains_config_local.init == false) ESP_LOGE(TAG, "Gain preset not initized, use default!");
+        if (adpd_current_config_local.init == false) ESP_LOGE(TAG, "Current preset not initized, use default!");
+        conf_slow_FR_1(adpd_current_config_local.I620, adpd_current_config_local.I720, adpd_current_config_local.IR, adpd_gains_config_local.Fluo, adpd_gains_config_local.FluoRef, adpd_gains_config_local.IR, adpd_gains_config_local.IRRef,adpd_gains_config_local.Sun, adpd_gains_config_local.Leaf);
+        adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
         Serial.write(ESP_CMD_DONE);
         break;
 
     case 20: // run mpf
+        if (adpd_gains_config_local.init == false) ESP_LOGE(TAG, "Gain preset not initized, use default!");
+        if (adpd_current_config_local.init == false) ESP_LOGE(TAG, "Current preset not initized, use default!");
         Serial.write(ESP_CMD_DONE);
-        MPF(cmd_arr[1], pulsed_620_current, cmd_arr[2], gain_fluor, gain_fluref);
-        status_run_config_set = 0;
+        MPF(cmd_arr[1], adpd_current_config_local.I620, cmd_arr[2], adpd_gains_config_local.Fluo, adpd_gains_config_local.FluoRef);
+        adpd_mode = ADPD_CONFIG_MODE::MPF_MODE;
         Serial.write(240);
         
         break;
@@ -93,9 +122,11 @@ int do_esp_cmd(){
             break;
         }
         uint8_t run_arr[arr_length * 8];
-        if (status_run_config_set == 0){
-            conf_slow_FR_1(pulsed_620_current, pulsed_720_current, ir_lumination_current, gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf);
-            status_run_config_set = 1;
+        if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
+            if (adpd_gains_config_local.init == false) ESP_LOGE(TAG, "Gain preset not initized, use default!");
+            if (adpd_current_config_local.init == false) ESP_LOGE(TAG, "Current preset not initized, use default!");
+            conf_slow_FR_1(adpd_current_config_local.I620, adpd_current_config_local.I720, adpd_current_config_local.IR, adpd_gains_config_local.Fluo, adpd_gains_config_local.FluoRef, adpd_gains_config_local.IR, adpd_gains_config_local.IRRef,adpd_gains_config_local.Sun, adpd_gains_config_local.Leaf);
+            adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
         }
 
         cc = Serial.readBytes(run_arr, arr_length * 8);
@@ -135,16 +166,9 @@ int do_esp_cmd(){
     break;
 
     default:
+        ESP_LOGE(TAG, "Bad command");
         break;
     }
-
-
-
-
-
-
-
-
 
     return 0;
 }

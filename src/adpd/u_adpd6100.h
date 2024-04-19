@@ -4,6 +4,9 @@
  * @author      Jingcheng Huang
  * @date        20230224
  */
+
+#ifndef __U_ADPD6000_H__
+#define __U_ADPD6000_H__
  
 #include <Arduino.h>
 #include "lib/ADPD6000/adi_adpd6000.h"
@@ -90,3 +93,4 @@ class ADPD6{
 
 };
 
+#endif

@@ -1,14 +1,19 @@
-#include "src/adpd/u_adpd6100.h"
-#include "src/as7341/spec_meas.h"
-#include "src/devices_init.h"
-#include "src/mlx90632/u_mlx.h"
-#include "data_utils.h"
-
+#include "PAM.h"
 static const char* TAG = "PAM";
 
-extern ADPD6 adpd;
 
-#define MAX_MEMORY_ALLOC 25000
+uint8_t adpd_mode = 0;
+adpd_current_config_t adpd_current_config;
+adpd_gains_config_t adpd_gains_config;
+
+
+// use pre-set values
+int conf_slow_FR_1(void){
+  
+  if (adpd_gains_config.init == false) ESP_LOGE(TAG, "Gain preset not initized, use default!");
+  if (adpd_current_config.init == false) ESP_LOGE(TAG, "Current preset not initized, use default!");
+  return conf_slow_FR_1(adpd_current_config.I620, adpd_current_config.I720, adpd_current_config.IR, adpd_gains_config.Fluo, adpd_gains_config.FluoRef, adpd_gains_config.Sun, adpd_gains_config.Leaf, adpd_gains_config.IR, adpd_gains_config.IRRef);
+}
 
 
 // Slow measurements with 4 time slots
@@ -22,7 +27,7 @@ extern ADPD6 adpd;
 // @param G_FR IR reflection signal gain (0 - 5)
 // @param G_FRref IR reflection reference gain (0 - 5)
 int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, uint8_t G_FluorRef, uint8_t G_Sun, uint8_t G_IR, uint8_t G_FR, uint8_t G_FRref){
-  
+
   // Setup timeslot 1: two ambient light channels, 2 x 3 bytes
   adpd.led_config.driver1_current = 0;
   adpd.led_config.driver2_current = 0;
@@ -70,6 +75,8 @@ int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, ui
   adpd.preset_config_4(6);
   adpd.preset_config_4(7);
   adpd.preset_config_4(8);
+
+  adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
 
   return 0;
 }
@@ -124,9 +131,15 @@ int run_preprocess_type1(uint8_t length, uint8_t* arr, uint16_t* data_counter){
 
 
 int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
+
+  if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
+    conf_slow_FR_1();
+    ESP_LOGW(TAG, "Run array was not configured!");
+  }
+
   const uint8_t expected_readout = 8;
   const uint8_t expected_readout_bytes = expected_readout * 3;
-  const uint8_t num_integration = 4;
+  const uint8_t num_integration = 1;
 
   // Run protocol preprecess, get storage size
   uint16_t data_count[] = {0, 0};
@@ -166,6 +179,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
   uint32_t buf_opt[4] = {0};
   uint32_t _tmparr[4] = {0};
   uint8_t _repeats = 1;
+  uint32_t light_sleep_time = 1;
 
 
   adpd.STOP();
@@ -175,6 +189,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
       arr_line_parse_type1((arr + pc * 8), &farred, &num_ptx, &freq, &actinic, &subsampling, data_count);
       adpd.run_freq(freq);
       adpd.clear_fifo();
+      light_sleep_time = (1000/freq);
       // whether use actinic IR 
       if (farred == 1){
         adpd.num_ts(9);
@@ -213,9 +228,8 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
           d_fluor->put(calc_signal(ret[2], ret[3], num_integration));       
           d_fluoRef->put(calc_signal(ret[4], ret[5], num_integration));
 
-          // d_fluor->put(ret[2]);       
+          // d_fluor->put(ret[2]);
           // d_fluoRef->put(ret[3]);
-
 
 
           // save option data?
@@ -237,19 +251,22 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
           if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
             ploter1 = calc_signal(ret[2], ret[3], num_integration);
             ploter2 = calc_signal(ret[4], ret[5], num_integration);
-            Serial.printf("%f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", (float)ploter1/ (float)ploter2, ploter1, ploter2, ret[6], ret[7], ret[0], ret[1], ret[2], ret[3],ret[4], ret[5]);
+            Serial.printf("F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", (float)ploter1/(float)ploter2, ploter1, ploter2, ret[6], ret[7], ret[0]-65000, ret[1]-65000);
           }
-
-
-
           counter++;
           watch_dog_timer = 0;
         }
-         
-        //send_data(send_arr, 16);
-        // esp_sleep_enable_timer_wakeup(wait_time * 5000);
-        // esp_light_sleep_start();
-        delay(1);               
+
+        // do light sleep
+        //esp_sleep_enable_timer_wakeup(1000);
+        if (counter + 10 < num_ptx){  // a lot of measurements
+          esp_sleep_enable_timer_wakeup(light_sleep_time * 8000);
+        }else if (counter + 2 < num_ptx){
+          esp_sleep_enable_timer_wakeup(light_sleep_time * 1000);
+        }else{
+          esp_sleep_enable_timer_wakeup(1000);
+        }
+        esp_light_sleep_start();
       }
       
       adpd.STOP();
@@ -295,6 +312,13 @@ void adpd_trigger(void){
     digitalWrite(10, LOW);
 }
 
+int MPF(uint16_t mode, uint16_t dc_current){
+  if (adpd_gains_config.init == false) ESP_LOGE(TAG, "Gain preset not initized, use default!");
+  if (adpd_current_config.init == false) ESP_LOGE(TAG, "Current preset not initized, use default!");
+  return MPF(mode, adpd_current_config.I620, dc_current, adpd_gains_config.Fluo, adpd_gains_config.FluoRef);
+
+}
+
 
 int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain, uint8_t ref_gain){
 
@@ -322,6 +346,8 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
   adpd.led_config.driver2_current = 0;
   adpd.SNR_config.TIA_gain_CH2 = ref_gain;
   adpd.SNR_config.TIA_gain_CH1 = sign_gain;
+
+  adpd_mode = ADPD_CONFIG_MODE::MPF_MODE;
 
 
    // data buffers
@@ -522,7 +548,7 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
     for (uint16_t i = 0; i < l; i++){
       ploter1 = d_fluor->pop();
       ploter2 = d_fluoRef->pop();
-      Serial.printf("%f, %d, %d\n", (float)ploter1/(float)ploter2, ploter1, ploter2);      
+      Serial.printf("F:%3.4f,S:%d,R:%d\n", (float)ploter1/(float)ploter2, ploter1, ploter2);      
     }   
   }else if (CONNECTION_TYPE == CONNECTION_TYPES::AMBYTE){
     d_fluor->send_esp(0);

@@ -9,25 +9,9 @@
 #include "src/as7341/spec_meas.h"
 #include "src/wrench.h"
 #include "data_utils.h"
+#include "PAM.h"
 
-
-//#include "src/adpd/u_adpd6100.h"
-static const char* TAG1 = "DOCMD";
-//extern ADPD6 adpd;
-
-extern uint8_t pulsed_620_current, pulsed_720_current, dc_current;
-extern uint8_t gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf;
-extern uint8_t status_run_config_set;
-
-
-
-dataclass data;
-int sandbox(uint8_t I620, uint8_t g1, uint8_t g2);
-int MPF(uint16_t mode, uint16_t current, uint16_t dc_current,uint8_t,uint8_t);
-int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, uint8_t G_FluorRef, uint8_t G_Sun, uint8_t G_IR, uint8_t G_FR, uint8_t G_FRref);
-int run_arr_type1(uint8_t length, uint8_t* arr, bool);
-
-
+static const char* TAG1 = "do_Cmd";
 
 constexpr unsigned hash(const char *string)
 {
@@ -80,6 +64,7 @@ void do_command(char *choose){
 
 
     case hash("S"):{
+      dataclass data;
       data.init(100);
       for (uint16_t i = 0; i < 100; i++){
         data.put(i);
@@ -139,24 +124,26 @@ void do_command(char *choose){
 
     case hash("set_currents"):
      {
-      pulsed_620_current = (uint8_t) Serial_Input_Long(",", 10);
-      pulsed_720_current = (uint8_t) Serial_Input_Long(",", 10);
-      dc_current = (uint8_t) Serial_Input_Long(",", 10);
-      Serial.printf("Currents set to %d, %d, %d\n", pulsed_620_current, pulsed_720_current, dc_current);
-      status_run_config_set = 0;
+      adpd_current_config.I620 = (uint8_t) Serial_Input_Long(",", 10);
+      adpd_current_config.I720 = (uint8_t) Serial_Input_Long(",", 10);
+      adpd_current_config.IR = (uint8_t) Serial_Input_Long(",", 10);
+      adpd_current_config.init = true;
+      Serial.printf("Currents set to %d, %d, %d\n", adpd_current_config.I620, adpd_current_config.I720, adpd_current_config.IR);
+      adpd_mode = ADPD_CONFIG_MODE::MPF_MODE; // not applied
      }                                                
     break;  
 
     case hash("set_gains"):
      {
-      gain_fluor = (uint8_t) Serial_Input_Long(",", 10);
-      gain_fluref = (uint8_t) Serial_Input_Long(",", 10);
-      gain_720 = (uint8_t) Serial_Input_Long(",", 10);
-      gain_720ref = (uint8_t) Serial_Input_Long(",", 10);
-      gain_sun = (uint8_t) Serial_Input_Long(",", 10);
-      gain_leaf = (uint8_t) Serial_Input_Long(",", 10);
-      Serial.printf("Gains set to %d, %d, %d, %d, %d, %d\n", gain_fluor, gain_fluref, gain_720, gain_720ref, gain_sun, gain_leaf);
-      status_run_config_set = 0;
+      adpd_gains_config.Fluo = (uint8_t) Serial_Input_Long(",", 10);
+      adpd_gains_config.FluoRef = (uint8_t) Serial_Input_Long(",", 10);
+      adpd_gains_config.IR = (uint8_t) Serial_Input_Long(",", 10);
+      adpd_gains_config.IRRef = (uint8_t) Serial_Input_Long(",", 10);
+      adpd_gains_config.Sun = (uint8_t) Serial_Input_Long(",", 10);
+      adpd_gains_config.Leaf = (uint8_t) Serial_Input_Long(",", 10);
+      adpd_gains_config.init = true;
+      Serial.printf("Gains set to %d, %d, %d, %d, %d, %d\n", adpd_gains_config.Fluo, adpd_gains_config.FluoRef, adpd_gains_config.IR, adpd_gains_config.IRRef, adpd_gains_config.Sun, adpd_gains_config.Leaf);
+      adpd_mode = ADPD_CONFIG_MODE::MPF_MODE; // not applied
      }                                                
     break;  
 
@@ -166,38 +153,37 @@ void do_command(char *choose){
 
     case hash("arrun"):
      {
-      uint8_t checksum = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t len = (uint8_t) Serial_Input_Long(",", 10);
       uint8_t arr[64] = {0};
       uint8_t tmp_8 = 0;
-      for (uint8_t i = 0; i < 8; i++){
+      for (uint8_t i = 0; i < len; i++){
         for (uint8_t j = 0; j < 8; j++){
           arr[i * 8 + j] = (uint8_t) Serial_Input_Long(",", 10);
-          tmp_8 += arr[i * 8 + j];
         }
       }
 
-      if (checksum == tmp_8){
-        Serial.println("arr checked");
-        if (status_run_config_set == 0){
-          conf_slow_FR_1(pulsed_620_current, pulsed_720_current, dc_current, gain_fluor, gain_fluref, gain_sun, gain_leaf, gain_720, gain_720ref);
-          status_run_config_set = 1;
-        }
-        run_arr_type1(8, arr, 0);
+      if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
+        conf_slow_FR_1();
+        adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
       }
-    }                                                                   
+      run_arr_type1(8, arr, 0);
+    }
       break;  
 
 
       case hash("q"):
      {
-      uint8_t arr[24] = {1, 0, 2, 0, 0, 50, 0, 1, \
-                        1, 0, 2, 0, 0, 100, 200, 1,\
-                        1, 0, 2, 0, 0, 50, 0, 1};
+      uint8_t a = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t b = (uint8_t) Serial_Input_Long(",", 10);
+      
+      uint8_t arr[24] = {1, 0, 2, 0, 0, a, 0, 1, \
+                        1, 0, 2, 0, 0, a, b, 1,\
+                        1, 0, 2, 0, 0, a, 0, 1};
 
       CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
-      if (status_run_config_set == 0){
-        conf_slow_FR_1(pulsed_620_current, pulsed_720_current, dc_current, gain_fluor, gain_fluref, gain_sun, gain_leaf, gain_720, gain_720ref);
-        status_run_config_set = 1;
+      if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
+        conf_slow_FR_1();
+        adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
       }
       run_arr_type1(3, arr, 0);
       CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
@@ -210,8 +196,8 @@ void do_command(char *choose){
       uint8_t m = (uint8_t) Serial_Input_Long(",", 10);
 
       CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
-      MPF(m, pulsed_620_current, 0, gain_fluor, gain_fluref);
-      status_run_config_set = 0;
+      MPF(m, 0);
+      adpd_mode = ADPD_CONFIG_MODE::MPF_MODE;
       CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
       
     }                                                                   
@@ -220,104 +206,18 @@ void do_command(char *choose){
    
 
 
-      case hash("sd"):
-     {
-       sandbox(pulsed_620_current, gain_fluor, 4);
-       Serial.println("Cmd Done!");
-    }                                                                   
-      break;
-
-    //   int detector_preset_1(uint8_t current, uint8_t gain_fluo, uint8_t gain_ref, uint8_t gain_par_ir, uint8_t gain_par_vis);
-
-    //   case hash("config"):
+    //   case hash("sd"):
     //  {
-    //   uint8_t current = Serial_Input_Long(",", 100);
-    //   uint8_t gain_fluo = Serial_Input_Long(",", 100);
-    //   uint8_t gain_ref = Serial_Input_Long(",", 100);
-    //   uint8_t gain_par_ir = Serial_Input_Long(",", 100);
-    //   uint8_t gain_par_vis = Serial_Input_Long(",", 100);
-    //   detector_preset_1(current, gain_fluo, gain_ref, gain_par_ir, gain_par_vis);
-
+    //    sandbox(pulsed_620_current, gain_fluor, 4);
+    //    Serial.println("Cmd Done!");
     // }                                                                   
     //   break;
-
-    //   int run_arr(uint8_t length, uint8_t* arr);
-
-    //   case hash("run"):
-    //  {
-    //   uint8_t cycles = Serial_Input_Long(",", 100);
-    //   ESP_LOGV(TAG1,"cycles:%d", cycles);
-
-
-    //   uint8_t arr[cycles * 8] = {};
-    //   long _tmp = 0;
-    //   bool load_arr = false;
-    //   uint16_t num = cycles * 8;
-    //   for (uint16_t n = 0; n < num; n++){
-    //     _tmp = Serial_Input_Long(",", 100);
-    //     if ((_tmp >= 0) && (_tmp < 256)){
-    //       arr[n] = (uint8_t) _tmp;
-    //     }
-    //     else{
-    //       ESP_LOGV(TAG1,"ARR BAD", cycles);
-    //       break;
-    //     }
-    //     load_arr = true;
-    //   }
-    //   if (load_arr){
-
-    //     run_arr(cycles, arr);
-    //   }
-      
-    // }                                                                   
-    //   break;
-
 
        case hash("reboot"):
       {
         ESP.restart();
       }
       break;
-
-
-      int wait_for_response_clear(const char* s, uint8_t slen, uint8_t timeout);
-      void write32(uint32_t v);
-      
-
-      case hash("add"):
-      {
-        uint16_t l = Serial_Input_Long(",", 100);
-        data.put(l);
-      }
-      break;
-
-      case hash("pop"):
-      {
-        uint32_t l = 0;
-        data.pop(&l);
-        Serial.println(l);
-      }
-      break;
-
-      case hash("len"):
-      {
-        
-        Serial.println(data.get_length());
-      }
-      break;
-
-        case hash("printall"):
-      {
-        data.print_all();
-      }
-      break;
-
-      case hash("del"):
-      {
-        delete &data;
-      }
-      break;
-
 
       case hash("test"):
       {

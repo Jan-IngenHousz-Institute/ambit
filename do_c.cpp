@@ -1,21 +1,19 @@
 #include "src/wrench.h"
 #include "src/mlx90632/u_mlx.h"
 #include "src/as7341/spec_meas.h"
-
+#include "PAM.h"
 #define WR_MAX_ARR 640
 static const char* TAG = "DO_C";
 
-uint8_t pulsed_620_current = 110;
-uint8_t pulsed_720_current = 50, dc_current = 50;
-uint8_t gain_fluor = 1;
-uint8_t gain_fluref = 5, gain_720 = 5, gain_720ref = 1, gain_sun = 5, gain_leaf = 4;
-uint8_t status_run_config_set = 0;
 
 
-double get_PAR();
-int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, uint8_t G_FluorRef, uint8_t G_Sun, uint8_t G_IR, uint8_t G_FR, uint8_t G_FRref);
-int run_arr_type1(uint8_t length, uint8_t* arr, bool);
-int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain, uint8_t ref_gain);
+
+// local settings for c parser
+static uint8_t pulsed_620_current = 110;
+static uint8_t pulsed_720_current = 50, dc_current = 50;
+static uint8_t gain_fluor = 1;
+static uint8_t gain_fluref = 5, gain_720 = 5, gain_720ref = 1, gain_sun = 5, gain_leaf = 4;
+
 
 // Run array operations ---------------------------------------------
 uint8_t wr_run_arr[WR_MAX_ARR] = {0};
@@ -78,9 +76,9 @@ static void arr_set(WRContext* c,const WRValue* argv,const int argn, WRValue& re
 }
 
 static void run(WRContext* c,const WRValue* argv,const int argn, WRValue& retVal, void* usr){
-    if (status_run_config_set == 0){
+    if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
         conf_slow_FR_1(pulsed_620_current, pulsed_720_current, dc_current, gain_fluor, gain_fluref, gain_sun, gain_leaf, gain_720, gain_720ref);
-        status_run_config_set = 1;
+        adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
     }
 
     if (argn == 2){
@@ -137,13 +135,13 @@ static void detector_preset(WRContext* c,const WRValue* argv,const int argn, WRV
     if (argn == 9){
         conf_slow_FR_1((uint8_t)argv[0].asInt(), (uint8_t)argv[1].asInt(), (uint8_t)argv[2].asInt(), (uint8_t)argv[3].asInt(), \
         (uint8_t)argv[4].asInt(), (uint8_t)argv[5].asInt(), (uint8_t)argv[6].asInt(), (uint8_t)argv[7].asInt(), (uint8_t)argv[8].asInt());
-        status_run_config_set = 1;
+        adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
         ESP_LOGV(TAG,"ADPD detector preset with current: %d", (uint8_t) argv[0].asInt());
         return;
     }
     else if(argn == 0){
         conf_slow_FR_1(pulsed_620_current, pulsed_720_current, dc_current, gain_fluor, gain_fluref, gain_sun, gain_leaf, gain_720, gain_720ref);
-        status_run_config_set = 1;
+        adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
         ESP_LOGV(TAG, "ADPD detector preset with stored values");
     }
     else{
@@ -178,7 +176,7 @@ static void run_mpf(WRContext* c,const WRValue* argv,const int argn, WRValue& re
         uint8_t mode = (uint8_t)argv[0].asInt();
         uint8_t actinic = (uint8_t)argv[1].asInt();
         MPF(mode, pulsed_620_current, actinic, gain_fluor, gain_fluref);
-        status_run_config_set= 0;
+        adpd_mode = ADPD_CONFIG_MODE::MPF_MODE;
     }else{
         ESP_LOGE(TAG, "MPF, Get: %d of arguments", argn);
     }
