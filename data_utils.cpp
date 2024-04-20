@@ -3,6 +3,41 @@
 
 static const char* TAG = "DATA_UTIL";
 
+static int read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false){
+    unsigned long start_t = millis();
+    uint8_t counter, b = 0;
+
+    while (((millis() - start_t) < timeout)){
+        if (Serial.available() > 0){
+            b = Serial.peek();
+            if (b == target1){
+                if (remove) Serial.read();
+                return 1;
+            } else if ((target2 > 0) && (b == target2)){
+                if (remove) Serial.read();
+                return 2;
+            } else if ((target3 > 0) && (b == target3)){
+                if (remove) Serial.read();
+                return 3;
+            }
+        
+            b = Serial.read();            
+            if (b > 127){
+                Serial.print(b);
+            }else{
+                Serial.write(b);
+            }            
+        }
+        else{
+            delayMicroseconds(10);
+        }
+    }
+    return -1;
+}
+
+
+
+
 dataclass::dataclass(){
     dataclass::available = false;
     dataclass::write_available = false;
@@ -250,32 +285,31 @@ static int wait_for_cmd(uint8_t cmd, uint16_t timeout, uint8_t cmd2 = 0){
 
 
 int dataclass::send_esp(uint8_t arr_num){
-    int _tmp;
+    int _tmp = 0;
     uint8_t ambyte_status, target = 0;
     unsigned int timer1 = 0;
-    Serial.setTimeout(50);
     uint16_t tmp_var = dataclass::get_length();
     if (tmp_var == 0) return 0;
     
     //--- step one, wake up ambyte
     timer1 = millis();
-    target = AMBYTE_AWAKE;
-    for (uint8_t i = 0; i < 5; i++){
-        ESP_LOGV(TAG, "#%d wakeup call", i);
-        Serial.write(WAKE_AMBYTE);
-        delay(20);        
-        if (wait_for_cmd(AMBYTE_AWAKE, 50) == 0){
-            Serial.read();
+    ESP_LOGV(TAG, "Wake up calls");
+    Serial.write(211);
+    for (uint8_t i = 0; i < 25; i++){        
+        Serial.write(211);
+        _tmp = read_until(210, 170, 0, 45, true);
+        if (_tmp == 1){
             ambyte_status = AMBYTE_STATUS::AWAKE;
             ESP_LOGV(TAG, "Wake response in %d ms", millis() - timer1);
             break;
-        }
+        }      
     }
 
     if (ambyte_status != AMBYTE_STATUS::AWAKE){
         ESP_LOGE(TAG, "Awake failed");
         return -1;
     }
+
 
     //------------------------------
     //--- step two, send array type and length
@@ -285,19 +319,21 @@ int dataclass::send_esp(uint8_t arr_num){
     arr[4] = (((tmp_var) & 0xFF));
     for (uint8_t i = 0; i < 7; i++) arr[7] += arr[i];
     
-    timer1 = millis();
-    target = AMBYTE_READY_FOR_ARRAY;
-    
-    for (uint8_t i = 0; i < 3; i++){
-        ESP_LOGV(TAG, "#%d data call", i);
+    ESP_LOGV(TAG, "Send length");
+    _tmp = 0;
+    for (uint8_t i = 0; i < 25; i++){
         Serial.write(arr, 8);
-        delay(5);
-        if (wait_for_cmd(AMBYTE_READY_FOR_ARRAY, 25) == 0){
-            Serial.read();
+        _tmp = read_until(200, 210, 222, 50, true);
+        if (_tmp == 1){
             ambyte_status = AMBYTE_STATUS::WAIT_FOR_DATA;
-            //ESP_LOGV(TAG, "ready for data %d", millis() - timer1);
             break;
-        };
+        }else if (_tmp == 2){
+            continue;
+        }else if (_tmp == 3){
+            ESP_LOGE(TAG, "Ambyte askes for restart, TODO");
+            return -1;
+        }
+
     }
 
     if (ambyte_status != AMBYTE_STATUS::WAIT_FOR_DATA){
@@ -316,11 +352,10 @@ int dataclass::send_esp(uint8_t arr_num){
         this->send(send_binary_array, &arr[3]);
         Serial.write(arr, 4);
         ESP_LOGV(TAG, "Spend %d ms sending %d data", millis() - timer1, tmp_var);
-        delay(5);
-        _tmp = wait_for_cmd(180, 50, 200);
-        Serial.read();
-        if (_tmp == 0) return 0;
-        if (_tmp == 1) continue;
+        _tmp = read_until(180, 200, 222, 50, true);
+        Serial.read(); 
+        if (_tmp == 1) return 0;
+        if (_tmp == 2) continue;
         if (_tmp == -1) return -1;        
     }
 
