@@ -43,6 +43,9 @@ void setup(){
     gpio_sleep_set_direction(GPIO_NUM_20, GPIO_MODE_INPUT);
     gpio_sleep_set_pull_mode(GPIO_NUM_20, GPIO_PULLUP_ONLY);
 
+    gpio_sleep_set_direction(GPIO_NUM_1, GPIO_MODE_OUTPUT);
+    gpio_sleep_set_pull_mode(GPIO_NUM_1, GPIO_PULLDOWN_ONLY);
+
     //esp_sleep_enable_timer_wakeup(1000000);
 }
 

@@ -286,12 +286,12 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
     d_730Ref->send_serial("730ref");
     Serial.println("Data sent");
   }else if(CONNECTION_TYPE == CONNECTION_TYPES::AMBYTE){
-    d_fluor->send_esp(0);
-    d_fluoRef->send_esp(1);
-    d_sun->send_esp(2);
-    d_leaf->send_esp(3);
-    d_730->send_esp(4);
-    d_730Ref->send_esp(5);
+    d_fluor->fsm_send_esp(0);
+    d_fluoRef->fsm_send_esp(1);
+    d_sun->fsm_send_esp(2);
+    d_leaf->fsm_send_esp(3);
+    d_730->fsm_send_esp(4);
+    d_730Ref->fsm_send_esp(5);
   }
 
   delete d_fluor;
@@ -551,8 +551,8 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
       Serial.printf("F:%3.4f,S:%d,R:%d\n", (float)ploter1/(float)ploter2, ploter1, ploter2);      
     }   
   }else if (CONNECTION_TYPE == CONNECTION_TYPES::AMBYTE){
-    d_fluor->send_esp(0);
-    d_fluoRef->send_esp(1);
+    d_fluor->fsm_send_esp(0);
+    d_fluoRef->fsm_send_esp(1);
   }
   else{
     d_fluor->send_serial("Fluo");

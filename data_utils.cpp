@@ -3,6 +3,9 @@
 
 static const char* TAG = "DATA_UTIL";
 
+
+// return 1, 2, 3
+// or -1
 static int read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false){
     unsigned long start_t = millis();
     uint8_t counter, b = 0;
@@ -246,121 +249,225 @@ void dataclass::send_serial(const char* tag){
     return;
 }
 
-enum AMBYTE_STATUS {
-    IDEL,
-    AWAKE,
-    WAIT_FOR_DATA,
-};
-
 static void send_binary_array(uint32_t* arr, uint16_t len){
     Serial.write((uint8_t*) arr, len * 4);
 }
 
-static int wait_for_cmd(uint8_t cmd, uint16_t timeout, uint8_t cmd2 = 0){
-    unsigned long start_t = millis();
-    uint8_t counter, b = 0;
 
-    while (((millis() - start_t) < timeout)){
-        if (Serial.available() > 0){
-            b = Serial.peek();
-            if (b == cmd){
-                return 0;
-            }else if ((b == cmd2) && (cmd2 > 127)){
-                return 1;
-            }
-            else{
-                if (b < 127){
-                    Serial.write(Serial.read());
-                }else{
-                    Serial.print(Serial.read());
-                }
-            }
-        }
-        else{
-            delay(1);
-        }
+int dataclass::fsm_wake_up_calls(void){
+    if (this->data_fsm_state != DATA_STATUS::WAKEUPCALLS) return -1;
+    if (this->_num_wake_up_calls > 20) return -9;
+    unsigned int timer1 = millis();
+    ESP_LOGV(TAG, "Wake up calls");
+    this->_num_wake_up_calls += 1;
+    
+    read_until(130, 0, 0, 50, true);
+    Serial.write(WAKE_AMBYTE);
+
+    int ret = read_until(AMBYTE_AWAKE, AMBYTE_CALLS, AMBYTE_CALLFORRESET, 100, false);
+    if (ret == 1){
+        this->data_fsm_state = DATA_STATUS::LENGTHARRAY;
+        ESP_LOGV(TAG, "Ambyte awake in %d ms", millis() - timer1);
+        return 0;
+    }else if (ret == 2){
+        ESP_LOGE(TAG, "Wake up failed, Ambyte gave up?");
+        Serial.read();
+        return -2;
+    }else if (ret == 3){
+        ESP_LOGE(TAG, "Ambyte calls for re-start");
+        Serial.read();
+        return 0;
     }
-    return -1;
 }
 
-
-int dataclass::send_esp(uint8_t arr_num){
-    int _tmp = 0;
-    uint8_t ambyte_status, target = 0;
-    unsigned int timer1 = 0;
+int dataclass::fsm_send_length_info(uint8_t arr_idx){
+    if (this->data_fsm_state != DATA_STATUS::LENGTHARRAY) return -1;
+    unsigned int timer1 = millis();
+    ESP_LOGV(TAG, "Length array");
+    int ret = read_until(AMBYTE_AWAKE, 0, 0, 100, true);
+    if (ret != 1){
+        ESP_LOGE(TAG, "Status not match: length");
+        this->data_fsm_state = DATA_STATUS::WAKEUPCALLS;
+        return 0;
+    }
     uint16_t tmp_var = dataclass::get_length();
-    if (tmp_var == 0) return 0;
-    
-    //--- step one, wake up ambyte
-    timer1 = millis();
-    ESP_LOGV(TAG, "Wake up calls");
-    Serial.write(211);
-    for (uint8_t i = 0; i < 25; i++){        
-        Serial.write(211);
-        _tmp = read_until(210, 170, 0, 45, true);
-        if (_tmp == 1){
-            ambyte_status = AMBYTE_STATUS::AWAKE;
-            ESP_LOGV(TAG, "Wake response in %d ms", millis() - timer1);
-            break;
-        }      
-    }
-
-    if (ambyte_status != AMBYTE_STATUS::AWAKE){
-        ESP_LOGE(TAG, "Awake failed");
-        return -1;
-    }
-
-
-    //------------------------------
-    //--- step two, send array type and length
-    // 150, array number, sizeH, sizeL, 0, checksum
-    uint8_t arr[8] = {212, 150, arr_num, 0, 0, 0, 0, 0};
+    uint8_t arr[8] = {212, 150, arr_idx, 0, 0, 0, 0, 0};
     arr[3] = ((tmp_var >> 8) & 0xFF);
     arr[4] = (((tmp_var) & 0xFF));
     for (uint8_t i = 0; i < 7; i++) arr[7] += arr[i];
-    
-    ESP_LOGV(TAG, "Send length");
-    _tmp = 0;
-    for (uint8_t i = 0; i < 25; i++){
-        Serial.write(arr, 8);
-        _tmp = read_until(200, 210, 222, 50, true);
-        if (_tmp == 1){
-            ambyte_status = AMBYTE_STATUS::WAIT_FOR_DATA;
-            break;
-        }else if (_tmp == 2){
-            continue;
-        }else if (_tmp == 3){
-            ESP_LOGE(TAG, "Ambyte askes for restart, TODO");
-            return -1;
-        }
+    Serial.write(arr, 8);
+    ret = read_until(AMBYTE_READY_FOR_ARRAY, AMBYTE_AWAKE, AMBYTE_CALLFORRESET, 200, false);
+    // ambyte ready for data, no extra byte to send
 
+    if (ret == 1){
+        this->data_fsm_state = DATA_STATUS::SENDDATA;
+        return 0;
+    }else if (ret == 2){
+        ESP_LOGE(TAG, "Ambyte returns multiple awakes");
+        return 0;
+    }else if (ret == 3){
+        ESP_LOGE(TAG, "Ambyte calls for re-start");
+        Serial.read();
+        this->data_fsm_state = DATA_STATUS::WAKEUPCALLS;
+        return 0;
+    }else{
+        return 0;
     }
-
-    if (ambyte_status != AMBYTE_STATUS::WAIT_FOR_DATA){
-        ESP_LOGE(TAG, "Not available for data");
-        return -1;
-    }
-
-    //--------------------------------
-    // --- step three, send data
-    // 151, res, res, res 4 bytes array
-    
-    for (uint8_t n = 0; n < 3; n++){
-        memset(arr, 0, sizeof(arr));
-        arr[0] = 212;
-        timer1 = millis();
-        this->send(send_binary_array, &arr[3]);
-        Serial.write(arr, 4);
-        ESP_LOGV(TAG, "Spend %d ms sending %d data", millis() - timer1, tmp_var);
-        _tmp = read_until(180, 200, 222, 50, true);
-        Serial.read(); 
-        if (_tmp == 1) return 0;
-        if (_tmp == 2) continue;
-        if (_tmp == -1) return -1;        
-    }
-
-    return -1;
 }
+
+int dataclass::fsm_send_data(void){
+    if (this->data_fsm_state != DATA_STATUS::SENDDATA) return -1;
+    if (this->_num_checksum_err > 6) return -10;
+    unsigned int timer1 = millis();
+    int ret = read_until(AMBYTE_READY_FOR_ARRAY, 0, 0, 100, true);
+    if (ret != 1){
+        ESP_LOGE(TAG, "Status not match: data");
+        this->data_fsm_state = DATA_STATUS::WAKEUPCALLS;
+        return 0;
+    }
+    uint8_t arr[4] = {212, 0, 0, 0};
+    this->send(send_binary_array, &arr[3]);
+    Serial.write(arr, 4);
+    Serial.flush();
+    this->_num_checksum_err += 1;
+    ret = read_until(AMBYTE_DATA_PASS, AMBYTE_READY_FOR_ARRAY, AMBYTE_CALLFORRESET, 200, false);
+    if (ret == 1){
+        this->data_fsm_state = DATA_STATUS::COMPLETED;
+        Serial.read();
+        ESP_LOGV(TAG, "Data sent in %d ms", millis() - timer1);
+        return 0;
+    }else if (ret = 1){
+        ESP_LOGE(TAG, "Ambyte asked for resending");
+        return 0;
+    }else if (ret == 3){
+        ESP_LOGE(TAG, "Ambyte calls for re-start");
+        Serial.read();
+        this->data_fsm_state = DATA_STATUS::WAKEUPCALLS;
+        return 0;
+    }
+    else{
+        ESP_LOGE(TAG, "Unknown response");
+        Serial.read();
+        this->data_fsm_state = DATA_STATUS::WAKEUPCALLS;
+        return 0;
+    }
+}
+
+int dataclass::fsm_send_esp(uint8_t arr_idx){
+    int ret = 0;
+    bool running = true;
+    unsigned int timer1 = millis();
+
+    while ((running) && ((millis() - timer1) < 2000)){
+        switch (this->data_fsm_state)
+        {
+        case DATA_STATUS::WAKEUPCALLS:
+            ret = this->fsm_wake_up_calls();
+            if (ret < 0) return ret;
+            break;
+        
+        case DATA_STATUS::LENGTHARRAY:
+            ret = this->fsm_send_length_info(arr_idx);
+            if (ret < 0) return ret;
+            break;
+
+        case DATA_STATUS::SENDDATA:
+            ret = this->fsm_send_data();
+            if (ret < 0) return ret;
+            break;
+
+        case DATA_STATUS::COMPLETED:
+            running = false;
+            break;
+        default:
+            break;
+        }
+    }
+    ESP_LOGV(TAG, "DATA sending succuss in %d ms", millis() - timer1);
+    return 1;
+}
+
+
+
+
+
+// int dataclass::send_esp(uint8_t arr_num){
+//     int _tmp = 0;
+//     uint8_t ambyte_status, target = 0;
+//     unsigned int timer1 = 0;
+//     uint16_t tmp_var = dataclass::get_length();
+//     if (tmp_var == 0) return 0;
+    
+//     //--- step one, wake up ambyte
+//     timer1 = millis();
+//     ESP_LOGV(TAG, "Wake up calls");
+//     Serial.write(211);
+//     for (uint8_t i = 0; i < 25; i++){        
+//         Serial.write(211);
+//         _tmp = read_until(210, 170, 0, 45, true);
+//         if (_tmp == 1){
+//             ambyte_status = AMBYTE_STATUS::AWAKE;
+//             ESP_LOGV(TAG, "Wake response in %d ms", millis() - timer1);
+//             break;
+//         }      
+//     }
+
+//     if (ambyte_status != AMBYTE_STATUS::AWAKE){
+//         ESP_LOGE(TAG, "Awake failed");
+//         return -1;
+//     }
+
+
+//     //------------------------------
+//     //--- step two, send array type and length
+//     // 150, array number, sizeH, sizeL, 0, checksum
+//     uint8_t arr[8] = {212, 150, arr_num, 0, 0, 0, 0, 0};
+//     arr[3] = ((tmp_var >> 8) & 0xFF);
+//     arr[4] = (((tmp_var) & 0xFF));
+//     for (uint8_t i = 0; i < 7; i++) arr[7] += arr[i];
+    
+//     ESP_LOGV(TAG, "Send length");
+//     _tmp = 0;
+//     for (uint8_t i = 0; i < 25; i++){
+//         Serial.write(arr, 8);
+//         _tmp = read_until(200, 210, 222, 50, true);
+//         if (_tmp == 1){
+//             ambyte_status = AMBYTE_STATUS::WAIT_FOR_DATA;
+//             break;
+//         }else if (_tmp == 2){
+//             continue;
+//         }else if (_tmp == 3){
+//             ESP_LOGE(TAG, "Ambyte askes for restart, TODO");
+//             return -1;
+//         }
+
+//     }
+
+//     if (ambyte_status != AMBYTE_STATUS::WAIT_FOR_DATA){
+//         ESP_LOGE(TAG, "Not available for data");
+//         return -1;
+//     }
+
+//     //--------------------------------
+//     // --- step three, send data
+//     // 151, res, res, res 4 bytes array
+    
+//     for (uint8_t n = 0; n < 3; n++){
+//         memset(arr, 0, sizeof(arr));
+//         arr[0] = 212;
+//         timer1 = millis();
+//         this->send(send_binary_array, &arr[3]);
+//         Serial.write(arr, 4);
+//         ESP_LOGV(TAG, "Spend %d ms sending %d data", millis() - timer1, tmp_var);
+//         _tmp = read_until(180, 200, 222, 50, true);
+//         Serial.read(); 
+//         if (_tmp == 1) return 0;
+//         if (_tmp == 2) continue;
+//         if (_tmp == -1) return -1;        
+//     }
+
+//     return -1;
+// }
 
 
 
@@ -383,61 +490,61 @@ void dataclass::print_all(void){
 #endif
 
 
-int wait_for_response_clear(const char* s, uint8_t slen, uint8_t timeout){
-    unsigned long timer1 = millis();
-    uint16_t n = 0;
-    Serial.setTimeout(timeout);
+// int wait_for_response_clear(const char* s, uint8_t slen, uint8_t timeout){
+//     unsigned long timer1 = millis();
+//     uint16_t n = 0;
+//     Serial.setTimeout(timeout);
 
-    if (Serial.find(s, slen)){
-        //ESP_LOGI(TAG, "Responsed in %d ms\n",  millis() - timer1);
-        while(Serial.available()){
-            Serial.read();
-            n += 1;
-        }
-        if (n > 0) ESP_LOGW(TAG, "received %d unexpected bytes after %s", n, s);
-        return 0;
-    }
-    return -1;
-}
+//     if (Serial.find(s, slen)){
+//         //ESP_LOGI(TAG, "Responsed in %d ms\n",  millis() - timer1);
+//         while(Serial.available()){
+//             Serial.read();
+//             n += 1;
+//         }
+//         if (n > 0) ESP_LOGW(TAG, "received %d unexpected bytes after %s", n, s);
+//         return 0;
+//     }
+//     return -1;
+// }
 
-bool send_and_wait_rsp(const char *s, const char *r, uint8_t rlen, uint8_t timeout){
-    Serial.println(s);
-    uint8_t i = wait_for_response_clear(r, rlen, timeout);
-    if (i == 0) return true;
-    return false;
-}
+// bool send_and_wait_rsp(const char *s, const char *r, uint8_t rlen, uint8_t timeout){
+//     Serial.println(s);
+//     uint8_t i = wait_for_response_clear(r, rlen, timeout);
+//     if (i == 0) return true;
+//     return false;
+// }
 
-void write32(uint32_t v){
-    uint8_t a = (v) & 0xFF;
-    uint8_t b = ((v) >> 8) & 0xFF;
-    uint8_t c = ((v) >> 16) & 0xFF;
-    uint8_t d = ((v) >> 24) & 0xFF;
-    Serial.write(d);
-    Serial.write(c);
-    Serial.write(b);
-    Serial.write(a);
-    return;
-}
+// void write32(uint32_t v){
+//     uint8_t a = (v) & 0xFF;
+//     uint8_t b = ((v) >> 8) & 0xFF;
+//     uint8_t c = ((v) >> 16) & 0xFF;
+//     uint8_t d = ((v) >> 24) & 0xFF;
+//     Serial.write(d);
+//     Serial.write(c);
+//     Serial.write(b);
+//     Serial.write(a);
+//     return;
+// }
 
-void send_data(uint32_t* arr, uint16_t len){
+// void send_data(uint32_t* arr, uint16_t len){
 
-    char c[10];
+//     char c[10];
 
-    // Wake up sleep device
-    if (send_and_wait_rsp("Wake!", "Ready", 5, 10)){        
-        // send data size
-        sprintf(c, "%d", len);
-        if (send_and_wait_rsp(c, "GO", 2, 10)){
-          uint32_t checksum = 0;
-          for (uint16_t n = 0; n < len; n++){
-            write32((uint32_t) arr[n]);
-            checksum += arr[n];
-          }
-          write32(checksum);          
-          send_and_wait_rsp("DONE", "Check", 5, 10);
-        }               
-       }
-}
+//     // Wake up sleep device
+//     if (send_and_wait_rsp("Wake!", "Ready", 5, 10)){        
+//         // send data size
+//         sprintf(c, "%d", len);
+//         if (send_and_wait_rsp(c, "GO", 2, 10)){
+//           uint32_t checksum = 0;
+//           for (uint16_t n = 0; n < len; n++){
+//             write32((uint32_t) arr[n]);
+//             checksum += arr[n];
+//           }
+//           write32(checksum);          
+//           send_and_wait_rsp("DONE", "Check", 5, 10);
+//         }               
+//        }
+// }
 
 /*
     insert a number to an array with order

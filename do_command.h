@@ -69,7 +69,7 @@ void do_command(char *choose){
       for (uint16_t i = 0; i < 100; i++){
         data.put(i);
       }      
-      data.send_esp(0);
+      //data.send_esp(0);
       data.clear();
 
       for (uint16_t i = 0; i < 100; i++){
@@ -78,7 +78,7 @@ void do_command(char *choose){
 
       delay(1000);
 
-      data.send_esp(1);
+      //data.send_esp(1);
       data.clear();
 
 
@@ -87,7 +87,7 @@ void do_command(char *choose){
       }
 
       delay(1000);
-      data.send_esp(2);
+      //data.send_esp(2);
       data.clear();
 
 
