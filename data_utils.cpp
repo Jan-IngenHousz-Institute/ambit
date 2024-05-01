@@ -261,7 +261,7 @@ int dataclass::fsm_wake_up_calls(void){
     ESP_LOGV(TAG, "Wake up calls");
     this->_num_wake_up_calls += 1;
     
-    read_until(130, 0, 0, 50, true);
+    read_until(AMBYTE_CALLS, 0, 0, 50, true);
     Serial.write(WAKE_AMBYTE);
 
     int ret = read_until(AMBYTE_AWAKE, AMBYTE_CALLS, AMBYTE_CALLFORRESET, 100, false);
