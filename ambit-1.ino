@@ -76,8 +76,6 @@ void loop(){
                 Serial.write(128);
                 Serial.flush();
             }
-            
-
         }
     }
     
