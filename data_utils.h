@@ -15,6 +15,11 @@
 #define AMBYTE_READY_FOR_ARRAY 200
 #define AMBYTE_DATA_PASS 180
 
+#define ERR_CHECKSUM_FAILED -10
+#define ERR_TOO_MANY_WKUP -4
+#define ERR_TOO_MANY_RETRY -9
+#define ERR_LOST_SYNC -2
+
 enum DATA_STATUS {  
     WAKEUPCALLS,
     LENGTHARRAY,
@@ -76,4 +81,6 @@ bool send_and_wait_rsp(const char *s, const char *r, uint8_t rlen, uint8_t timeo
 void send_data(uint32_t* arr, uint16_t len);
 void sorted_insert(uint32_t arr[], uint16_t length, uint32_t c);
 uint32_t calc_signal(uint32_t, uint32_t, uint8_t);
+
+
 #endif

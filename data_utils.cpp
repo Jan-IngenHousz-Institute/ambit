@@ -6,7 +6,7 @@ static const char* TAG = "DATA_UTIL";
 
 // return 1, 2, 3
 // or -1
-static int read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false){
+int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false){
     unsigned long start_t = millis();
     uint8_t counter, b = 0;
 
@@ -38,6 +38,28 @@ static int read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0,
     return -1;
 }
 
+uint16_t flush_serial(uint8_t timeout){    
+    uint16_t c = 0;
+    uint8_t r = 0;
+    delay(1);
+    unsigned long start_t = millis();
+    if (Serial.available() < 1) return 0;
+
+    while (((millis() - start_t) < timeout)){
+        if (Serial.available() > 0){
+            r = Serial.read();
+            if (r < 127) {
+                Serial.write(r);
+            }else{
+                Serial.print(r);
+            }            
+            c += 1;
+        }else{
+            break;
+        }
+    }
+    return c;
+}
 
 
 
@@ -255,38 +277,52 @@ static void send_binary_array(uint32_t* arr, uint16_t len){
 
 
 int dataclass::fsm_wake_up_calls(void){
+    ESP_LOGD(TAG, " ");
     if (this->data_fsm_state != DATA_STATUS::WAKEUPCALLS) return -1;
-    if (this->_num_wake_up_calls > 20) return -9;
-    unsigned int timer1 = millis();
-    ESP_LOGV(TAG, "Wake up calls");
-    this->_num_wake_up_calls += 1;
-    
-    read_until(AMBYTE_CALLS, 0, 0, 50, true);
-    Serial.write(WAKE_AMBYTE);
+    if (this->_num_wake_up_calls > 4) return ERR_TOO_MANY_WKUP;
+    if (this->num_retry > 4) return ERR_TOO_MANY_RETRY;
 
-    int ret = read_until(AMBYTE_AWAKE, AMBYTE_CALLS, AMBYTE_CALLFORRESET, 100, false);
-    if (ret == 1){
+
+    unsigned int timer1 = millis();
+    this->_num_wake_up_calls += 1;
+    this->num_retry += 1;
+
+    Serial.println("W");
+    flush_serial(10); // remove serial buffer
+
+    // potential status
+    //1. Normal: run finished, ambyte sleep
+    //2. Ambyte 170 CMD: Lost_sync, return to Idle
+    //3. Ambyte 222 reset: Re-do the data send. Re-try + 1
+    
+    Serial.write(WAKE_AMBYTE);  // send run-finished, data-ready code
+    int ret = serial_read_until(AMBYTE_AWAKE, AMBYTE_CALLS, AMBYTE_CALLFORRESET, 100, false);
+    if (ret == 1){ // Normal
         this->data_fsm_state = DATA_STATUS::LENGTHARRAY;
-        ESP_LOGV(TAG, "Ambyte awake in %d ms", millis() - timer1);
+        ESP_LOGV(TAG, "Ambyte awake in %d ms with %d tries", millis() - timer1, this->_num_wake_up_calls);
+        this->_num_wake_up_calls = 0;
         return 0;
-    }else if (ret == 2){
-        ESP_LOGE(TAG, "Wake up failed, Ambyte gave up?");
+    }else if (ret == 2){ // Lost sync
+        ESP_LOGE(TAG, "ERR_LOST_SYNC");
         Serial.read();
-        return -2;
+        return ERR_LOST_SYNC;
     }else if (ret == 3){
         ESP_LOGE(TAG, "Ambyte calls for re-start");
         Serial.read();
+        return 0;
+    }else{ // no response, re-try until timeout
         return 0;
     }
 }
 
 int dataclass::fsm_send_length_info(uint8_t arr_idx){
+    ESP_LOGD(TAG, " ");
     if (this->data_fsm_state != DATA_STATUS::LENGTHARRAY) return -1;
     unsigned int timer1 = millis();
-    ESP_LOGV(TAG, "Length array");
-    int ret = read_until(AMBYTE_AWAKE, 0, 0, 100, true);
+    
+    int ret = serial_read_until(AMBYTE_AWAKE, 0, 0, 100, true);
     if (ret != 1){
-        ESP_LOGE(TAG, "Status not match: length");
+        ESP_LOGE(TAG, "Status not match: length got %d", ret);
         this->data_fsm_state = DATA_STATUS::WAKEUPCALLS;
         return 0;
     }
@@ -295,15 +331,16 @@ int dataclass::fsm_send_length_info(uint8_t arr_idx){
     arr[3] = ((tmp_var >> 8) & 0xFF);
     arr[4] = (((tmp_var) & 0xFF));
     for (uint8_t i = 0; i < 7; i++) arr[7] += arr[i];
+    flush_serial(5);
     Serial.write(arr, 8);
-    ret = read_until(AMBYTE_READY_FOR_ARRAY, AMBYTE_AWAKE, AMBYTE_CALLFORRESET, 200, false);
+    ret = serial_read_until(AMBYTE_READY_FOR_ARRAY, 0, AMBYTE_CALLFORRESET, 200, false);
     // ambyte ready for data, no extra byte to send
 
     if (ret == 1){
         this->data_fsm_state = DATA_STATUS::SENDDATA;
         return 0;
     }else if (ret == 2){
-        ESP_LOGE(TAG, "Ambyte returns multiple awakes");
+        ESP_LOGE(TAG, "del");
         return 0;
     }else if (ret == 3){
         ESP_LOGE(TAG, "Ambyte calls for re-start");
@@ -311,32 +348,36 @@ int dataclass::fsm_send_length_info(uint8_t arr_idx){
         this->data_fsm_state = DATA_STATUS::WAKEUPCALLS;
         return 0;
     }else{
+        ESP_LOGE(TAG, "UNknown response");
+        this->data_fsm_state = DATA_STATUS::WAKEUPCALLS;
         return 0;
     }
 }
 
 int dataclass::fsm_send_data(void){
     if (this->data_fsm_state != DATA_STATUS::SENDDATA) return -1;
-    if (this->_num_checksum_err > 6) return -10;
+    if (this->_num_checksum_err > 6) return ERR_CHECKSUM_FAILED;
     unsigned int timer1 = millis();
-    int ret = read_until(AMBYTE_READY_FOR_ARRAY, 0, 0, 100, true);
+    int ret = serial_read_until(AMBYTE_READY_FOR_ARRAY, 0, 0, 100, true);
     if (ret != 1){
         ESP_LOGE(TAG, "Status not match: data");
         this->data_fsm_state = DATA_STATUS::WAKEUPCALLS;
         return 0;
     }
     uint8_t arr[4] = {212, 0, 0, 0};
+    flush_serial(5);
     this->send(send_binary_array, &arr[3]);
+    Serial.flush();
     Serial.write(arr, 4);
     Serial.flush();
     this->_num_checksum_err += 1;
-    ret = read_until(AMBYTE_DATA_PASS, AMBYTE_READY_FOR_ARRAY, AMBYTE_CALLFORRESET, 200, false);
+    ret = serial_read_until(AMBYTE_DATA_PASS, AMBYTE_READY_FOR_ARRAY, AMBYTE_CALLFORRESET, 500, false);
     if (ret == 1){
         this->data_fsm_state = DATA_STATUS::COMPLETED;
         Serial.read();
         ESP_LOGV(TAG, "Data sent in %d ms", millis() - timer1);
         return 0;
-    }else if (ret = 1){
+    }else if (ret == 2){
         ESP_LOGE(TAG, "Ambyte asked for resending");
         return 0;
     }else if (ret == 3){
@@ -347,7 +388,6 @@ int dataclass::fsm_send_data(void){
     }
     else{
         ESP_LOGE(TAG, "Unknown response");
-        Serial.read();
         this->data_fsm_state = DATA_STATUS::WAKEUPCALLS;
         return 0;
     }

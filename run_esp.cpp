@@ -8,52 +8,24 @@
 #define ESP_CMD_HEADER 160
 #define ESP_CMD_DONE 161
 #define ESP_CMD_END 240
-
+#define ESP_WAKE_FOR_CMD 170
 
 // keep a local copy of settings for run-time change
 static adpd_current_config_t adpd_current_config_local;
 static adpd_gains_config_t adpd_gains_config_local;
 
 extern uint8_t CONNECTION_TYPE;
-
-static int read_until(uint8_t target, uint16_t timeout, bool remove = true){
-    unsigned long start_t = millis();
-    uint8_t counter, b = 0;
-
-    while (((millis() - start_t) < timeout)){
-        if (Serial.available() > 0){
-            b = Serial.peek();
-            if (b == target){
-                if (remove) Serial.read();
-                return 1;
-            };
-        
-            b = Serial.read();            
-            if (b > 127){
-                Serial.print(b);
-            }else{
-                Serial.write(b);
-            }            
-        }
-        else{
-            delayMicroseconds(10);
-        }
-    }
-    return -1;
-}
-
+int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false);
 
 
 
 int do_esp_cmd(){
-    uint8_t target, c;
-    uint8_t cmd_arr[8];
+    uint8_t cmd_arr[8], c, ret;
     ESP_LOGV(TAG, "parse ESP commands");
-    Serial.setTimeout(50);
 
     //search for cmd header
-    target = ESP_CMD_HEADER;
-    if (read_until(target, 10, true) == -1){
+    ret = serial_read_until(ESP_CMD_HEADER, 0, 0, 100, true);
+    if (ret != 1){
         ESP_LOGE(TAG, "ESP cmd header failed");
         return -1;
     }
@@ -89,10 +61,7 @@ int do_esp_cmd(){
         adpd_current_config_local.init = true;
         ESP_LOGV(TAG, "currents are %d, %d, %d", adpd_current_config_local.I620, adpd_current_config_local.I720, adpd_current_config_local.IR);
         Serial.write(ESP_CMD_DONE);
-
-        break;
-
-    
+        break;    
     
     case 10: // array run config
         if (adpd_gains_config_local.init == false) ESP_LOGE(TAG, "Gain preset not initized, use default!");
@@ -108,7 +77,7 @@ int do_esp_cmd(){
         Serial.write(ESP_CMD_DONE);
         MPF(cmd_arr[1], adpd_current_config_local.I620, cmd_arr[2], adpd_gains_config_local.Fluo, adpd_gains_config_local.FluoRef);
         adpd_mode = ADPD_CONFIG_MODE::MPF_MODE;
-        Serial.write(240);
+        Serial.write(ESP_CMD_END);
         
         break;
 
@@ -136,7 +105,7 @@ int do_esp_cmd(){
         }
         Serial.write(ESP_CMD_DONE);
         run_arr_type1(arr_length, run_arr, led_persist);
-        Serial.write(240);
+        Serial.write(ESP_CMD_END);
         
     }
     break;

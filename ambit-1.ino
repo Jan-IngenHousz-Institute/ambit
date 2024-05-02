@@ -12,7 +12,7 @@
 static const char* TAG = "INO";
 ADPD6 adpd;
 uint8_t CONNECTION_TYPE = 0;
-
+int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false);
 
 void setup(){
     esp_timer_early_init();
@@ -25,6 +25,8 @@ void setup(){
     delay(500);
     Serial.println("BOOT");
     Serial.println(esp_timer_get_time());
+    Serial.setTimeout(50);
+
 
     digitalWrite(1, HIGH);
     delay(1);
@@ -80,12 +82,21 @@ void loop(){
     }
     
     c = Serial.peek();
-    if (c > 127) {
-        if (c == 170){
+    if (c > 127) { // not from computer
+        c = serial_read_until(170, 160, 222, 20, false);
+        if (c == 1){ // wake up signal
+            Serial.read();
+            Serial.write(128);
+        }else if(c == 2){// command
+            do_esp_cmd();
+        }else if (c == 3){ // data send reset signal
+            ESP_LOGE(TAG, "OUT of sync");
             Serial.read();
             Serial.write(128);
         }else{
-            do_esp_cmd();
+            ESP_LOGE(TAG, "Unknown ambyte input");
+            Serial.read();
+            Serial.write(128);
         }
     }else{
         Serial_Input_Chars(choose, ":,", 500, sizeof(choose) - 1);
