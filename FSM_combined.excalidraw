@@ -165,7 +165,7 @@
       "containerId": "L-iASTWFuRMdMSTyvh7t4",
       "originalText": "UART\ninput",
       "lineHeight": 1.25,
-      "baseline": 46
+      "baseline": 45
     },
     {
       "type": "arrow",
@@ -540,7 +540,7 @@
       "containerId": "jj_yHGzqEfb3EVrV7IAkE",
       "originalText": "Wake\n(211)",
       "lineHeight": 1.25,
-      "baseline": 46
+      "baseline": 45
     },
     {
       "type": "diamond",
@@ -622,7 +622,7 @@
       "containerId": "3nOMpYEVbfxy5YlUz3RSc",
       "originalText": "Complete\n240",
       "lineHeight": 1.25,
-      "baseline": 71
+      "baseline": 70
     },
     {
       "type": "arrow",
@@ -713,7 +713,7 @@
       "containerId": "3TDl2MJg2FQvz-gbZsQQP",
       "originalText": "100ms",
       "lineHeight": 1.25,
-      "baseline": 16
+      "baseline": 17
     },
     {
       "type": "arrow",
@@ -858,7 +858,7 @@
       "containerId": "2jA6V3d4c1VkKuvHPMw1b",
       "originalText": "No signal",
       "lineHeight": 1.25,
-      "baseline": 16
+      "baseline": 17
     },
     {
       "type": "rectangle",
@@ -1182,7 +1182,7 @@
       "containerId": "aIvbGx1MfjAb_6oY4CqMb",
       "originalText": "flush",
       "lineHeight": 1.25,
-      "baseline": 16
+      "baseline": 17
     },
     {
       "type": "ellipse",
@@ -1254,7 +1254,7 @@
       "containerId": "4uG_zS5TMGWF1M74StXiw",
       "originalText": "Awake\n210",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "diamond",
@@ -1344,7 +1344,7 @@
       "containerId": "RJxANj4RhJ_aciZMjF5IY",
       "originalText": "Length array\n(212)",
       "lineHeight": 1.25,
-      "baseline": 71
+      "baseline": 70
     },
     {
       "type": "arrow",
@@ -1435,7 +1435,7 @@
       "containerId": "-QGeO6hJY6qLAm44eYDdi",
       "originalText": "150ms",
       "lineHeight": 1.25,
-      "baseline": 16
+      "baseline": 17
     },
     {
       "type": "ellipse",
@@ -1515,7 +1515,7 @@
       "containerId": "qD194lAbU6OCv9YNsEdgc",
       "originalText": "get length",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "arrow",
@@ -1614,7 +1614,7 @@
       "containerId": "QHTBVNXQrucCR_A6H0uaZ",
       "originalText": "no response",
       "lineHeight": 1.25,
-      "baseline": 16
+      "baseline": 17
     },
     {
       "type": "arrow",
@@ -1818,7 +1818,7 @@
       "containerId": "0XOIdMglnzJdbVbiI4UlR",
       "originalText": "reset\n222",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "arrow",
@@ -1940,7 +1940,7 @@
       "containerId": "RLGE222iSRNZwVPwD-ZOS",
       "originalText": "flush",
       "lineHeight": 1.25,
-      "baseline": 16
+      "baseline": 17
     },
     {
       "type": "arrow",
@@ -2076,7 +2076,7 @@
       "containerId": "NY5GAtrT9eGGQ-MloshDR",
       "originalText": "Wake\n(211)",
       "lineHeight": 1.25,
-      "baseline": 46
+      "baseline": 45
     },
     {
       "type": "arrow",
@@ -2456,7 +2456,7 @@
       "containerId": "VQlEEltnpBfObZWSn_WBA",
       "originalText": "flush",
       "lineHeight": 1.25,
-      "baseline": 16
+      "baseline": 17
     },
     {
       "type": "ellipse",
@@ -2528,7 +2528,7 @@
       "containerId": "Mdil-sv7Ec0Ncq-XpaH48",
       "originalText": "Ready\n200",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "arrow",
@@ -2738,7 +2738,7 @@
       "containerId": "iBZRtI2xGc5MgU0R2emqB",
       "originalText": "Get checksum",
       "lineHeight": 1.25,
-      "baseline": 46
+      "baseline": 45
     },
     {
       "type": "arrow",
@@ -3112,7 +3112,7 @@
       "containerId": "I1nmKrm-fWZatTXwyA29D",
       "originalText": "Finished\n180",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "arrow",
@@ -3560,8 +3560,8 @@
     },
     {
       "type": "text",
-      "version": 98,
-      "versionNonce": 284267568,
+      "version": 99,
+      "versionNonce": 793993518,
       "isDeleted": false,
       "id": "zuvqv-bFqKG3ZoKU-hDV9",
       "fillStyle": "solid",
@@ -3581,7 +3581,7 @@
       "frameId": null,
       "roundness": null,
       "boundElements": [],
-      "updated": 1714616556767,
+      "updated": 1714623312363,
       "link": null,
       "locked": false,
       "fontSize": 36,
@@ -3592,7 +3592,7 @@
       "containerId": null,
       "originalText": "run_MPF",
       "lineHeight": 1.2,
-      "baseline": 35
+      "baseline": 34
     },
     {
       "type": "arrow",
@@ -3724,7 +3724,7 @@
       "containerId": "uYwEC6UHGHtBawFQ1yRXK",
       "originalText": "Wake\n170",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "diamond",
@@ -3810,7 +3810,7 @@
       "containerId": "nTdCg9YES9bcUbYEdQyta",
       "originalText": "Awake\n128",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "ellipse",
@@ -3890,7 +3890,7 @@
       "containerId": "IyEMitLQCn9ktYumohw1w",
       "originalText": "array\n160",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "diamond",
@@ -3972,7 +3972,7 @@
       "containerId": "uobFuAsT0NWnRMntfj5nA",
       "originalText": "start\n161",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "arrow",
@@ -4481,8 +4481,8 @@
     },
     {
       "type": "text",
-      "version": 137,
-      "versionNonce": 1606747856,
+      "version": 138,
+      "versionNonce": 720441522,
       "isDeleted": false,
       "id": "bTp-8luSuqfkr5dZXRzbu",
       "fillStyle": "solid",
@@ -4502,7 +4502,7 @@
       "frameId": null,
       "roundness": null,
       "boundElements": [],
-      "updated": 1714616556767,
+      "updated": 1714623312364,
       "link": null,
       "locked": false,
       "fontSize": 36,
@@ -4513,7 +4513,7 @@
       "containerId": null,
       "originalText": "run_array",
       "lineHeight": 1.2,
-      "baseline": 35
+      "baseline": 34
     },
     {
       "type": "arrow",
@@ -4641,8 +4641,8 @@
     },
     {
       "type": "text",
-      "version": 187,
-      "versionNonce": 806325808,
+      "version": 188,
+      "versionNonce": 82512750,
       "isDeleted": false,
       "id": "WoDN3x20JgQV_4M3zgm2E",
       "fillStyle": "solid",
@@ -4671,7 +4671,7 @@
           "type": "arrow"
         }
       ],
-      "updated": 1714616556768,
+      "updated": 1714623312365,
       "link": null,
       "locked": false,
       "fontSize": 36,
@@ -4682,7 +4682,7 @@
       "containerId": null,
       "originalText": "set gains",
       "lineHeight": 1.2,
-      "baseline": 35
+      "baseline": 34
     },
     {
       "type": "arrow",
@@ -4808,7 +4808,7 @@
       "containerId": "D6RCrZZfUskxRWf_dQGQy",
       "originalText": "Wake\n170",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "diamond",
@@ -4890,7 +4890,7 @@
       "containerId": "U9zJlCi1cx3t3KTdW_MOO",
       "originalText": "Awake\n128",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "rectangle",
@@ -4995,7 +4995,7 @@
       "containerId": "Onjg_i4-ah2ZiKQ2dExDG",
       "originalText": "gains\n160-1",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "arrow",
@@ -5479,7 +5479,7 @@
       "containerId": "N0cX1tGro7njXrsAOLgdr",
       "originalText": "start\n161",
       "lineHeight": 1.25,
-      "baseline": 36
+      "baseline": 37
     },
     {
       "type": "rectangle",
@@ -9452,7 +9452,7 @@
       "containerId": "OkLwDHyZTul2qE2aBhHEy",
       "originalText": "data",
       "lineHeight": 1.25,
-      "baseline": 26
+      "baseline": 27
     },
     {
       "type": "ellipse",
@@ -10828,7 +10828,7 @@
       "containerId": "tJ7jGw7ATFSp-lsgemQ-N",
       "originalText": "wake\n128",
       "lineHeight": 1.25,
-      "baseline": 84
+      "baseline": 83
     },
     {
       "type": "arrow",
