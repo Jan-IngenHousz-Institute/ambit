@@ -13,7 +13,7 @@ static const char* TAG = "INO";
 ADPD6 adpd;
 uint8_t CONNECTION_TYPE = 0;
 int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false);
-
+uint16_t flush_serial(uint8_t timeout);
 void setup(){
     esp_timer_early_init();
     pinMode(1, OUTPUT);
@@ -47,6 +47,7 @@ void setup(){
 
     gpio_sleep_set_direction(GPIO_NUM_1, GPIO_MODE_OUTPUT);
     gpio_sleep_set_pull_mode(GPIO_NUM_1, GPIO_PULLDOWN_ONLY);
+    Serial.write(133);
 
     //esp_sleep_enable_timer_wakeup(1000000);
 }
@@ -58,6 +59,7 @@ char choose[50];
 
 void loop(){
     c = -1;
+    int b;
     unsigned int sleep_timer = millis();
 
     
@@ -70,34 +72,42 @@ void loop(){
             if (c < 255) break;
         }else{
             if (millis() - sleep_timer > 100){
-                ESP_LOGV(TAG, "SLEEP");
+                ESP_LOGV(TAG, "ambit sleep");
                 Serial.flush();
-                esp_sleep_enable_timer_wakeup(40000000);
+                esp_sleep_enable_timer_wakeup(10000000);
                 esp_light_sleep_start();
                 sleep_timer = millis();
-                Serial.write(128);
+                Serial.write(133);
                 Serial.flush();
+            }else{
+                delay(10);
             }
         }
+
     }
     
     c = Serial.peek();
     if (c > 127) { // not from computer
-        c = serial_read_until(170, 160, 222, 20, false);
-        if (c == 1){ // wake up signal
-            Serial.read();
-            Serial.write(128);
-        }else if(c == 2){// command
-            do_esp_cmd();
-        }else if (c == 3){ // data send reset signal
-            ESP_LOGE(TAG, "OUT of sync");
-            Serial.read();
-            Serial.write(128);
-        }else{
-            ESP_LOGE(TAG, "Unknown ambyte input");
-            Serial.read();
-            Serial.write(128);
+        while (Serial.available() > 0){
+            b = serial_read_until(170, 160, 222, 50, false);
+            if (b == 1){ // wake up signal
+                flush_serial(5);
+                Serial.write(128);
+            }else if(b == 2){// command
+                do_esp_cmd();
+                break;
+            }else if (b == 3){ // data send reset signal
+                ESP_LOGE(TAG, "OUT of sync");
+                Serial.read();
+                Serial.write(128);
+            }else{
+                ESP_LOGE(TAG, "Unknown cmd %d", c);
+                Serial.read();
+                Serial.write(128);
+                break;
+            }
         }
+        
     }else{
         Serial_Input_Chars(choose, ":,", 500, sizeof(choose) - 1);
         do_command(choose);

@@ -277,7 +277,6 @@ static void send_binary_array(uint32_t* arr, uint16_t len){
 
 
 int dataclass::fsm_wake_up_calls(void){
-    ESP_LOGD(TAG, " ");
     if (this->data_fsm_state != DATA_STATUS::WAKEUPCALLS) return -1;
     if (this->_num_wake_up_calls > 4) return ERR_TOO_MANY_WKUP;
     if (this->num_retry > 4) return ERR_TOO_MANY_RETRY;
@@ -287,7 +286,7 @@ int dataclass::fsm_wake_up_calls(void){
     this->_num_wake_up_calls += 1;
     this->num_retry += 1;
 
-    Serial.println("W");
+    Serial.println("W:");
     flush_serial(10); // remove serial buffer
 
     // potential status
@@ -316,9 +315,9 @@ int dataclass::fsm_wake_up_calls(void){
 }
 
 int dataclass::fsm_send_length_info(uint8_t arr_idx){
-    ESP_LOGD(TAG, " ");
     if (this->data_fsm_state != DATA_STATUS::LENGTHARRAY) return -1;
     unsigned int timer1 = millis();
+    Serial.println("L:");
     
     int ret = serial_read_until(AMBYTE_AWAKE, 0, 0, 100, true);
     if (ret != 1){
