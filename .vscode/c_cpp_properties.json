@@ -255,7 +255,7 @@
                 "ARDUINO_VARIANT=\"esp32c3\"",
                 "ARDUINO_PARTITION_minimal",
                 "ESP32",
-                "CORE_DEBUG_LEVEL=5",
+                "CORE_DEBUG_LEVEL=4",
                 "ARDUINO_USB_MODE=1",
                 "ARDUINO_USB_CDC_ON_BOOT=0",
                 "__riscv=1",

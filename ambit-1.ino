@@ -12,6 +12,10 @@
 static const char* TAG = "INO";
 ADPD6 adpd;
 uint8_t CONNECTION_TYPE = 0;
+uint16_t sleep_threshod_ms = 100;
+
+
+
 int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false);
 uint16_t flush_serial(uint8_t timeout);
 void setup(){
@@ -71,7 +75,7 @@ void loop(){
             if (c == 255) Serial.read();
             if (c < 255) break;
         }else{
-            if (millis() - sleep_timer > 100){
+            if (millis() - sleep_timer > sleep_threshod_ms){
                 ESP_LOGV(TAG, "ambit sleep");
                 Serial.flush();
                 esp_sleep_enable_timer_wakeup(10000000);
@@ -81,6 +85,7 @@ void loop(){
                 Serial.flush();
             }else{
                 delay(10);
+                sleep_threshod_ms = 100;
             }
         }
 
@@ -93,6 +98,7 @@ void loop(){
             if (b == 1){ // wake up signal
                 flush_serial(5);
                 Serial.write(128);
+                sleep_threshod_ms = 200;
             }else if(b == 2){// command
                 do_esp_cmd();
                 break;
@@ -109,8 +115,10 @@ void loop(){
         }
         
     }else{
+        sleep_threshod_ms = 1000;
         Serial_Input_Chars(choose, ":,", 500, sizeof(choose) - 1);
         do_command(choose);
+        
     }
 
 
