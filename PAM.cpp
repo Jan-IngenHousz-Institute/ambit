@@ -1,5 +1,7 @@
 #include "PAM.h"
+
 static const char* TAG = "PAM";
+
 
 
 uint8_t adpd_mode = 0;
@@ -86,26 +88,38 @@ uint32_t arr_line_parse_type1(uint8_t* line, uint8_t* num1, uint16_t* num2, uint
   // type 1: Must have measurements: Fluor/Ref
   // optional measurements: leaf IR, sun VIs, Reflect/Ref
   // 0 = no points, 1 = same freq, 2 = every 8
-
-  uint8_t type = line[0];                 // run type 1 = steady state, 0 = skip, 2 = flash, 3 = skip
+  // data_count 0: fluor, 1: ambient, 2: reflection
+  uint8_t type = line[0];                 // run type 1 = steady state, 0 = skip, 2 = no ir
   *num1 = line[1];                        // FR on / off
   *num2 = line[3] + (line[2] << 8);       // sample number
   *num3 = line[5] + (line[4] << 8);       // frequency
   *num4 = line[6];                        // actinic
   *num5 = line[7];                        // sub-sampling factor
 
-  data_count[0] = *num2;
-  if (line[7] == 0){
-    data_count[1] = 0;
-  }else if (line[7] == 1){
-    data_count[1] = *num2;
-  }else if (line[7] == 2){
-    data_count[1] = (*num2) / 8;
-  }else{
-    data_count[1] = 0;
-  }
+  if (data_count == NULL) return 0;
 
-  return data_count[0] * 2 + data_count[1] * 4;
+  if ((type == 1) || (type == 2)){
+    data_count[0] = *num2;
+    if (line[7] == 0){ // no ambient
+      data_count[1] = 0;
+      data_count[2] = 0;
+    }else if (line[7] == 1){ // every
+      data_count[1] = *num2;
+      data_count[2] = *num2;
+    }else if (line[7] == 2){ // every 8
+      data_count[1] = (*num2) / 8;
+      data_count[2] = (*num2) / 8;
+    }else{
+      data_count[1] = 0;
+      data_count[2] = 0;
+    }
+    if (type == 2) data_count[2] = 0;
+
+
+    return data_count[0] * 2 + data_count[1] * 2 + data_count[2] * 2;
+
+  }
+  return 0;  
 }
 
 
@@ -118,10 +132,10 @@ int run_preprocess_type1(uint8_t length, uint8_t* arr, uint16_t* data_counter){
 
     while (pc < length){
       _type = *(arr + pc * 8);
-      if (_type == 1){
+      if ((_type == 1) || (_type == 2)){
         arr_line_parse_type1(arr + pc * 8, &para1, &num_ptx, &freq, &actinic, &subsampling, _data_counter);
         ESP_LOGV(TAG, "Run type:%d, number:%d, freq: %d, actinic: %d, subfactor %d", _type, num_ptx, freq, actinic, subsampling);
-        for (uint8_t i = 0; i < 2; i++) data_counter[i] += _data_counter[i];
+        for (uint8_t i = 0; i < 4; i++) data_counter[i] += _data_counter[i];
       }
       pc += 1;
     }
@@ -136,16 +150,18 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
     conf_slow_FR_1();
     ESP_LOGW(TAG, "Run array was not configured!");
   }
-
-  const uint8_t expected_readout = 8;
-  const uint8_t expected_readout_bytes = expected_readout * 3;
+  // set to max possible bytes
+  uint8_t expected_readout = 8;
+  uint8_t expected_readout_bytes = expected_readout * 3;
   const uint8_t num_integration = 1;
+  const unsigned int start_t0 = millis();
 
   // Run protocol preprecess, get storage size
-  uint16_t data_count[] = {0, 0};
+  uint16_t data_count[] = {0, 0, 0, 0};
   if (run_preprocess_type1(length, arr, data_count) == -1) return -1;    // calculate data counts
   ESP_LOGV(TAG, "Sample & Ref: %d, optionals: %d", data_count[0], data_count[1]);
 
+  dataclass *d_env = new dataclass; //
   dataclass *d_fluor = new dataclass; // fluorescence signal
   dataclass *d_fluoRef = new dataclass; // fluorescence reference
 
@@ -156,8 +172,9 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
 
   if (!( (d_fluor->init(data_count[0])) && (d_fluoRef->init(data_count[0])) )) return -1;
   if (data_count[1] > 0){
-    if (!( (d_sun->init(data_count[1])) && (d_leaf->init(data_count[1])) )) return -1;
-    if (!( (d_730->init(data_count[1])) && (d_730Ref->init(data_count[1])) )) return -1;
+    if (!( (d_sun->init(data_count[1])) && (d_leaf->init(data_count[1])) )) return -1;}
+  if (data_count[2] > 0){
+    if (!( (d_730->init(data_count[2])) && (d_730Ref->init(data_count[2])) )) return -1;
   }
 
   ESP_LOGV(TAG, "Memory allocation completed");
@@ -185,22 +202,32 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
   adpd.STOP();
   while (pc < length){
     _type = *(arr + pc * 8);   //get line type
-    if (_type == 1){  // all channels
-      arr_line_parse_type1((arr + pc * 8), &farred, &num_ptx, &freq, &actinic, &subsampling, data_count);
+    if ((_type == 1) || (_type == 2)){  // all channels
+      arr_line_parse_type1((arr + pc * 8), &farred, &num_ptx, &freq, &actinic, &subsampling, NULL);
       adpd.run_freq(freq);
       adpd.clear_fifo();
       light_sleep_time = (1000/freq);
-      // whether use actinic IR 
-      if (farred == 1){
-        adpd.num_ts(9);
-        _repeats = int(400/freq);
-        if (freq < 3) _repeats = 250;
-        if (_repeats == 0) _repeats = 1;
-        for (uint8_t i = 3; i < 9;i++) adpd.repeats_only(i, 1, _repeats);
+
+
+      if (_type == 1){ // use IR reflect
+        if (farred == 1){ // whether use actinic IR   
+          adpd.num_ts(9);
+          _repeats = int(400/freq);
+          if (freq < 3) _repeats = 250;
+          if (_repeats == 0) _repeats = 1;
+          for (uint8_t i = 3; i < 9;i++) adpd.repeats_only(i, 1, _repeats);
+        }
+        else{
+          adpd.num_ts(3);
+        }
+        expected_readout = 8;
+        expected_readout_bytes = expected_readout * 3;
+      }else{ // NO IR
+        adpd.num_ts(2);
+        expected_readout = 6;
+        expected_readout_bytes = expected_readout * 3;
       }
-      else{
-        adpd.num_ts(3);
-      }
+
 
       // setup red actinic
       if (actinic > 4){
@@ -212,8 +239,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
 
       counter = 0;
       for (uint8_t i = 0; i < 4; i++) buf_opt[i] = 0;
-
-
+      d_env->put(PAM_get_env(0, start_t0));
       adpd.RUN();
       delay(2);
       while (counter < num_ptx){
@@ -224,25 +250,29 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
           if (counter == num_ptx) break;
           // 0: sun-vis; 1: leaf-ir; 2: fluoS_dark; 3: fluoS_lit; 4: fluoR_dark; 5: fluoR_lit; 6: Reflect_signal; 7: reflect_ref
           // save fluor signal and ref
-          
           d_fluor->put(calc_signal(ret[2], ret[3], num_integration));       
           d_fluoRef->put(calc_signal(ret[4], ret[5], num_integration));
 
-          // d_fluor->put(ret[2]);
-          // d_fluoRef->put(ret[3]);
 
-
-          // save option data?
+          // save option data
           if (subsampling > 0){
-            if (subsampling == 1){
-              d_sun->put(ret[0]);d_leaf->put(ret[1]);d_730->put(ret[6]);d_730Ref->put(ret[7]);
+            if (subsampling == 1){ // every point
+              d_sun->put(ret[0]);
+              d_leaf->put(ret[1]);
+              if (_type == 1){d_730->put(ret[6]);d_730Ref->put(ret[7]);} // ir enabled
+
             }else if (subsampling == 2){
               buf_opt[0] += ret[0];
               buf_opt[1] += ret[1];
-              buf_opt[2] += ret[6];
-              buf_opt[3] += ret[7];
+              if (_type == 1){
+                buf_opt[2] += ret[6];
+                buf_opt[3] += ret[7];
+              }
+
               if (counter % 8 == 7){
-                d_sun->put(buf_opt[0]/8);d_leaf->put(buf_opt[1]/8);d_730->put(buf_opt[2]/8);d_730Ref->put(buf_opt[3]/8);
+                d_sun->put(buf_opt[0]/8);
+                d_leaf->put(buf_opt[1]/8);
+                if(_type == 1){d_730->put(buf_opt[2]/8);d_730Ref->put(buf_opt[3]/8);}                
                 for (uint8_t i = 0; i < 4; i++) buf_opt[i] = 0;
               }
             }
@@ -251,7 +281,16 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
           if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
             ploter1 = calc_signal(ret[2], ret[3], num_integration);
             ploter2 = calc_signal(ret[4], ret[5], num_integration);
-            Serial.printf("F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", (float)ploter1/(float)ploter2, ploter1, ploter2, ret[6], ret[7], ret[0]-65000, ret[1]-65000);
+            if (ploter2 == 0){
+              ploter2 = 1;
+              ploter1 = 0;
+            }
+            if (_type == 1) {
+              Serial.printf("F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", (float)ploter1/(float)ploter2, ploter1, ploter2, ret[6], ret[7], ret[0]-65000, ret[1]-65000);
+            }else if (_type == 2){
+              Serial.printf("F:%3.4f,S:%d,R:%d,Sun:%d,L:%d\n", (float)ploter1/(float)ploter2, ploter1, ploter2, ret[0]-65000, ret[1]-65000);
+
+            }
           }
           counter++;
           watch_dog_timer = 0;
@@ -282,16 +321,22 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
     d_fluoRef->send_serial("Fluoref");
     d_sun->send_serial("SUN");
     d_leaf->send_serial("leaf");
-    d_730->send_serial("730");
-    d_730Ref->send_serial("730ref");
+    if (data_count[2] > 0){
+      d_730->send_serial("730");
+      d_730Ref->send_serial("730ref");
+    }
     Serial.println("Data sent");
   }else if(CONNECTION_TYPE == CONNECTION_TYPES::AMBYTE){
     d_fluor->fsm_send_esp(0);
     d_fluoRef->fsm_send_esp(1);
-    d_sun->fsm_send_esp(2);
-    d_leaf->fsm_send_esp(3);
-    d_730->fsm_send_esp(4);
-    d_730Ref->fsm_send_esp(5);
+    if (subsampling > 0){
+      d_sun->fsm_send_esp(2);
+      d_leaf->fsm_send_esp(3);
+      if (data_count[2] > 0){
+        d_730->fsm_send_esp(4);
+        d_730Ref->fsm_send_esp(5);
+      }
+    }
   }
 
   delete d_fluor;
@@ -574,8 +619,32 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
 }
 
 
+static uint32_t PAM_get_env(uint8_t mode, unsigned int t0){
+  uint32_t ret = 0;
+  unsigned int time = millis() - t0;
+  uint16_t time_16 = 0;
+  time_16 = (uint16_t) (time >> 6);
+  uint8_t d_type = 0;
+  int16_t data = 0;
+
+  if (mode == 0){ // timestamp only
+    data = (time & 0x3F);
+    d_type = 0;
+    ret = time_16 << 16 | d_type << 12 | data;
+    return ret;
+
+  }
+
+  if (mode == 2){  // get leaf temp
+    data = (int16_t) (mlx_measure() * 10);
+    d_type = 1;
+    ret = time_16 << 16 | d_type << 12 | data;
+    return ret;
+  }
 
 
+  return ret;
+}
 
 
 

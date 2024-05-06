@@ -12,6 +12,7 @@
 #include "PAM.h"
 
 static const char* TAG1 = "do_Cmd";
+void do_c(const char* c);
 
 constexpr unsigned hash(const char *string)
 {
@@ -47,8 +48,6 @@ void do_command(char *choose){
     val = hash(choose);             // convert alpha command to an int
   }
 
-  void do_c(const char* c);
-  void do_E(const char* c);
 
   Serial.printf("cmd: %s", choose);
   // process single commands
@@ -61,45 +60,6 @@ void do_command(char *choose){
       //Serial.println();
     }
     break;
-
-
-    case hash("S"):{
-      dataclass data;
-      data.init(100);
-      for (uint16_t i = 0; i < 100; i++){
-        data.put(i);
-      }      
-      //data.send_esp(0);
-      data.clear();
-
-      for (uint16_t i = 0; i < 100; i++){
-        data.put(100 - i);
-      } 
-
-      delay(1000);
-
-      //data.send_esp(1);
-      data.clear();
-
-
-      for (uint16_t i = 0; i < 100; i++){
-        data.put(200 - i);
-      }
-
-      delay(1000);
-      //data.send_esp(2);
-      data.clear();
-
-
-
-
-      data.clean();
-      Serial.write(240);
-
-      //Serial.println();
-    }
-    break;
-
 
 
     case hash("hello"):
@@ -146,6 +106,42 @@ void do_command(char *choose){
       adpd_mode = ADPD_CONFIG_MODE::MPF_MODE; // not applied
      }                                                
     break;  
+
+    case hash("mlx"):
+    { 
+      unsigned int timer = millis();
+      for (uint8_t i = 0; i < 100; i++){
+        Serial.println(mlx_measure());
+      }
+      Serial.printf("Spend %f ms per measurement", (millis() - timer)/100.0);
+    }    
+    break;
+
+    case hash("temp"):
+    { 
+      uint32_t ret = 0;
+      unsigned int time = millis();
+      uint16_t time_16 = 0;
+      time_16 = (uint16_t) (time >> 6);
+      uint8_t d_type = 0;
+      int16_t data = 0;
+
+      if (true){  // get leaf temp
+        data = (int16_t) (mlx_measure() * 10);
+        ret = time_16 << 16 | d_type << 12 | data;
+        
+      }
+      
+      
+      Serial.println(millis());
+      Serial.println(((ret & 0xFFFF0000) >> 10)/1000.0);
+      Serial.println((ret & 0x0000F000) >> 12);
+      Serial.println((ret & 0x00000FFF));
+
+
+      
+    }    
+    break;
 
 
 

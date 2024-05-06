@@ -76,13 +76,14 @@ void loop(){
             if (c < 255) break;
         }else{
             if (millis() - sleep_timer > sleep_threshod_ms){
-                ESP_LOGV(TAG, "ambit sleep");
+                //ESP_LOGV(TAG, "ambit sleep");
                 Serial.flush();
                 esp_sleep_enable_timer_wakeup(10000000);
-                esp_light_sleep_start();
+                //esp_light_sleep_start();
                 sleep_timer = millis();
-                Serial.write(133);
+                //Serial.write(133);
                 Serial.flush();
+                //Serial.read();
             }else{
                 delay(10);
                 sleep_threshod_ms = 100;

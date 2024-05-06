@@ -806,7 +806,7 @@ int32_t ADPD6::repeats_only(uint8_t ts, uint16_t num_integration, uint8_t num_re
     int32_t ret;
     data =  num_integration << 8|
               num_repeats << 0;
-    ret = ADPD6::write_reg(REG_COUNTS_A_ADDR + (API_ADPD6000_SLOT_D) * 0x20, &data);
+    ret = ADPD6::write_reg(REG_COUNTS_A_ADDR + (ts) * 0x20, &data);
     if(ret != API_ADPD6000_ERROR_OK)
     return ret;
 }

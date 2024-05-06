@@ -147,7 +147,7 @@ double mlx_measure(double* object, double* ambient){
     double pre_object = mlx90632_preprocess_temp_object(object_new_raw, object_old_raw,ambient_new_raw, ambient_old_raw, mlx_cali_Ka);
     *object = mlx90632_calc_temp_object(pre_object, pre_ambient, mlx_cali_Ea, mlx_cali_Eb, mlx_cali_Ga, mlx_cali_Fa, mlx_cali_Fb, mlx_cali_Ha, mlx_cali_Hb);
 
-    ESP_LOGI(TAG, "MLX90632 Run");
+    //ESP_LOGI(TAG, "MLX90632 Run");
     return *object;
 }
 
