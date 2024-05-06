@@ -171,10 +171,11 @@ void do_command(char *choose){
      {
       uint8_t a = (uint8_t) Serial_Input_Long(",", 10);
       uint8_t b = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t c = (uint8_t) Serial_Input_Long(",", 10);
       
-      uint8_t arr[24] = {1, 0, 2, 0, 0, a, 0, 1, \
-                        1, 0, 2, 0, 0, a, b, 1,\
-                        1, 0, 2, 0, 0, a, 0, 1};
+      uint8_t arr[24] = {a, 0, 1, 0, 0, b, 0, 1, \
+                        a, 0, 1, 0, 0, b, c, 1,\
+                        a, 0, 1, 0, 0, b, 0, 1};
 
       CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
       if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){

@@ -1,7 +1,7 @@
 #include "PAM.h"
 
 static const char* TAG = "PAM";
-
+static bool measure_temp = true;
 
 
 uint8_t adpd_mode = 0;
@@ -170,12 +170,15 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
   dataclass *d_730 = new dataclass; // 730nm reflectance signal
   dataclass *d_730Ref = new dataclass;  // 730nm reference
 
+
+  if (!(d_env->init(512))) return -1;
   if (!( (d_fluor->init(data_count[0])) && (d_fluoRef->init(data_count[0])) )) return -1;
   if (data_count[1] > 0){
     if (!( (d_sun->init(data_count[1])) && (d_leaf->init(data_count[1])) )) return -1;}
   if (data_count[2] > 0){
     if (!( (d_730->init(data_count[2])) && (d_730Ref->init(data_count[2])) )) return -1;
   }
+
 
   ESP_LOGV(TAG, "Memory allocation completed");
 
@@ -194,9 +197,16 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
   uint8_t watch_dog_timer = 0;
   int32_t tmp_var = 0;
   uint32_t buf_opt[4] = {0};
-  uint32_t _tmparr[4] = {0};
+  uint32_t _tmparr = 0;
   uint8_t _repeats = 1;
   uint32_t light_sleep_time = 1;
+  float_t leaf_temp = 0.0;
+  unsigned int env_timer1 = millis();
+  bool measure_temperature = false;
+
+  _tmparr = PAM_get_env(4, start_t0);
+  d_env->put(_tmparr);
+  leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 10.0;
 
 
   adpd.STOP();
@@ -207,6 +217,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
       adpd.run_freq(freq);
       adpd.clear_fifo();
       light_sleep_time = (1000/freq);
+      measure_temperature = (light_sleep_time > 20) && measure_temp;
 
 
       if (_type == 1){ // use IR reflect
@@ -286,11 +297,10 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
               ploter1 = 0;
             }
             if (_type == 1) {
-              Serial.printf("F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", (float)ploter1/(float)ploter2, ploter1, ploter2, ret[6], ret[7], ret[0]-65000, ret[1]-65000);
+              Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, ret[6], ret[7], ret[0]-65000, ret[1]-65000);
             }else if (_type == 2){
-              Serial.printf("F:%3.4f,S:%d,R:%d,Sun:%d,L:%d\n", (float)ploter1/(float)ploter2, ploter1, ploter2, ret[0]-65000, ret[1]-65000);
-
-            }
+              Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, ret[0]-65000, ret[1]-65000);            }
+            Serial.flush();
           }
           counter++;
           watch_dog_timer = 0;
@@ -299,8 +309,17 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
         // do light sleep
         //esp_sleep_enable_timer_wakeup(1000);
         if (counter + 10 < num_ptx){  // a lot of measurements
-          esp_sleep_enable_timer_wakeup(light_sleep_time * 8000);
-        }else if (counter + 2 < num_ptx){
+          // do temperature measurement?
+          if (measure_temperature && (millis() - env_timer1 > 200)){
+            _tmparr = PAM_get_env(4, start_t0);
+            d_env->put(_tmparr);
+            leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 10.0;
+            env_timer1 = millis();
+            esp_sleep_enable_timer_wakeup(1000);
+          }
+          else esp_sleep_enable_timer_wakeup(light_sleep_time * 8000);
+
+        }else if (counter + 2 < num_ptx){ // not many 
           esp_sleep_enable_timer_wakeup(light_sleep_time * 1000);
         }else{
           esp_sleep_enable_timer_wakeup(1000);
@@ -309,7 +328,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
       }
       
       adpd.STOP();
-      
+      d_env->put(PAM_get_env(1, start_t0));      
       if (!led_persist) AS_LED_OFF();
       digitalWrite(1, LOW);
     }    
@@ -317,6 +336,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
   }
 
   if  (CONNECTION_TYPE == CONNECTION_TYPES::COMPUTER){
+    d_env->send_serial("ENV");
     d_fluor->send_serial("Fluo");
     d_fluoRef->send_serial("Fluoref");
     d_sun->send_serial("SUN");
@@ -327,14 +347,15 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
     }
     Serial.println("Data sent");
   }else if(CONNECTION_TYPE == CONNECTION_TYPES::AMBYTE){
-    d_fluor->fsm_send_esp(0);
-    d_fluoRef->fsm_send_esp(1);
+    d_env->fsm_send_esp(0);
+    d_fluor->fsm_send_esp(1);
+    d_fluoRef->fsm_send_esp(2);
     if (subsampling > 0){
-      d_sun->fsm_send_esp(2);
-      d_leaf->fsm_send_esp(3);
+      d_sun->fsm_send_esp(3);
+      d_leaf->fsm_send_esp(4);
       if (data_count[2] > 0){
-        d_730->fsm_send_esp(4);
-        d_730Ref->fsm_send_esp(5);
+        d_730->fsm_send_esp(5);
+        d_730Ref->fsm_send_esp(6);
       }
     }
   }
@@ -345,6 +366,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
   delete d_leaf;
   delete d_730;
   delete d_730Ref;
+  delete d_env;
 
   return 0;
 
@@ -619,7 +641,7 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
 }
 
 
-static uint32_t PAM_get_env(uint8_t mode, unsigned int t0){
+uint32_t PAM_get_env(uint8_t mode, unsigned int t0){
   uint32_t ret = 0;
   unsigned int time = millis() - t0;
   uint16_t time_16 = 0;
@@ -627,23 +649,39 @@ static uint32_t PAM_get_env(uint8_t mode, unsigned int t0){
   uint8_t d_type = 0;
   int16_t data = 0;
 
-  if (mode == 0){ // timestamp only
+  if (mode < 4){ // timestamp only 0 - 3
     data = (time & 0x3F);
-    d_type = 0;
+    d_type = mode;
     ret = time_16 << 16 | d_type << 12 | data;
     return ret;
 
   }
 
-  if (mode == 2){  // get leaf temp
+  if (mode == 4){  // get leaf temp
     data = (int16_t) (mlx_measure() * 10);
     d_type = 1;
     ret = time_16 << 16 | d_type << 12 | data;
     return ret;
   }
-
-
   return ret;
+}
+
+uint32_t PAM_retrieve_env(uint32_t r, uint8_t* mode, float_t* data_f, int16_t* data_i){
+  int16_t data = r & 0x0FFF;
+  uint8_t d_type = r & 0xF000;
+  uint32_t t = ((r & 0xFFFF0000) >> 10);
+
+
+  if (d_type < 4){
+    t += data;
+    if (mode != NULL) *mode = d_type;
+  }else if (d_type == 4){ // temperature
+  
+
+  }
+  
+  
+  return t;
 }
 
 
