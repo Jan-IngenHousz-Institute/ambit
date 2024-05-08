@@ -143,6 +143,7 @@ void do_command(char *choose){
     case hash("arrun"):
      {
       uint8_t len = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t persist = (uint8_t) Serial_Input_Long(",", 10);
       uint8_t arr[64] = {0};
       uint8_t tmp_8 = 0;
       for (uint8_t i = 0; i < len; i++){
@@ -155,7 +156,7 @@ void do_command(char *choose){
         conf_slow_FR_1();
         adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
       }
-      run_arr_type1(8, arr, 0);
+      run_arr_type1(8, arr, persist);
     }
       break;  
 
