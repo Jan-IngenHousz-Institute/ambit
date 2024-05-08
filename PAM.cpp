@@ -341,10 +341,9 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
     d_fluoRef->send_serial("Fluoref");
     d_sun->send_serial("SUN");
     d_leaf->send_serial("leaf");
-    if (data_count[2] > 0){
-      d_730->send_serial("730");
-      d_730Ref->send_serial("730ref");
-    }
+    d_730->send_serial("730");
+    d_730Ref->send_serial("730ref");
+
     Serial.println("Data sent");
   }else if(CONNECTION_TYPE == CONNECTION_TYPES::AMBYTE){
     d_env->fsm_send_esp(0);
@@ -659,7 +658,7 @@ uint32_t PAM_get_env(uint8_t mode, unsigned int t0){
 
   if (mode == 4){  // get leaf temp
     data = (int16_t) (mlx_measure() * 10);
-    d_type = 1;
+    d_type = mode;
     ret = time_16 << 16 | d_type << 12 | data;
     return ret;
   }
@@ -667,18 +666,16 @@ uint32_t PAM_get_env(uint8_t mode, unsigned int t0){
 }
 
 uint32_t PAM_retrieve_env(uint32_t r, uint8_t* mode, float_t* data_f, int16_t* data_i){
-  int16_t data = r & 0x0FFF;
-  uint8_t d_type = r & 0xF000;
+  int16_t data = (int16_t) (r & 0x00000FFF);
+  uint8_t d_type = (uint8_t) ((r & 0x0000F000) >> 12);
   uint32_t t = ((r & 0xFFFF0000) >> 10);
-
 
   if (d_type < 4){
     t += data;
     if (mode != NULL) *mode = d_type;
   }else if (d_type == 4){ // temperature
-  
-
-  }
+    if (data_f != NULL) *data_f = (data / 10.0);
+    if (mode != NULL) *mode = d_type;  }
   
   
   return t;

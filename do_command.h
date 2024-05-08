@@ -49,7 +49,7 @@ void do_command(char *choose){
   }
 
 
-  Serial.printf("cmd: %s", choose);
+  Serial.printf("cmd: %s\n", choose);
   // process single commands
   switch (val) {
     case hash("C"):{
@@ -119,27 +119,20 @@ void do_command(char *choose){
 
     case hash("temp"):
     { 
-      uint32_t ret = 0;
-      unsigned int time = millis();
-      uint16_t time_16 = 0;
-      time_16 = (uint16_t) (time >> 6);
-      uint8_t d_type = 0;
-      int16_t data = 0;
-
-      if (true){  // get leaf temp
-        data = (int16_t) (mlx_measure() * 10);
-        ret = time_16 << 16 | d_type << 12 | data;
-        
-      }
-      
-      
-      Serial.println(millis());
-      Serial.println(((ret & 0xFFFF0000) >> 10)/1000.0);
-      Serial.println((ret & 0x0000F000) >> 12);
-      Serial.println((ret & 0x00000FFF));
+      uint32_t ret;
+      uint8_t mode = 5;
+      float_t temp = 0.0;
 
 
-      
+      ret = PAM_get_env(0, 500);
+      Serial.print(PAM_retrieve_env(ret, &mode));
+      Serial.printf(" %d \n", mode);
+
+      ret = PAM_get_env(4, 600);
+      Serial.println(PAM_retrieve_env(ret, &mode, &temp));
+      Serial.printf(" %d %f \n", mode, temp);
+
+
     }    
     break;
 
@@ -177,7 +170,8 @@ void do_command(char *choose){
                         a, 0, 1, 0, 0, b, c, 1,\
                         a, 0, 1, 0, 0, b, 0, 1};
 
-      CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
+      //CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
+      CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
       if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
         conf_slow_FR_1();
         adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;

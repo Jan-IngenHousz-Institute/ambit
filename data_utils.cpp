@@ -258,6 +258,8 @@ uint32_t dataclass::pop(void){
 }
 
 void dataclass::send_serial(const char* tag){
+
+    if (!this->available) return; 
     uint16_t tmp_var = dataclass::get_length();
     Serial.printf("Data:%s,Length:%d\t", tag, tmp_var);
     if (tmp_var == 0){
@@ -393,6 +395,7 @@ int dataclass::fsm_send_data(void){
 }
 
 int dataclass::fsm_send_esp(uint8_t arr_idx){
+    if (!this->available) return 1; 
     int ret = 0;
     bool running = true;
     unsigned int timer1 = millis();

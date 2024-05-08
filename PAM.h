@@ -41,6 +41,7 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
 int MPF(uint16_t mode, uint16_t dc_current);
 int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist);
 uint32_t PAM_get_env(uint8_t mode, unsigned int t0);
+uint32_t PAM_retrieve_env(uint32_t r, uint8_t* mode, float_t* data_f = NULL, int16_t* data_i = NULL);
 
 enum ADPD_CONFIG_MODE {
     MPF_MODE,
