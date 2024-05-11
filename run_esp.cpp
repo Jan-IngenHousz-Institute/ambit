@@ -9,6 +9,8 @@
 #define ESP_CMD_DONE 161
 #define ESP_CMD_END 240
 #define ESP_WAKE_FOR_CMD 170
+#define MAX_ARR_LEN 16
+
 
 // keep a local copy of settings for run-time change
 static adpd_current_config_t adpd_current_config_local;
@@ -86,7 +88,7 @@ int do_esp_cmd(){
         uint8_t arr_length = cmd_arr[1];
         uint8_t led_persist = cmd_arr[2];
         uint8_t cc = 0;
-        if ((arr_length == 0) || (arr_length > 8)){
+        if ((arr_length == 0) || (arr_length > MAX_ARR_LEN)){
             ESP_LOGE(TAG, "run array wrong length: %d", arr_length);
             break;
         }
