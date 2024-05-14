@@ -280,8 +280,8 @@ static void send_binary_array(uint32_t* arr, uint16_t len){
 
 int dataclass::fsm_wake_up_calls(void){
     if (this->data_fsm_state != DATA_STATUS::WAKEUPCALLS) return -1;
-    if (this->_num_wake_up_calls > 4) return ERR_TOO_MANY_WKUP;
-    if (this->num_retry > 4) return ERR_TOO_MANY_RETRY;
+    if (this->_num_wake_up_calls > 12) return ERR_TOO_MANY_WKUP;
+    if (this->num_retry > 18) return ERR_TOO_MANY_RETRY;
 
 
     unsigned int timer1 = millis();

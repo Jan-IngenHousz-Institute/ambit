@@ -217,7 +217,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
       adpd.run_freq(freq);
       adpd.clear_fifo();
       light_sleep_time = (1000/freq);
-      measure_temperature = (light_sleep_time > 20) && measure_temp;
+      measure_temperature = (light_sleep_time > 20) && measure_temp && actinic < 150;
 
 
       if (_type == 1){ // use IR reflect
@@ -310,7 +310,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
         //esp_sleep_enable_timer_wakeup(1000);
         if (counter + 10 < num_ptx){  // a lot of measurements
           // do temperature measurement?
-          if (measure_temperature && (millis() - env_timer1 > 200)){
+          if (measure_temperature && (millis() - env_timer1 > 100)){
             _tmparr = PAM_get_env(4, start_t0);
             d_env->put(_tmparr);
             leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 10.0;
