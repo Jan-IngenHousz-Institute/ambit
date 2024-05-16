@@ -1,7 +1,9 @@
 #ifndef _CONFIG_H
 #define _CONFIG_H
 
-#define DEBUG_CODES
+#define STF_FLASH_PIN 1
+#define BOOT_PIN 10
+#define AMBIT_BOOT_IDLE 133
 
 enum CONNECTION_TYPES {
     PLOTTING, 

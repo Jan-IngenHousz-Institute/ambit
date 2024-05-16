@@ -12,7 +12,7 @@
 static const char* TAG = "INO";
 ADPD6 adpd;
 uint8_t CONNECTION_TYPE = 0;
-uint16_t sleep_threshod_ms = 100;
+static uint16_t sleep_threshod_ms = 100;
 
 
 
@@ -20,10 +20,10 @@ int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0,
 uint16_t flush_serial(uint8_t timeout);
 void setup(){
     esp_timer_early_init();
-    pinMode(1, OUTPUT);
-    pinMode(10, OUTPUT);
-    digitalWrite(1, LOW);
-    digitalWrite(10, LOW);
+    pinMode(STF_FLASH_PIN, OUTPUT);
+    pinMode(BOOT_PIN, OUTPUT);
+    digitalWrite(STF_FLASH_PIN, LOW);
+    digitalWrite(BOOT_PIN, LOW);
 
     Serial.begin(115200);
     delay(500);
@@ -32,9 +32,9 @@ void setup(){
     Serial.setTimeout(50);
 
 
-    digitalWrite(1, HIGH);
+    digitalWrite(STF_FLASH_PIN, HIGH);
     delay(1);
-    digitalWrite(1, LOW);
+    digitalWrite(STF_FLASH_PIN, LOW);
     init_i2c_bus();
     init_spi_bus();
     adpd.begin();
@@ -51,7 +51,7 @@ void setup(){
 
     gpio_sleep_set_direction(GPIO_NUM_1, GPIO_MODE_OUTPUT);
     gpio_sleep_set_pull_mode(GPIO_NUM_1, GPIO_PULLDOWN_ONLY);
-    Serial.write(133);
+    Serial.write(AMBIT_BOOT_IDLE);
 
     //esp_sleep_enable_timer_wakeup(1000000);
 }
@@ -79,14 +79,14 @@ void loop(){
                 //ESP_LOGV(TAG, "ambit sleep");
                 Serial.flush();
                 esp_sleep_enable_timer_wakeup(10000000);
-                //esp_light_sleep_start();
+                esp_light_sleep_start();
                 sleep_timer = millis();
-                //Serial.write(133);
+                Serial.write(AMBIT_BOOT_IDLE);
                 Serial.flush();
                 //Serial.read();
             }else{
                 delay(10);
-                sleep_threshod_ms = 100;
+                sleep_threshod_ms = 200;
             }
         }
 
@@ -99,7 +99,7 @@ void loop(){
             if (b == 1){ // wake up signal
                 flush_serial(5);
                 Serial.write(128);
-                sleep_threshod_ms = 200;
+                sleep_threshod_ms = 500;
             }else if(b == 2){// command
                 do_esp_cmd();
                 break;

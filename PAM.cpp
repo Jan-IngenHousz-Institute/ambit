@@ -310,7 +310,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
         //esp_sleep_enable_timer_wakeup(1000);
         if (counter + 10 < num_ptx){  // a lot of measurements
           // do temperature measurement?
-          if (measure_temperature && (millis() - env_timer1 > 100)){
+          if (measure_temperature && (millis() - env_timer1 > 200)){
             _tmparr = PAM_get_env(4, start_t0);
             d_env->put(_tmparr);
             leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 10.0;

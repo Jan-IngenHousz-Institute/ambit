@@ -171,8 +171,8 @@ void do_command(char *choose){
                         a, 0, 1, 0, 0, b, c, 1,\
                         a, 0, 1, 0, 0, b, 0, 1};
 
-      //CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
-      CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
+      CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
+      //CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
       if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
         conf_slow_FR_1();
         adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;

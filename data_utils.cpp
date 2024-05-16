@@ -513,8 +513,6 @@ int dataclass::fsm_send_esp(uint8_t arr_idx){
 
 
 
-#ifdef DEBUG_CODES
-
 void dataclass::print_all(void){
 
     if (!(dataclass::available)){
@@ -528,8 +526,6 @@ void dataclass::print_all(void){
     Serial.println();
     return;
 }
-
-#endif
 
 
 // int wait_for_response_clear(const char* s, uint8_t slen, uint8_t timeout){
