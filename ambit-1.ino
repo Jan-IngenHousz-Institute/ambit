@@ -79,7 +79,8 @@ void loop(){
                 //ESP_LOGV(TAG, "ambit sleep");
                 Serial.flush();
                 esp_sleep_enable_timer_wakeup(10000000);
-                //esp_light_sleep_start();
+                esp_light_sleep_start();
+                //Serial.println(esp_sleep_get_wakeup_cause());                
                 sleep_timer = millis();
                 Serial.write(AMBIT_BOOT_IDLE);
                 Serial.flush();

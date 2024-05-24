@@ -2,7 +2,7 @@
 
 static const char* TAG = "PAM";
 static bool measure_temp = true;
-
+static int PAM_interrupt(void);
 
 uint8_t adpd_mode = 0;
 adpd_current_config_t adpd_current_config;
@@ -123,6 +123,7 @@ uint32_t arr_line_parse_type1(uint8_t* line, uint8_t* num1, uint16_t* num2, uint
 }
 
 
+
 int run_preprocess_type1(uint8_t length, uint8_t* arr, uint16_t* data_counter){
     uint8_t pc = 0;
     uint8_t _type = 0;
@@ -142,9 +143,12 @@ int run_preprocess_type1(uint8_t length, uint8_t* arr, uint16_t* data_counter){
     return 0;
 }
 
-
-
 int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
+  return run_arr_type1(length, arr, led_persist, false);
+}
+
+
+int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt){
 
   if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
     conf_slow_FR_1();
@@ -203,6 +207,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
   float_t leaf_temp = 0.0;
   unsigned int env_timer1 = millis();
   bool measure_temperature = false;
+  bool interrupt_run = false;
 
   _tmparr = PAM_get_env(4, start_t0);
   d_env->put(_tmparr);
@@ -211,6 +216,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
 
   adpd.STOP();
   while (pc < length){
+    if (interrupt_run) break;
     _type = *(arr + pc * 8);   //get line type
     if ((_type == 1) || (_type == 2)){  // all channels
       arr_line_parse_type1((arr + pc * 8), &farred, &num_ptx, &freq, &actinic, &subsampling, NULL);
@@ -242,9 +248,15 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
 
       // setup red actinic
       if (actinic > 4){
-        AS_LED_Current(actinic);
-        AS_LED_ON();
+        if (actinic == 255){
+          digitalWrite(STF_FLASH_PIN, HIGH);
+        }else{
+          AS_LED_Current(actinic);
+          AS_LED_ON();
+        }
+
       }else{
+        digitalWrite(STF_FLASH_PIN, LOW);
         AS_LED_OFF();
       }
 
@@ -254,6 +266,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
       adpd.RUN();
       delay(2);
       while (counter < num_ptx){
+        if (interrupt_run) break;
         fifo_c = adpd.fifo_count();
         while (fifo_c >= expected_readout_bytes){ // read all bytes from FIFO
           adpd.readfifo(expected_readout, 3, ret);
@@ -324,16 +337,36 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
         }else{
           esp_sleep_enable_timer_wakeup(1000);
         }
-        esp_light_sleep_start();
+        // run interrupted by serial input "S"
+        if (allow_interrupt){
+          if (PAM_interrupt() == 1){
+            interrupt_run = true;
+          }
+        }
+
+        if (!interrupt_run) esp_light_sleep_start();
+
+        if (allow_interrupt){
+          if (esp_sleep_get_wakeup_cause() == 8){
+            Serial.println("interrupt sleep early");
+            interrupt_run = true;
+          }
+        }
       }
       
       adpd.STOP();
       d_env->put(PAM_get_env(1, start_t0));      
       if (!led_persist) AS_LED_OFF();
       digitalWrite(1, LOW);
-    }    
+    }
     pc += 1;
   }
+
+  if (interrupt_run){
+    digitalWrite(STF_FLASH_PIN, LOW);
+    adpd.STOP();
+    AS_LED_OFF();
+  };
 
   if  (CONNECTION_TYPE == CONNECTION_TYPES::COMPUTER){
     d_env->send_serial("ENV");
@@ -756,7 +789,25 @@ int sandbox(uint8_t I620, uint8_t g1, uint8_t g2){
 
 
 
+static int PAM_interrupt(void){
+  if (Serial.available() < 1) return -1;
+  if (Serial.peek() == 'S'){
+    Serial.read();
+    Serial.println("interrupt @1");
+    return 1;
+  }else{
+    Serial.read();
+    if (Serial.available() > 0){
+      if (Serial.peek() == 'S'){
+        Serial.read();
+        Serial.println("interrupt @2");
+        return 1;
+      }
+    }
+  }
+  return -1;
 
+}
 
 
 
