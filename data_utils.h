@@ -10,7 +10,7 @@
 #define AMBYTE_AWAKE 210
 #define AMBYTE_CALLS 170
 #define AMBYTE_CALLFORRESET 222
-
+#define AMBYTE_INTR 177
 
 #define AMBYTE_READY_FOR_ARRAY 200
 #define AMBYTE_DATA_PASS 180
@@ -65,6 +65,7 @@ class dataclass{
     int fsm_send_length_info(uint8_t arr_idx);
     int fsm_send_data(void);
     int fsm_send_esp(uint8_t arr_idx);
+    int fsm_send_waitesp();
     //int send_esp(uint8_t);
 
 

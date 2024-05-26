@@ -2,12 +2,12 @@
 
 static const char* TAG = "PAM";
 static bool measure_temp = true;
-static int PAM_interrupt(void);
+static bool PAM_interrupt(bool, bool);
 
 uint8_t adpd_mode = 0;
 adpd_current_config_t adpd_current_config;
 adpd_gains_config_t adpd_gains_config;
-
+int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false);
 
 // use pre-set values
 int conf_slow_FR_1(void){
@@ -338,20 +338,9 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
           esp_sleep_enable_timer_wakeup(1000);
         }
         // run interrupted by serial input "S"
-        if (allow_interrupt){
-          if (PAM_interrupt() == 1){
-            interrupt_run = true;
-          }
-        }
-
+        interrupt_run = PAM_interrupt(allow_interrupt, false);
         if (!interrupt_run) esp_light_sleep_start();
-
-        if (allow_interrupt){
-          if (esp_sleep_get_wakeup_cause() == 8){
-            Serial.println("interrupt sleep early");
-            interrupt_run = true;
-          }
-        }
+        interrupt_run = PAM_interrupt(allow_interrupt, true);
       }
       
       adpd.STOP();
@@ -789,24 +778,19 @@ int sandbox(uint8_t I620, uint8_t g1, uint8_t g2){
 
 
 
-static int PAM_interrupt(void){
-  if (Serial.available() < 1) return -1;
-  if (Serial.peek() == 'S'){
-    Serial.read();
-    Serial.println("interrupt @1");
-    return 1;
-  }else{
-    Serial.read();
-    if (Serial.available() > 0){
-      if (Serial.peek() == 'S'){
-        Serial.read();
-        Serial.println("interrupt @2");
-        return 1;
-      }
+static bool PAM_interrupt(bool enable, bool check_sleep){
+  uint8_t ret = 0;
+  if (!enable) return false;
+  if (check_sleep){ //  after light sleep
+    if (esp_sleep_get_wakeup_cause() == 8){ //  wake up serial
+      ret = serial_read_until(177, (uint8_t)'S', 0, 25, true);
     }
+  }else{
+    ret = serial_read_until(177, (uint8_t)'S', 0, 15, true);
   }
-  return -1;
-
+  if (ret == 1) return true;
+  if (ret == 2) return true;
+  return false;
 }
 
 

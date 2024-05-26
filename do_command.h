@@ -183,6 +183,30 @@ void do_command(char *choose){
     }                                                                   
       break;
 
+
+      
+  case hash("r"):
+     {
+      uint8_t a = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t b = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t c = (uint8_t) Serial_Input_Long(",", 10);
+      
+      uint8_t arr[24] = {a, 0, 1, 0, 0, b, 0, 1, \
+                        a, 0, 1, 0, 0, b, c, 1,\
+                        a, 0, 1, 0, 0, b, 0, 1};
+
+      CONNECTION_TYPE = CONNECTION_TYPES::AMBYTE;
+      //CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
+      if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
+        conf_slow_FR_1();
+        adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
+      }
+      run_arr_type1(3, arr, 0, true);
+      CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
+      
+    }                                                                   
+      break;
+
       case hash("w"):
      {
       uint8_t m = (uint8_t) Serial_Input_Long(",", 10);

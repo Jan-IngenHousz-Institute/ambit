@@ -394,6 +394,25 @@ int dataclass::fsm_send_data(void){
     }
 }
 
+// case 1: interrupt by ambyte, ambyte wait for 212
+// case 2: 
+int dataclass::fsm_send_waitesp(){
+    flush_serial(10);
+    
+    unsigned int timer = millis();
+    uint8_t ret = 0;
+    while (millis() - timer < 36000000){
+        Serial.write(WAKE_AMBYTE); // write 211
+        // wait ambyte ready response 210
+        ret = serial_read_until(AMBYTE_AWAKE, AMBYTE_CALLS, AMBYTE_CALLFORRESET, 100, false);
+        if (ret == 1) break;
+
+    }
+
+    
+
+}
+
 int dataclass::fsm_send_esp(uint8_t arr_idx){
     if (!this->available) return 1; 
     int ret = 0;

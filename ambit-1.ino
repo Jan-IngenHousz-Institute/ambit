@@ -78,16 +78,18 @@ void loop(){
             if (millis() - sleep_timer > sleep_threshod_ms){
                 //ESP_LOGV(TAG, "ambit sleep");
                 Serial.flush();
+                flush_serial(20);
                 esp_sleep_enable_timer_wakeup(10000000);
                 esp_light_sleep_start();
-                //Serial.println(esp_sleep_get_wakeup_cause());                
+                //Serial.println(esp_sleep_get_wakeup_cause());
                 sleep_timer = millis();
+                sleep_threshod_ms = 200;
                 Serial.write(AMBIT_BOOT_IDLE);
                 Serial.flush();
                 //Serial.read();
             }else{
                 delay(10);
-                sleep_threshod_ms = 200;
+                //sleep_threshod_ms = 200;
             }
         }
 
@@ -117,7 +119,7 @@ void loop(){
         }
         
     }else{
-        sleep_threshod_ms = 1000;
+        sleep_threshod_ms = 10000;
         Serial_Input_Chars(choose, ":,", 500, sizeof(choose) - 1);
         do_command(choose);
         
