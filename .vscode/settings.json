@@ -31,6 +31,8 @@
         "stdexcept": "cpp",
         "system_error": "cpp",
         "typeinfo": "cpp",
-        "utility": "cpp"
+        "utility": "cpp",
+        "ccomplex": "c",
+        "c++config.h": "c"
     }
 }

@@ -1630,327 +1630,327 @@ int32_t adi_adpd6000_ppg_agc_process(adi_adpd6000_device_t *device, adi_adpd6000
  *
  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
  */
-int32_t adi_adpd6000_bioz_set_slot_mode(adi_adpd6000_device_t *device, adi_adpd6000_bioz_slot_mode_e mode);
+// int32_t adi_adpd6000_bioz_set_slot_mode(adi_adpd6000_device_t *device, adi_adpd6000_bioz_slot_mode_e mode);
 
-/**
- * @brief  Get BioZ aviable channels number
- *         
- * @param  device      Pointer to device structure
- * @param  slot_num    Pointer to channel number
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_get_slot_num(adi_adpd6000_device_t *device, uint8_t *slot_num);
+// /**
+//  * @brief  Get BioZ aviable channels number
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot_num    Pointer to channel number
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_get_slot_num(adi_adpd6000_device_t *device, uint8_t *slot_num);
 
-/**
- * @brief  Set BioZ timeslot offset
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  offset      Offset data
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_set_timeslot_offset(adi_adpd6000_device_t *device, uint8_t slot, uint16_t offset);
+// /**
+//  * @brief  Set BioZ timeslot offset
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  offset      Offset data
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_set_timeslot_offset(adi_adpd6000_device_t *device, uint8_t slot, uint16_t offset);
 
-/**
- * @brief  Config sinusoid amplitude, drequency, phase and offset
- *         To get accurate DFT result and avoid spectral leakage, recommend freq/(DFT_FS/N) to be integer. N means the number of DFT input data, DFT_FS means DFT input data rate. DFT_FS can be different due to different input data sources.
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  amp         Sinusoid Scales
- * @param  freq        Sinusoid Frequency, unit in Hz
- * @param  phase       Sinusoid offset, unit in degree
- * @param  offset      Sinusoid Phase Offset, unit in degree
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_cfg_wave(adi_adpd6000_device_t *device, uint8_t slot, uint16_t amp, uint32_t freq, uint16_t phase, uint16_t offset);
+// /**
+//  * @brief  Config sinusoid amplitude, drequency, phase and offset
+//  *         To get accurate DFT result and avoid spectral leakage, recommend freq/(DFT_FS/N) to be integer. N means the number of DFT input data, DFT_FS means DFT input data rate. DFT_FS can be different due to different input data sources.
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  amp         Sinusoid Scales
+//  * @param  freq        Sinusoid Frequency, unit in Hz
+//  * @param  phase       Sinusoid offset, unit in degree
+//  * @param  offset      Sinusoid Phase Offset, unit in degree
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_cfg_wave(adi_adpd6000_device_t *device, uint8_t slot, uint16_t amp, uint32_t freq, uint16_t phase, uint16_t offset);
 
-/**
- * @brief  Config HPTIA feedback resistor and cap.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  res         resistor, @see adi_adpd6000_bioz_tia_gain_res_e
- * @param  cap         cap value is from 0 to 15, 0 means off, unit in pf
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_tia_set_gain(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_tia_gain_res_e res, uint8_t cap);
+// /**
+//  * @brief  Config HPTIA feedback resistor and cap.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  res         resistor, @see adi_adpd6000_bioz_tia_gain_res_e
+//  * @param  cap         cap value is from 0 to 15, 0 means off, unit in pf
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_tia_set_gain(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_tia_gain_res_e res, uint8_t cap);
 
-/**
- * @brief  Connect/disconnect Rcal to excbuf.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  enable      false - disable tia low power mode, true - enable tia low power mode.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_tia_enable_lowpower(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
+// /**
+//  * @brief  Connect/disconnect Rcal to excbuf.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  enable      false - disable tia low power mode, true - enable tia low power mode.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_tia_enable_lowpower(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
 
-/**
- * @brief  Set DAC gain.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  gain        DAC Gain Correction Factor.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_dac_set_gain(adi_adpd6000_device_t *device, uint8_t slot, uint16_t gain);
+// /**
+//  * @brief  Set DAC gain.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  gain        DAC Gain Correction Factor.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_dac_set_gain(adi_adpd6000_device_t *device, uint8_t slot, uint16_t gain);
 
-/**
- * @brief  Bypass SINC3 filter.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  en_bypass   true - Bypass SINC3 filter.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_bypass_sinc3_filter(adi_adpd6000_device_t *device, uint8_t slot, bool en_bypass);
+// /**
+//  * @brief  Bypass SINC3 filter.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  en_bypass   true - Bypass SINC3 filter.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_bypass_sinc3_filter(adi_adpd6000_device_t *device, uint8_t slot, bool en_bypass);
 
-/**
- * @brief  Set SINC3 filter oversample rate.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  rate        @see adi_adpd6000_bioz_sinc3_os_rate_e.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_sinc3_set_sample_rate(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_sinc3_os_rate_e rate);
+// /**
+//  * @brief  Set SINC3 filter oversample rate.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  rate        @see adi_adpd6000_bioz_sinc3_os_rate_e.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_sinc3_set_sample_rate(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_sinc3_os_rate_e rate);
 
-/**
- * @brief  Enable/disable average function.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  enable      false - disable average, true - enable average.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_enable_average(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
+// /**
+//  * @brief  Enable/disable average function.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  enable      false - disable average, true - enable average.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_enable_average(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
 
-/**
- * @brief  Sets number of samples used by averaging function.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  sample      @see adi_adpd6000_bioz_sinc3_avg_e.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_set_average_sample(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_sinc3_avg_e sample);
+// /**
+//  * @brief  Sets number of samples used by averaging function.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  sample      @see adi_adpd6000_bioz_sinc3_avg_e.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_set_average_sample(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_sinc3_avg_e sample);
 
-/**
- * @brief  Set DFT phase offset.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  phase       unit in degree.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_dft_set_phase(adi_adpd6000_device_t *device, uint8_t slot, uint16_t phase);
+// /**
+//  * @brief  Set DFT phase offset.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  phase       unit in degree.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_dft_set_phase(adi_adpd6000_device_t *device, uint8_t slot, uint16_t phase);
 
-/**
- * @brief  Set DFT pointer number.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  num         @see adi_adpd6000_bioz_dft_point_e.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_dft_set_point_number(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_dft_point_e num);
+// /**
+//  * @brief  Set DFT pointer number.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  num         @see adi_adpd6000_bioz_dft_point_e.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_dft_set_point_number(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_dft_point_e num);
 
-/**
- * @brief  Enable/disable hanning window.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  enable      false - disable hanning window, true - enable hanning winodw.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_dft_enable_hanning(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
+// /**
+//  * @brief  Enable/disable hanning window.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  enable      false - disable hanning window, true - enable hanning winodw.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_dft_enable_hanning(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
 
-/**
- * @brief  Enable/disable DAC reference.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  enable      false - disable DAC reference, true - enable DAC reference.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_enable_dac_ref(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
+// /**
+//  * @brief  Enable/disable DAC reference.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  enable      false - disable DAC reference, true - enable DAC reference.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_enable_dac_ref(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
 
-/**
- * @brief  Enable/disable High Power TIA.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  enable      false - disable High Power TIA, true - enable High Power TIA.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_enable_tia(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
+// /**
+//  * @brief  Enable/disable High Power TIA.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  enable      false - disable High Power TIA, true - enable High Power TIA.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_enable_tia(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
 
-/**
- * @brief  Enable/disable Excitation Buffer to drive the resistance under measurement..
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  enable      false - disable Excitation Buffer, true - enable Excitation Buffer.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_enable_exbuf(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
+// /**
+//  * @brief  Enable/disable Excitation Buffer to drive the resistance under measurement..
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  enable      false - disable Excitation Buffer, true - enable Excitation Buffer.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_enable_exbuf(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
 
-/**
- * @brief  Power up/down PGA.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  enable      false - Power down PGA, true - Power up PGA.
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_enable_pga(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
+// /**
+//  * @brief  Power up/down PGA.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  enable      false - Power down PGA, true - Power up PGA.
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_enable_pga(adi_adpd6000_device_t *device, uint8_t slot, bool enable);
 
-/**
- * @brief  Set front buffer mode.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  mode        @see adi_adpd6000_bioz_amp_mode_e
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_set_amp_mode(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_amp_mode_e mode);
+// /**
+//  * @brief  Set front buffer mode.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  mode        @see adi_adpd6000_bioz_amp_mode_e
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_set_amp_mode(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_amp_mode_e mode);
 
-/**
- * @brief  Set timeslot connection.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  mode        @see adi_adpd6000_bioz_slot_connect_e
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_set_slot_connection(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_slot_connect_e mode);
+// /**
+//  * @brief  Set timeslot connection.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  mode        @see adi_adpd6000_bioz_slot_connect_e
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_set_slot_connection(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_slot_connect_e mode);
 
-/**
- * @brief  Set bio-impedance exbuf input.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  input       @see adi_adpd6000_bioz_imp_pin_e
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_sel_exbuf_input(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_imp_pin_e input);
+// /**
+//  * @brief  Set bio-impedance exbuf input.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  input       @see adi_adpd6000_bioz_imp_pin_e
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_sel_exbuf_input(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_imp_pin_e input);
 
-/**
- * @brief  Set bio-impedance hptia input.
- *         
- * @param  device      Pointer to device structure
- * @param  slot        Time slot index
- * @param  input       @see adi_adpd6000_bioz_imp_pin_e
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_sel_tia_input(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_imp_pin_e input);
+// /**
+//  * @brief  Set bio-impedance hptia input.
+//  *         
+//  * @param  device      Pointer to device structure
+//  * @param  slot        Time slot index
+//  * @param  input       @see adi_adpd6000_bioz_imp_pin_e
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_sel_tia_input(adi_adpd6000_device_t *device, uint8_t slot, adi_adpd6000_bioz_imp_pin_e input);
 
-/**
- * @brief  Read BioZ data from FIFO based on FIFO configuration
- *         
- * @param  device            Pointer to device structure
- * @param  fifo              @see adi_adpd6000_fifo_config_t
- * @param  bioz_real         Pointer to BioZ real data
- * @param  bioz_imag         Pointer to BioZ image data
- * @param  bioz_num          BioZ channel number
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_read_fifo(adi_adpd6000_device_t *device, adi_adpd6000_fifo_config_t *fifo, uint32_t *bioz_real, uint32_t *bioz_imag, uint8_t *bioz_num);
+// /**
+//  * @brief  Read BioZ data from FIFO based on FIFO configuration
+//  *         
+//  * @param  device            Pointer to device structure
+//  * @param  fifo              @see adi_adpd6000_fifo_config_t
+//  * @param  bioz_real         Pointer to BioZ real data
+//  * @param  bioz_imag         Pointer to BioZ image data
+//  * @param  bioz_num          BioZ channel number
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_read_fifo(adi_adpd6000_device_t *device, adi_adpd6000_fifo_config_t *fifo, uint32_t *bioz_real, uint32_t *bioz_imag, uint8_t *bioz_num);
 
-/**
- * @brief  Read BioZ data from FIFO based on FIFO configuration
- *         
- * @param  device            Pointer to device structure
- * @param  fifo              @see adi_adpd6000_fifo_config_t
- * @param  bioz              @see adi_adpd6000_bioz_slot_data_t
- * @param  bioz_num          BioZ channel number
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_read_fifo_struct(adi_adpd6000_device_t *device, adi_adpd6000_fifo_config_t *fifo, adi_adpd6000_bioz_slot_data_t *bioz, uint8_t *bioz_num);
+// /**
+//  * @brief  Read BioZ data from FIFO based on FIFO configuration
+//  *         
+//  * @param  device            Pointer to device structure
+//  * @param  fifo              @see adi_adpd6000_fifo_config_t
+//  * @param  bioz              @see adi_adpd6000_bioz_slot_data_t
+//  * @param  bioz_num          BioZ channel number
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_read_fifo_struct(adi_adpd6000_device_t *device, adi_adpd6000_fifo_config_t *fifo, adi_adpd6000_bioz_slot_data_t *bioz, uint8_t *bioz_num);
 
-/**
- * @brief  Cal amp and phase based on 6 timeslts mode
- *         
- * @param  Real              Real data pointer
- * @param  Image             Image data pointer
- * @param  amp               Pointer to amp
- * @param  phase             Pointer to phase
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_cal_ms6(uint32_t Real[6], uint32_t Image[6], float *amp, float *phase);
+// /**
+//  * @brief  Cal amp and phase based on 6 timeslts mode
+//  *         
+//  * @param  Real              Real data pointer
+//  * @param  Image             Image data pointer
+//  * @param  amp               Pointer to amp
+//  * @param  phase             Pointer to phase
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_cal_ms6(uint32_t Real[6], uint32_t Image[6], float *amp, float *phase);
 
-/**
- * @brief  Cal amp and phase based on 4 timeslts mode
- *         
- * @param  Real              Real data pointer
- * @param  Image             Image data pointer
- * @param  amp               Pointer to amp
- * @param  phase             Pointer to phase
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_cal_ms4(uint32_t Real[4], uint32_t image[4], float *amp, float *phase);
+// /**
+//  * @brief  Cal amp and phase based on 4 timeslts mode
+//  *         
+//  * @param  Real              Real data pointer
+//  * @param  Image             Image data pointer
+//  * @param  amp               Pointer to amp
+//  * @param  phase             Pointer to phase
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_cal_ms4(uint32_t Real[4], uint32_t image[4], float *amp, float *phase);
 
-/**
- * @brief  Set cal resistor value, default value of the resistor is 2K
- *         
- * @param  rcal                 Resistor value
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_set_rcal(float rcal);
+// /**
+//  * @brief  Set cal resistor value, default value of the resistor is 2K
+//  *         
+//  * @param  rcal                 Resistor value
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_set_rcal(float rcal);
 
-/**
- * @brief  Get current cal resistor value
- *         
- * @param  rcal                 Pointer to resistor value
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_get_rcal(float *rcal);
+// /**
+//  * @brief  Get current cal resistor value
+//  *         
+//  * @param  rcal                 Pointer to resistor value
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_get_rcal(float *rcal);
 
-/**
- * @brief  Get internal cal resistor value, cal the function when sequence is stopped
- *         
- * @param  rcal                 Pointer to resistor value
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
-int32_t adi_adpd6000_bioz_get_internal_rcal(adi_adpd6000_device_t *device, float *rcal);
+// /**
+//  * @brief  Get internal cal resistor value, cal the function when sequence is stopped
+//  *         
+//  * @param  rcal                 Pointer to resistor value
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
+// int32_t adi_adpd6000_bioz_get_internal_rcal(adi_adpd6000_device_t *device, float *rcal);
 
-/**
- * @brief  Set GPIO mode
- *         
- * @param  device            Pointer to device structure
- * @param  index             Gpio index from 0 ~ 3
- * @param  mode              @see adi_adpd6000_gpio_mode_e
- *
- * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
- */
+// /**
+//  * @brief  Set GPIO mode
+//  *         
+//  * @param  device            Pointer to device structure
+//  * @param  index             Gpio index from 0 ~ 3
+//  * @param  mode              @see adi_adpd6000_gpio_mode_e
+//  *
+//  * @return API_ADPD6000_ERROR_OK for success, @see adi_adpd6000_error_e
+//  */
 int32_t adi_adpd6000_gpio_set_mode(adi_adpd6000_device_t *device, uint8_t index, adi_adpd6000_gpio_mode_e mode);
 
 /**

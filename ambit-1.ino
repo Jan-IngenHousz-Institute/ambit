@@ -8,6 +8,7 @@
 #include "src/wrench.h"
 #include "config.h"
 #include "driver/uart.h"
+#include "driver/gpio.h"
 
 static const char* TAG = "INO";
 ADPD6 adpd;
