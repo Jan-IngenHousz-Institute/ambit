@@ -277,10 +277,60 @@ static void send_binary_array(uint32_t* arr, uint16_t len){
     Serial.write((uint8_t*) arr, len * 4);
 }
 
+int dataclass::fsm_wake_up_calls(bool interrupt){
+    if (this->data_fsm_state != DATA_STATUS::WAKEUPCALLS) return -1;
+
+    unsigned int timer1 = millis();
+    int ret = -1;
+    uint8_t wake_up_reason, cmd_wait_time;
+    int16_t wake_call_counter = 0;
+    int16_t max_wake_try = 2000;
+    cmd_wait_time = 15;
+    flush_serial(10);
+    // sending wake up calls, first 10 in 10ms, remaining
+    while (wake_call_counter < max_wake_try){
+        Serial.write(WAKE_AMBYTE);
+        Serial.flush();
+        ret = serial_read_until(AMBYTE_AWAKE, AMBYTE_CALLS, AMBYTE_CALLFORRESET, cmd_wait_time, false);
+        if (ret > 0) break;
+        // after first 10 fast tries, pulse every second with light sleep
+        if (wake_call_counter == 10){
+            esp_sleep_enable_timer_wakeup(1000000); //  set up light sleep timer
+            cmd_wait_time = 100;
+        }
+        if (wake_call_counter > 10){
+            esp_light_sleep_start();
+            wake_up_reason = esp_sleep_get_wakeup_cause();
+            if (wake_up_reason == 8){ // wake up by uart
+                max_wake_try -= wake_call_counter;
+                wake_call_counter = 0;
+            }
+        }
+        wake_call_counter += 1;
+        if (millis() - timer1 > 3600000) break;
+    }
+
+    if (ret == 1){ // Normal
+        this->data_fsm_state = DATA_STATUS::LENGTHARRAY;
+        ESP_LOGV(TAG, "Ambyte awake in %d ms with %d tries", millis() - timer1, this->_num_wake_up_calls);
+        return 0;
+    }else if (ret == 2){ // Lost sync
+        ESP_LOGE(TAG, "ERR_LOST_SYNC");
+        Serial.read();
+        return ERR_LOST_SYNC;
+    }else if (ret == 3){
+        ESP_LOGE(TAG, "Ambyte calls for re-start");
+        Serial.read();
+        return 0;
+    }else{ // no response, re-try until timeout
+        return ERR_NO_DATA_REQUEST;
+    }
+}
+
 
 int dataclass::fsm_wake_up_calls(void){
     if (this->data_fsm_state != DATA_STATUS::WAKEUPCALLS) return -1;
-    if (this->_num_wake_up_calls > 12) return ERR_TOO_MANY_WKUP;
+    if (this->_num_wake_up_calls > 20) return ERR_TOO_MANY_WKUP;
     if (this->num_retry > 18) return ERR_TOO_MANY_RETRY;
 
 
@@ -412,8 +462,11 @@ int dataclass::fsm_send_waitesp(){
     
 
 }
-
 int dataclass::fsm_send_esp(uint8_t arr_idx){
+    return this->fsm_send_esp(arr_idx, false);
+}
+
+int dataclass::fsm_send_esp(uint8_t arr_idx, bool use_interrupt){
     if (!this->available) return 1; 
     int ret = 0;
     bool running = true;
@@ -423,7 +476,7 @@ int dataclass::fsm_send_esp(uint8_t arr_idx){
         switch (this->data_fsm_state)
         {
         case DATA_STATUS::WAKEUPCALLS:
-            ret = this->fsm_wake_up_calls();
+            ret = this->fsm_wake_up_calls(use_interrupt);
             if (ret < 0) return ret;
             break;
         

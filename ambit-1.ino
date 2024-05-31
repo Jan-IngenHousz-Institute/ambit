@@ -54,7 +54,7 @@ void setup(){
     gpio_sleep_set_pull_mode(GPIO_NUM_1, GPIO_PULLDOWN_ONLY);
     Serial.write(AMBIT_BOOT_IDLE);
 
-    //esp_sleep_enable_timer_wakeup(1000000);
+    esp_sleep_enable_timer_wakeup(10000000);
 }
 
 
@@ -77,12 +77,11 @@ void loop(){
             if (c < 255) break;
         }else{
             if (millis() - sleep_timer > sleep_threshod_ms){
-                //ESP_LOGV(TAG, "ambit sleep");
+                //ESP_LOGE(TAG, "ambit sleep");
                 Serial.flush();
                 flush_serial(20);
-                esp_sleep_enable_timer_wakeup(10000000);
                 esp_light_sleep_start();
-                //Serial.println(esp_sleep_get_wakeup_cause());
+                // Serial.println(esp_sleep_get_wakeup_cause());
                 sleep_timer = millis();
                 sleep_threshod_ms = 200;
                 Serial.write(AMBIT_BOOT_IDLE);
@@ -99,6 +98,7 @@ void loop(){
     c = Serial.peek();
     if (c > 127) { // not from computer
         while (Serial.available() > 0){
+
             b = serial_read_until(170, 160, 222, 50, false);
             if (b == 1){ // wake up signal
                 flush_serial(5);

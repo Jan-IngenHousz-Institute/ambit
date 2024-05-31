@@ -87,6 +87,8 @@ int do_esp_cmd(){
     {   
         uint8_t arr_length = cmd_arr[1];
         uint8_t led_persist = cmd_arr[2];
+        bool allow_interrupt = (bool) cmd_arr[3];
+
         uint8_t cc = 0;
         if ((arr_length == 0) || (arr_length > MAX_ARR_LEN)){
             ESP_LOGE(TAG, "run array wrong length: %d", arr_length);
@@ -106,7 +108,7 @@ int do_esp_cmd(){
             break;
         }
         Serial.write(ESP_CMD_DONE);
-        run_arr_type1(arr_length, run_arr, led_persist);
+        run_arr_type1(arr_length, run_arr, led_persist, allow_interrupt);
         Serial.write(ESP_CMD_END);
         
     }

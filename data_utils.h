@@ -19,6 +19,7 @@
 #define ERR_TOO_MANY_WKUP -4
 #define ERR_TOO_MANY_RETRY -9
 #define ERR_LOST_SYNC -2
+#define ERR_NO_DATA_REQUEST -5
 
 enum DATA_STATUS {  
     WAKEUPCALLS,
@@ -39,7 +40,7 @@ class dataclass{
     bool write_available = false;   // available to add data
     bool read_available = false;    // available to read data
     uint16_t length = 0;
-    uint8_t data_fsm_state = 0;
+    uint8_t data_fsm_state = DATA_STATUS::WAKEUPCALLS;
     
     uint16_t num_retry = 0;
 
@@ -62,9 +63,11 @@ class dataclass{
 
     //-- FSM--//
     int fsm_wake_up_calls(void);
+    int fsm_wake_up_calls(bool);
     int fsm_send_length_info(uint8_t arr_idx);
     int fsm_send_data(void);
     int fsm_send_esp(uint8_t arr_idx);
+    int fsm_send_esp(uint8_t arr_idx, bool interrupt);
     int fsm_send_waitesp();
     //int send_esp(uint8_t);
 

@@ -357,6 +357,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
     AS_LED_OFF();
   };
 
+
   if  (CONNECTION_TYPE == CONNECTION_TYPES::COMPUTER){
     d_env->send_serial("ENV");
     d_fluor->send_serial("Fluo");
@@ -368,7 +369,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
 
     Serial.println("Data sent");
   }else if(CONNECTION_TYPE == CONNECTION_TYPES::AMBYTE){
-    d_env->fsm_send_esp(0);
+    d_env->fsm_send_esp(0, allow_interrupt);
     d_fluor->fsm_send_esp(1);
     d_fluoRef->fsm_send_esp(2);
     if (subsampling > 0){
@@ -783,13 +784,13 @@ static bool PAM_interrupt(bool enable, bool check_sleep){
   if (!enable) return false;
   if (check_sleep){ //  after light sleep
     if (esp_sleep_get_wakeup_cause() == 8){ //  wake up serial
-      ret = serial_read_until(177, (uint8_t)'S', 0, 25, true);
+      Serial.flush();
+      ret = serial_read_until(177, 0, 0, 25, true);
     }
   }else{
-    ret = serial_read_until(177, (uint8_t)'S', 0, 15, true);
+    ret = serial_read_until(177, 0, 0, 15, true);
   }
   if (ret == 1) return true;
-  if (ret == 2) return true;
   return false;
 }
 
