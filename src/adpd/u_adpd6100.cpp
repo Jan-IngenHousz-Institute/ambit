@@ -64,7 +64,7 @@ bool ADPD6::begin(void){
 
     if (ret1 == 196) {
       ADPD6::chip_check = true;
-      ESP_LOGI(TAG, "ADPD Found, chip version: %d", ret2);
+      Serial.printf("ADPD Found, chip version: %d\n", ret2);
       err = adi_adpd6000_device_sw_reset(&(ADPD6::handle));
       ADPD6000_ERROR_RETURN(err);
       ADPD6::load_default(&(ADPD6::sys_config));
