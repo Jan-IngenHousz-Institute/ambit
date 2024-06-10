@@ -43,6 +43,8 @@ char *Serial_Input_Chars(char *string, const char *terminators, long unsigned in
       continue;                            // nothing available
     }
 
+    if (c > 127) break;
+
     char b = Serial.read();
 
     if (strchr(terminators, b))  {

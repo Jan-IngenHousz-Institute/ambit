@@ -33,8 +33,8 @@ void setup(){
     Serial.setTimeout(50);
 
 
-    // digitalWrite(STF_FLASH_PIN, HIGH);
-    // delayMicroseconds(10);
+    digitalWrite(STF_FLASH_PIN, HIGH);
+    delayMicroseconds(1000);
     digitalWrite(STF_FLASH_PIN, LOW);
     init_i2c_bus();
     init_spi_bus();
@@ -126,7 +126,7 @@ void loop(){
         
     }else{
         sleep_threshod_ms = 30000;
-        Serial_Input_Chars(choose, ":,", 500, sizeof(choose) - 1);
+        Serial_Input_Chars(choose, ":,", 200, sizeof(choose) - 1);
         do_command(choose);
         
     }
