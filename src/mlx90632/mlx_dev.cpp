@@ -25,24 +25,12 @@
  * @{
  *
  */
-#include <stdint.h>
-#include <math.h>
-#include <errno.h>
 
-#include "mlx90632.h"
-#include "mlx90632_depends.h"
+#include <Arduino.h>
+#include "mlx_dev.h"
+#include "u_mlx.h"
 
 #define POW10 10000000000LL
-
-#ifndef VERSION
-#define VERSION "test"
-#endif
-
-static const char mlx90632version[] __attribute__((used)) = { VERSION };
-
-#ifndef STATIC
-#define STATIC static
-#endif
 
 int mlx90632_start_measurement(void)
 {
@@ -68,7 +56,7 @@ int mlx90632_start_measurement(void)
          * should be calculated according to refresh rate
          * atm 10ms - 11ms
          */
-        usleep(10000, 11000);
+        delay(20);
     }
 
     if (tries < 0)
@@ -94,7 +82,7 @@ int mlx90632_start_measurement(void)
  * @retval 0 When both memory locations are updated as per ret
  * @retval -EINVAL channel_new and channel_old were not updated
  */
-STATIC int32_t mlx90632_channel_new_select(int32_t ret, uint8_t *channel_new, uint8_t *channel_old)
+static int32_t mlx90632_channel_new_select(int32_t ret, uint8_t *channel_new, uint8_t *channel_old)
 {
     switch (ret)
     {
@@ -114,6 +102,7 @@ STATIC int32_t mlx90632_channel_new_select(int32_t ret, uint8_t *channel_new, ui
     return 0;
 }
 
+
 /** Read ambient raw old and new values based on @link mlx90632_start_measurement @endlink return value.
  *
  * Two i2c_reads are needed to obtain necessary raw ambient values from the sensor, as they are then
@@ -127,7 +116,7 @@ STATIC int32_t mlx90632_channel_new_select(int32_t ret, uint8_t *channel_new, ui
  * @retval 0 Successfully read both values
  * @retval <0 Something went wrong. Check errno.h for more details.
  */
-STATIC int32_t mlx90632_read_temp_ambient_raw(int16_t *ambient_new_raw, int16_t *ambient_old_raw)
+static int32_t mlx90632_read_temp_ambient_raw(int16_t *ambient_new_raw, int16_t *ambient_old_raw)
 {
     int32_t ret;
     uint16_t read_tmp;
@@ -145,6 +134,7 @@ STATIC int32_t mlx90632_read_temp_ambient_raw(int16_t *ambient_new_raw, int16_t 
     return ret;
 }
 
+
 /** Read object raw old and new values based on @link mlx90632_start_measurement @endlink return value.
  *
  * Four i2c_reads are needed to obtain necessary raw object values from the sensor. These values are grouped per new
@@ -159,7 +149,7 @@ STATIC int32_t mlx90632_read_temp_ambient_raw(int16_t *ambient_new_raw, int16_t 
  * @retval 0 Successfully read both values
  * @retval <0 Something went wrong. Check errno.h for more details.
  */
-STATIC int32_t mlx90632_read_temp_object_raw(int32_t start_measurement_ret,
+static int32_t mlx90632_read_temp_object_raw(int32_t start_measurement_ret,
                                              int16_t *object_new_raw, int16_t *object_old_raw)
 {
     int32_t ret;
@@ -195,6 +185,7 @@ STATIC int32_t mlx90632_read_temp_object_raw(int32_t start_measurement_ret,
     return ret;
 }
 
+
 int32_t mlx90632_read_temp_raw(int16_t *ambient_new_raw, int16_t *ambient_old_raw,
                                int16_t *object_new_raw, int16_t *object_old_raw)
 {
@@ -215,6 +206,7 @@ int32_t mlx90632_read_temp_raw(int16_t *ambient_new_raw, int16_t *ambient_old_ra
 
     return ret;
 }
+
 
 int32_t mlx90632_read_temp_raw_burst(int16_t *ambient_new_raw, int16_t *ambient_old_raw,
                                      int16_t *object_new_raw, int16_t *object_old_raw)
@@ -277,6 +269,8 @@ double mlx90632_calc_temp_ambient(int16_t ambient_new_raw, int16_t ambient_old_r
     return Bblock + Ablock + Cblock;
 }
 
+
+
 /** Iterative calculation of object temperature
  *
  * DSPv5 requires 3 iterations to reduce noise for object temperature. Since
@@ -297,7 +291,7 @@ double mlx90632_calc_temp_ambient(int16_t ambient_new_raw, int16_t ambient_old_r
  *
  * @return Calculated object temperature for current iteration in milliCelsius
  */
-STATIC double mlx90632_calc_temp_object_iteration(double prev_object_temp, int32_t object, double TAdut,
+static double mlx90632_calc_temp_object_iteration(double prev_object_temp, int32_t object, double TAdut,
                                                   int32_t Ga, int32_t Fa, int32_t Fb, int16_t Ha, int16_t Hb,
                                                   double emissivity)
 {
@@ -345,7 +339,7 @@ STATIC double mlx90632_calc_temp_object_iteration(double prev_object_temp, int32
  *
  * @return Calculated object temperature for current iteration in milliCelsius
  */
-STATIC double mlx90632_calc_temp_object_iteration_reflected(double prev_object_temp, int32_t object, double TAdut, double TaTr4,
+static double mlx90632_calc_temp_object_iteration_reflected(double prev_object_temp, int32_t object, double TAdut, double TaTr4,
                                                             int32_t Ga, int32_t Fa, int32_t Fb, int16_t Ha, int16_t Hb,
                                                             double emissivity)
 {
@@ -514,6 +508,34 @@ int32_t mlx90632_get_measurement_time(uint16_t meas)
     return MLX90632_MEAS_MAX_TIME >> reg;
 }
 
+int32_t mlx90632_get_meas_type(void)
+{
+    int32_t ret;
+    uint16_t reg_ctrl;
+    uint16_t reg_temp;
+
+    ret = mlx90632_i2c_read(MLX90632_REG_CTRL, &reg_temp);
+    if (ret < 0)
+        return ret;
+
+    reg_ctrl = MLX90632_MTYP(reg_temp);
+
+    if ((reg_ctrl != MLX90632_MTYP_MEDICAL) & (reg_ctrl != MLX90632_MTYP_EXTENDED))
+        return -EINVAL;
+
+    reg_temp = MLX90632_CFG_PWR(reg_temp);
+
+    if (reg_temp == MLX90632_PWR_STATUS_SLEEP_STEP)
+        return MLX90632_BURST_MEASUREMENT_TYPE(reg_ctrl);
+
+    if (reg_temp != MLX90632_PWR_STATUS_CONTINUOUS)
+        return -EINVAL;
+
+    return reg_ctrl;
+}
+
+
+
 int32_t mlx90632_calculate_dataset_ready_time(void)
 {
     int32_t ret;
@@ -583,7 +605,7 @@ int32_t mlx90632_start_measurement_burst(void)
     ret = mlx90632_calculate_dataset_ready_time();
     if (ret < 0)
         return ret;
-    msleep(ret); /* Waiting for refresh of all the measurement tables */
+    delay(ret); /* Waiting for refresh of all the measurement tables */
 
     while (tries-- > 0)
     {
@@ -609,12 +631,12 @@ int32_t mlx90632_start_measurement_burst(void)
 }
 
 
-STATIC int32_t mlx90632_unlock_eeporm()
+static int32_t mlx90632_unlock_eeporm()
 {
     return mlx90632_i2c_write(0x3005, MLX90632_EEPROM_WRITE_KEY);
 }
 
-STATIC int32_t mlx90632_wait_for_eeprom_not_busy()
+static int32_t mlx90632_wait_for_eeprom_not_busy()
 {
     uint16_t reg_status;
     int32_t ret = mlx90632_i2c_read(MLX90632_REG_STATUS, &reg_status);
@@ -627,7 +649,7 @@ STATIC int32_t mlx90632_wait_for_eeprom_not_busy()
     return ret;
 }
 
-STATIC int32_t mlx90632_erase_eeprom(uint16_t address)
+static int32_t mlx90632_erase_eeprom(uint16_t address)
 {
     int32_t ret = mlx90632_unlock_eeporm();
 
@@ -642,7 +664,7 @@ STATIC int32_t mlx90632_erase_eeprom(uint16_t address)
     return ret;
 }
 
-STATIC int32_t mlx90632_write_eeprom(uint16_t address, uint16_t data)
+static int32_t mlx90632_write_eeprom(uint16_t address, uint16_t data)
 {
     int32_t ret = mlx90632_erase_eeprom(address);
 

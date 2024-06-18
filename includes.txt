@@ -36,3 +36,7 @@ C:\Users\hjcbj\AppData\Local\Arduino15\packages\esp32\tools\esp32-arduino-libs\i
 C:\Users\hjcbj\AppData\Local\Arduino15\packages\esp32\tools\esp32-arduino-libs\idf-release_v5.1-442a798083\esp32c3\include\wifi_provisioning\include
 C:\Users\hjcbj\AppData\Local\Arduino15\packages\esp32\tools\esp32-arduino-libs\idf-release_v5.1-442a798083\esp32c3\include\protocomm\include\common
 C:\Users\hjcbj\AppData\Local\Arduino15\packages\esp32\tools\esp32-arduino-libs\idf-release_v5.1-442a798083\esp32c3\include\protocomm\include\security
+C:\Users\hjcbj\AppData\Local\Arduino15\packages\esp32\tools\esp32-arduino-libs\idf-release_v5.1-442a798083\esp32c3\include\freertos\esp_additions\arch\riscv\include
+C:\Users\hjcbj\AppData\Local\Arduino15\packages\esp32\tools\esp32-arduino-libs\idf-release_v5.1-442a798083\esp32c3\include\freertos\esp_additions\arch\riscv\include
+C:\Users\hjcbj\AppData\Local\Arduino15\packages\esp32\tools\esp32-arduino-libs\idf-release_v5.1-442a798083\esp32c3\include\freertos\FreeRTOS-Kernel\portable\riscv\include
+C:\Users\hjcbj\AppData\Local\Arduino15\packages\esp32\tools\esp32-arduino-libs\idf-release_v5.1-442a798083\esp32c3\include\riscv\include

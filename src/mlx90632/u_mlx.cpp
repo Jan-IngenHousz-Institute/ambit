@@ -1,8 +1,8 @@
 #include "u_mlx.h"
-#include "mlx90632.h"
 
 Adafruit_I2CDevice *mlx = NULL;
 static const char* TAG = "MLX";
+
 
 int32_t mlx_cali_PR = 0x00587f5b;
 int32_t mlx_cali_PG = 0x04a10289;
@@ -17,10 +17,6 @@ int16_t mlx_cali_Ha = 16384;
 int16_t mlx_cali_Hb = 0;
 int16_t mlx_cali_Gb = 9728;
 int16_t mlx_cali_Ka = 10752;
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
  int32_t mlx90632_i2c_read(int16_t register_address, uint16_t *value){
     uint8_t addr[2] = {0, 0};
@@ -79,10 +75,6 @@ extern "C" {
     return 0;
   }
 
-  #ifdef __cplusplus
-}
-#endif /* End of CPP guard */
-
   
 void usleep(int min_range, int max_range){
   delayMicroseconds(min_range);
@@ -91,7 +83,6 @@ void usleep(int min_range, int max_range){
 void msleep(int msecs){
   delay(msecs);
 }
-
 
 
 
@@ -155,6 +146,33 @@ double mlx_measure(){
   double object, ambient;
   mlx_measure(&object, &ambient);
   return object;
+}
+
+
+void mlx_print_paras(){
+
+  Serial.printf("%d,%d,%d,%d,%d,%d,%d,%d\n",mlx_cali_PR,mlx_cali_PG,mlx_cali_PT,mlx_cali_PO,mlx_cali_Ea,mlx_cali_Eb,mlx_cali_Fa,mlx_cali_Fb);
+  Serial.printf("%d,%d,%d,%d,%d\n",mlx_cali_Ga,mlx_cali_Ha,mlx_cali_Hb,mlx_cali_Gb,mlx_cali_Ka);
+
+    int32_t ret = 0; /**< Variable will store return values */
+    // double ambient; /**< Ambient temperature in degrees Celsius */
+    // double object; /**< Object temperature in degrees Celsius */
+    int16_t ambient_new_raw = 120;
+    int16_t ambient_old_raw = 320;
+    int16_t object_new_raw = 3210;
+    int16_t object_old_raw = 1230;
+
+
+    ret = mlx90632_read_temp_raw(&ambient_new_raw, &ambient_old_raw,
+                                    &object_new_raw, &object_old_raw);
+
+  Serial.printf("%d,%d,%d,%d,%d\n",ambient_new_raw,ambient_old_raw,object_new_raw,object_old_raw, ret);
+
+  double object, ambient;
+  mlx_measure(&object, &ambient);
+
+  Serial.printf("%f, %f\n", object, ambient);
+
 }
 
 

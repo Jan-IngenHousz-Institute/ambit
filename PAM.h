@@ -50,9 +50,4 @@ enum ADPD_CONFIG_MODE {
     FUTURE
 };
 
-
-
-
-
-
 #endif

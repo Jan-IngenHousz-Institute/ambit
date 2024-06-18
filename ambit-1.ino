@@ -16,7 +16,7 @@ uint8_t CONNECTION_TYPE = 0;
 static uint16_t sleep_threshod_ms = 100;
 
 
-
+ 
 int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false);
 uint16_t flush_serial(uint8_t timeout);
 void setup(){
@@ -52,6 +52,8 @@ void setup(){
 
     gpio_sleep_set_direction(GPIO_NUM_1, GPIO_MODE_OUTPUT);
     gpio_sleep_set_pull_mode(GPIO_NUM_1, GPIO_PULLDOWN_ONLY);
+
+    Serial.printf("Compiled at %s-%s\n",__DATE__, __TIME__);
     Serial.write(AMBIT_BOOT_IDLE);
 
     esp_sleep_enable_timer_wakeup(10000000);

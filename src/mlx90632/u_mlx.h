@@ -1,25 +1,25 @@
 #ifndef __u_MLX_H_
 #define __u_MLX_H_
 
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-#include "mlx90632.h"
-
-#ifdef __cplusplus
-}
-#endif /* End of CPP guard */
-
-//#include "mlx90632.c"
-//#include <Arduino.h>
+#include <Arduino.h>
 #include <Adafruit_I2CDevice.h>
 #include "../pin_config.h"
+#include "mlx_dev.h"
+
+int32_t mlx90632_i2c_read(int16_t register_address, uint16_t *value);
+int16_t mlx90632_i2c_read16(int16_t register_address);
+int32_t mlx90632_i2c_read32(int16_t register_address);
+int32_t mlx90632_i2c_write(int16_t register_address, uint16_t value);
+void usleep(int min_range, int max_range);
+void msleep(int msecs);
 
 
 bool mlx_init(void);
 double mlx_measure(double* object, double* ambient);
 double mlx_measure();
+
+void mlx_print_paras();
+
 
 
 

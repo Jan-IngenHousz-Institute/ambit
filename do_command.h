@@ -235,6 +235,22 @@ void do_command(char *choose){
       }
       break;
 
+void mlx_print_paras();
+extern int16_t mlx_cali_Ha;
+extern int16_t mlx_cali_Hb;
+      case hash("mmm"):
+      {
+        double m = Serial_Input_Double(",", 10);
+        uint16_t n = (uint16_t) Serial_Input_Long(",", 10);
+        mlx_cali_Ha = (uint16_t) (m * 16384.0);
+        mlx_cali_Hb = n;
+
+        mlx_print_paras();
+      }
+      break;
+
+      
+
       case hash("test"):
       {
         Serial.println(mlx_measure());

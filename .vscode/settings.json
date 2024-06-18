@@ -33,6 +33,9 @@
         "typeinfo": "cpp",
         "utility": "cpp",
         "ccomplex": "c",
-        "c++config.h": "c"
+        "c++config.h": "c",
+        "mlx90632_depends.h": "c",
+        "compare": "c",
+        "arduino.h": "c"
     }
 }

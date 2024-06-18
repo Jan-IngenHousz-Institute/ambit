@@ -68,7 +68,8 @@ int do_esp_cmd(){
     case 10: // array run config
         if (adpd_gains_config_local.init == false) ESP_LOGE(TAG, "Gain preset not initized, use default!");
         if (adpd_current_config_local.init == false) ESP_LOGE(TAG, "Current preset not initized, use default!");
-        conf_slow_FR_1(adpd_current_config_local.I620, adpd_current_config_local.I720, adpd_current_config_local.IR, adpd_gains_config_local.Fluo, adpd_gains_config_local.FluoRef, adpd_gains_config_local.IR, adpd_gains_config_local.IRRef,adpd_gains_config_local.Sun, adpd_gains_config_local.Leaf);
+        conf_slow_FR_1(adpd_current_config_local.I620, adpd_current_config_local.I720, adpd_current_config_local.IR, 
+            adpd_gains_config_local.Fluo, adpd_gains_config_local.FluoRef, adpd_gains_config_local.Sun, adpd_gains_config_local.Leaf, adpd_gains_config_local.IR, adpd_gains_config_local.IRRef);
         adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
         Serial.write(ESP_CMD_DONE);
         break;
@@ -98,7 +99,8 @@ int do_esp_cmd(){
         if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
             if (adpd_gains_config_local.init == false) ESP_LOGE(TAG, "Gain preset not initized, use default!");
             if (adpd_current_config_local.init == false) ESP_LOGE(TAG, "Current preset not initized, use default!");
-            conf_slow_FR_1(adpd_current_config_local.I620, adpd_current_config_local.I720, adpd_current_config_local.IR, adpd_gains_config_local.Fluo, adpd_gains_config_local.FluoRef, adpd_gains_config_local.IR, adpd_gains_config_local.IRRef,adpd_gains_config_local.Sun, adpd_gains_config_local.Leaf);
+            conf_slow_FR_1(adpd_current_config_local.I620, adpd_current_config_local.I720, adpd_current_config_local.IR, 
+                adpd_gains_config_local.Fluo, adpd_gains_config_local.FluoRef, adpd_gains_config_local.Sun, adpd_gains_config_local.Leaf, adpd_gains_config_local.IR, adpd_gains_config_local.IRRef);
             adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
         }
 
