@@ -151,27 +151,43 @@ double mlx_measure(){
 
 void mlx_print_paras(){
 
-  Serial.printf("%d,%d,%d,%d,%d,%d,%d,%d\n",mlx_cali_PR,mlx_cali_PG,mlx_cali_PT,mlx_cali_PO,mlx_cali_Ea,mlx_cali_Eb,mlx_cali_Fa,mlx_cali_Fb);
-  Serial.printf("%d,%d,%d,%d,%d\n",mlx_cali_Ga,mlx_cali_Ha,mlx_cali_Hb,mlx_cali_Gb,mlx_cali_Ka);
+  // Serial.printf("%d,%d,%d,%d,%d,%d,%d,%d\n",mlx_cali_PR,mlx_cali_PG,mlx_cali_PT,mlx_cali_PO,mlx_cali_Ea,mlx_cali_Eb,mlx_cali_Fa,mlx_cali_Fb);
+  // Serial.printf("%d,%d,%d,%d,%d\n",mlx_cali_Ga,mlx_cali_Ha,mlx_cali_Hb,mlx_cali_Gb,mlx_cali_Ka);
 
-    int32_t ret = 0; /**< Variable will store return values */
-    // double ambient; /**< Ambient temperature in degrees Celsius */
-    // double object; /**< Object temperature in degrees Celsius */
-    int16_t ambient_new_raw = 120;
-    int16_t ambient_old_raw = 320;
-    int16_t object_new_raw = 3210;
-    int16_t object_old_raw = 1230;
+  int32_t ret = 0; /**< Variable will store return values */
+  // double ambient; /**< Ambient temperature in degrees Celsius */
+  // double object; /**< Object temperature in degrees Celsius */
+  int16_t ambient_new_raw = 120;
+  int16_t ambient_old_raw = 320;
+  int16_t object_new_raw = 3210;
+  int16_t object_old_raw = 1230;
+
+  double pre_ambient, pre_object, ambient, object;
 
 
-    ret = mlx90632_read_temp_raw(&ambient_new_raw, &ambient_old_raw,
-                                    &object_new_raw, &object_old_raw);
 
-  Serial.printf("%d,%d,%d,%d,%d\n",ambient_new_raw,ambient_old_raw,object_new_raw,object_old_raw, ret);
+  unsigned int timer = millis();
+  while (millis() - timer < 25000){
+    ret = mlx90632_read_temp_raw(&ambient_new_raw, &ambient_old_raw, &object_new_raw, &object_old_raw);
+    pre_ambient = mlx90632_preprocess_temp_ambient(ambient_new_raw, ambient_old_raw, mlx_cali_Gb);  /// AMB
+    pre_object = mlx90632_preprocess_temp_object(object_new_raw, object_old_raw,ambient_new_raw, ambient_old_raw, mlx_cali_Ka); /// ST0
+    ambient = mlx90632_calc_temp_ambient(ambient_new_raw, ambient_old_raw, mlx_cali_PT, mlx_cali_PR, mlx_cali_PG, mlx_cali_PO, mlx_cali_Gb);  // Ta
+    object = mlx90632_calc_temp_object(pre_object, pre_ambient, mlx_cali_Ea, mlx_cali_Eb, mlx_cali_Ga, mlx_cali_Fa, mlx_cali_Fb, mlx_cali_Ha, mlx_cali_Hb);
 
-  double object, ambient;
-  mlx_measure(&object, &ambient);
 
-  Serial.printf("%f, %f\n", object, ambient);
+
+    Serial.printf("%d,%d,%d,%d,%f,%f,%f\n",ambient_new_raw,ambient_old_raw,object_new_raw,object_old_raw, pre_ambient, ambient, object);
+  }
+
+  //ret = mlx90632_read_temp_raw(&ambient_new_raw, &ambient_old_raw, &object_new_raw, &object_old_raw);
+
+  
+  //Serial.printf("%d,%d,%d,%d,%d\n",ambient_new_raw,ambient_old_raw,object_new_raw,object_old_raw);
+
+  // double object, ambient;
+  // mlx_measure(&object, &ambient);
+
+  // Serial.printf("%f, %f\n", object, ambient);
 
 }
 
