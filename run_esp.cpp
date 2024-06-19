@@ -127,7 +127,7 @@ int do_esp_cmd(){
     }
     break;
 
-    case 32: // get spec
+    case 32: // get temp
     {
         double leaf, chip;
         mlx_measure(&leaf, &chip);
@@ -136,6 +136,38 @@ int do_esp_cmd(){
         int16_t t2 = (int16_t) (chip * 10);
         Serial.write((uint8_t*) (&t1), 2);
         Serial.write((uint8_t*) (&t2), 2);
+        Serial.write(ESP_CMD_END);
+    }
+    break;
+
+    case 33:    // retrieve mlx cali parameters
+    {
+        const uint8_t nnn = 14;
+        int32_t coef[nnn] = {0};
+        mlx_read_coe(coef);
+        Serial.write(ESP_CMD_DONE);
+        Serial.write((uint8_t*) (&coef), nnn * 4);
+        Serial.write(ESP_CMD_END);
+    }
+    break;
+
+    
+    case 34: // get temp and raw
+    {
+        double leaf, leaf_1, chip;
+        int16_t a1, a2, a3, a4;
+        mlx_measure(&leaf, &chip, &leaf_1, &a1, &a2, &a3, &a4);
+        Serial.write(ESP_CMD_DONE);
+        int16_t t1 = (int16_t) (leaf * 10);
+        int16_t t2 = (int16_t) (leaf_1 * 10);
+        int16_t t3 = (int16_t) (chip * 10);
+        Serial.write((uint8_t*) (&t1), 2);
+        Serial.write((uint8_t*) (&t2), 2);
+        Serial.write((uint8_t*) (&t3), 2);
+        Serial.write((uint8_t*) (&a1), 2);
+        Serial.write((uint8_t*) (&a2), 2);
+        Serial.write((uint8_t*) (&a3), 2);
+        Serial.write((uint8_t*) (&a4), 2);
         Serial.write(ESP_CMD_END);
     }
     break;

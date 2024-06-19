@@ -10,6 +10,10 @@
 #include "src/wrench.h"
 #include "data_utils.h"
 #include "PAM.h"
+#include <Preferences.h>
+
+
+extern Preferences preferences;
 
 static const char* TAG1 = "do_Cmd";
 void do_c(const char* c);
@@ -222,30 +226,38 @@ void do_command(char *choose){
    
 
 
-    //   case hash("sd"):
-    //  {
-    //    sandbox(pulsed_620_current, gain_fluor, 4);
-    //    Serial.println("Cmd Done!");
-    // }                                                                   
-    //   break;
+      case hash("set_act"):
+      {
+        float_t a = (float_t) Serial_Input_Double(",", 10);
+        preferences.begin("config", false);
+        preferences.putFloat("actinic", a);
+        preferences.end();
+      }                                                                   
+      break;
+
+      case hash("set_name"):
+      {
+        char s[16];
+
+        Serial_Input_Chars(s, ",\n\r", 10, 15);
+        preferences.begin("config", false);
+        preferences.putString("name", s);
+        preferences.end();
+      }                                                                   
+      break;
+
+      case hash("set_emit"):
+      {
+        float_t a = (float_t) Serial_Input_Double(",", 10);
+        preferences.begin("config", false);
+        preferences.putFloat("emit", a);
+        preferences.end();
+      }                                                                   
+      break;
 
        case hash("reboot"):
       {
         ESP.restart();
-      }
-      break;
-
-void mlx_print_paras();
-extern int16_t mlx_cali_Ha;
-extern int16_t mlx_cali_Hb;
-      case hash("mmm"):
-      {
-        double m = Serial_Input_Double(",", 10);
-        uint16_t n = (uint16_t) Serial_Input_Long(",", 10);
-        mlx_cali_Ha = (uint16_t) (m * 16384.0);
-        mlx_cali_Hb = n;
-
-        mlx_print_paras();
       }
       break;
 

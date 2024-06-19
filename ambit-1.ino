@@ -9,11 +9,17 @@
 #include "config.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
+#include <Preferences.h>
+
 
 static const char* TAG = "INO";
 ADPD6 adpd;
+Preferences preferences;
 uint8_t CONNECTION_TYPE = 0;
 static uint16_t sleep_threshod_ms = 100;
+extern float_t actinic_offset;
+extern double mlx_emissivity;
+char ambit_name[20] = "ambit";
 
 
  
@@ -26,21 +32,23 @@ void setup(){
     digitalWrite(STF_FLASH_PIN, LOW);
     digitalWrite(BOOT_PIN, LOW);
 
+
     Serial.begin(115200);
-    delay(500);
+    delay(250);
     Serial.println("BOOT");
     Serial.println(esp_timer_get_time());
     Serial.setTimeout(50);
 
 
     digitalWrite(STF_FLASH_PIN, HIGH);
-    delayMicroseconds(1000);
+    delay(1);
     digitalWrite(STF_FLASH_PIN, LOW);
     init_i2c_bus();
     init_spi_bus();
     adpd.begin();
     if (as7341.begin()) ESP_LOGV(TAG, "AS7341 Found");
     check_AS7341();
+    AS_LED_OFF();
     mlx_init();
     CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;    
 
@@ -53,7 +61,14 @@ void setup(){
     gpio_sleep_set_direction(GPIO_NUM_1, GPIO_MODE_OUTPUT);
     gpio_sleep_set_pull_mode(GPIO_NUM_1, GPIO_PULLDOWN_ONLY);
 
-    Serial.printf("Compiled at %s-%s\n",__DATE__, __TIME__);
+    preferences.begin("config", true);
+    actinic_offset = preferences.getFloat("actinic", 1.0);
+    preferences.getString("name", ambit_name, 20);
+    mlx_emissivity = preferences.getDouble("emit", 1.0);
+    
+    preferences.end();
+
+    Serial.printf("Ambit:%s Compiled at %s-%s\nActinic offset:%f, emit:%f\n", ambit_name, __DATE__, __TIME__, actinic_offset, mlx_emissivity);
     Serial.write(AMBIT_BOOT_IDLE);
 
     esp_sleep_enable_timer_wakeup(10000000);

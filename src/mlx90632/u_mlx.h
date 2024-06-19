@@ -16,9 +16,11 @@ void msleep(int msecs);
 
 bool mlx_init(void);
 double mlx_measure(double* object, double* ambient);
+double mlx_measure(double* object, double* ambient, double* reflect_obj, int16_t* a1, int16_t* a2, int16_t* a3, int16_t* a4);
 double mlx_measure();
 
-void mlx_print_paras();
+void mlx_print_paras(double e);
+void mlx_read_coe(int32_t*);
 
 
 

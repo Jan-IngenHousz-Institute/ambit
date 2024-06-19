@@ -65,7 +65,8 @@
                 "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-arduino-libs\\idf-release_v5.1-442a798083\\esp32c3\\include\\protocomm\\include\\security",
                 "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-arduino-libs\\idf-release_v5.1-442a798083\\esp32c3\\include\\freertos\\esp_additions\\arch\\riscv\\include",
                 "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-arduino-libs\\idf-release_v5.1-442a798083\\esp32c3\\include\\freertos\\FreeRTOS-Kernel\\portable\\riscv\\include",
-                "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-arduino-libs\\idf-release_v5.1-442a798083\\esp32c3\\include\\riscv\\include"
+                "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-arduino-libs\\idf-release_v5.1-442a798083\\esp32c3\\include\\riscv\\include",
+                "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.0.1\\libraries\\Preferences\\src"
             ],
             "forcedInclude": [
                 "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.0.1\\cores\\esp32\\Arduino.h"
