@@ -3,6 +3,7 @@
 #include "src/as7341/spec_meas.h"
 #include "src/mlx90632/u_mlx.h"
 #include "PAM.h"
+#include <Preferences.h>
 
 #define TAG "ESP"
 #define ESP_CMD_HEADER 160
@@ -15,9 +16,20 @@
 // keep a local copy of settings for run-time change
 static adpd_current_config_t adpd_current_config_local;
 static adpd_gains_config_t adpd_gains_config_local;
+extern Preferences preferences;
 
 extern uint8_t CONNECTION_TYPE;
 int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false);
+
+extern char ambit_name[];
+extern float actinic_offset;
+struct ambit_info_t{
+    bool loaded = false; 
+    int32_t mlx_coef[14] = {0};
+    float_t par_offset = 1.0;
+    char ambit_name[20] = "ambit";
+}ambit_info;
+
 
 
 
@@ -140,13 +152,16 @@ int do_esp_cmd(){
     }
     break;
 
-    case 33:    // retrieve mlx cali parameters
+    case 33:    // retrieve ambit info
     {
-        const uint8_t nnn = 14;
-        int32_t coef[nnn] = {0};
-        mlx_read_coe(coef);
+        ambit_info_t* abi = &ambit_info;        
+        mlx_read_coe(abi->mlx_coef);
+        abi->par_offset = actinic_offset;
+        abi->loaded = true;
+        strcpy(abi->ambit_name, ambit_name);        
+
         Serial.write(ESP_CMD_DONE);
-        Serial.write((uint8_t*) (&coef), nnn * 4);
+        Serial.write((uint8_t*) abi, sizeof(ambit_info_t));
         Serial.write(ESP_CMD_END);
     }
     break;
@@ -171,6 +186,37 @@ int do_esp_cmd(){
         Serial.write(ESP_CMD_END);
     }
     break;
+
+
+    case 4: // try/set actinic
+    {
+        AS_LED_OFF();
+        Serial.write(ESP_CMD_DONE);
+        uint8_t type = cmd_arr[1];
+        uint8_t var = cmd_arr[2];
+        if (type == 1){ // try actinics            
+            AS_LED_Current(50);
+            AS_LED_ON();
+            delay(3000);
+            AS_LED_Current(var);
+            delay(2000);
+            AS_LED_OFF();
+            AS_LED_Current(0);
+        }else if (type == 2){ // set actinic offset
+            actinic_offset = ((float) cmd_arr[2]) / 128.0;
+            if ((actinic_offset > 0.0) && (actinic_offset < 1.99)){
+                preferences.begin("config", false);
+                preferences.putFloat("actinic", actinic_offset);
+                preferences.end();
+            }else{
+                actinic_offset = 1.0;
+            }
+        }
+
+        Serial.write(ESP_CMD_END);
+    }
+    break;
+
 
     default:
         ESP_LOGE(TAG, "Bad command");
