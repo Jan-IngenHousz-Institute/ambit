@@ -194,13 +194,25 @@ int do_esp_cmd(){
         Serial.write(ESP_CMD_DONE);
         uint8_t type = cmd_arr[1];
         uint8_t var = cmd_arr[2];
-        if (type == 1){ // try actinics            
-            AS_LED_Current(50);
+        float _factor = 1.0;
+        int _actinic1, _actinic2;
+
+        if ((type == 1) || (type == 3)){ // try actinics
+            _factor = 1.0;
+            if (type == 3) _factor = actinic_offset;
+            _actinic1 = _factor * (float) 50;
+            _actinic2 = _factor * (float) var;
+            if (_actinic1 > 255) _actinic1 = 255;
+            if (_actinic2 > 255) _actinic2 = 255;
+            if (_actinic1 < 0) _actinic1 = 0;
+            if (_actinic2 < 0) _actinic2 = 0;
+
+            AS_LED_Current((uint8_t) _actinic1);
             AS_LED_ON();
             delay(3000);
-            AS_LED_Current(var);
-            delay(2000);
-            AS_LED_OFF();
+            AS_LED_Current((uint8_t) _actinic2);
+            delay(3000);
+            AS_LED_OFF();            
             AS_LED_Current(0);
         }else if (type == 2){ // set actinic offset
             actinic_offset = ((float) cmd_arr[2]) / 128.0;
