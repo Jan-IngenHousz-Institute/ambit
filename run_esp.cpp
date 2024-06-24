@@ -22,7 +22,7 @@ extern uint8_t CONNECTION_TYPE;
 int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false);
 
 extern char ambit_name[];
-extern float actinic_offset;
+float_t actinic_offset = 1.0;
 struct ambit_info_t{
     bool loaded = false; 
     int32_t mlx_coef[14] = {0};
@@ -194,7 +194,7 @@ int do_esp_cmd(){
         Serial.write(ESP_CMD_DONE);
         uint8_t type = cmd_arr[1];
         uint8_t var = cmd_arr[2];
-        float _factor = 1.0;
+        float_t _factor = 1.0;
         int _actinic1, _actinic2;
 
         if ((type == 1) || (type == 3)){ // try actinics
@@ -215,13 +215,12 @@ int do_esp_cmd(){
             AS_LED_OFF();            
             AS_LED_Current(0);
         }else if (type == 2){ // set actinic offset
-            actinic_offset = ((float) cmd_arr[2]) / 128.0;
-            if ((actinic_offset > 0.0) && (actinic_offset < 1.99)){
+            _factor = *((float *) &(cmd_arr[3]));
+            if ((_factor > 0.0) && (_factor < 1.01)){
                 preferences.begin("config", false);
-                preferences.putFloat("actinic", actinic_offset);
+                preferences.putFloat("actinic", _factor);
                 preferences.end();
-            }else{
-                actinic_offset = 1.0;
+                actinic_offset = _factor;
             }
         }
 

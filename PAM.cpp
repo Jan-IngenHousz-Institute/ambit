@@ -7,7 +7,7 @@ static bool PAM_interrupt(bool, bool);
 uint8_t adpd_mode = 0;
 adpd_current_config_t adpd_current_config;
 adpd_gains_config_t adpd_gains_config;
-float_t actinic_offset = 1.0;
+
 
 int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false);
 
@@ -210,7 +210,6 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
   unsigned int env_timer1 = millis();
   bool measure_temperature = false;
   bool interrupt_run = false;
-  float_t actinic_buf;
 
   _tmparr = PAM_get_env(4, start_t0);
   d_env->put(_tmparr);
@@ -248,16 +247,6 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
         expected_readout_bytes = expected_readout * 3;
       }
 
-      if (actinic > 0){ // setup red actinic
-        actinic_buf = ( (float) actinic )* actinic_offset;
-        if (actinic_buf > 3.9){
-          if (actinic_buf > 254.9){
-            actinic = 255;
-          }else{
-            actinic = (uint8_t) actinic_buf;
-          }
-        }
-      }
       if (actinic > 3){
         AS_LED_Current(actinic);
         AS_LED_ON();

@@ -255,6 +255,29 @@ void do_command(char *choose){
       }                                                                   
       break;
 
+      case hash("coef"):
+      {
+        uint8_t arr[8] = {0};
+        float p = Serial_Input_Double(",", 10);
+        memcpy(arr + 3, &p, 4);
+        float o = *((float *) &(arr[3]));
+        preferences.begin("config", false);
+        preferences.putFloat("actinic", o);
+        preferences.end();
+
+                
+        Serial.println(o);
+
+        preferences.begin("config", true);
+        p = preferences.getFloat("actinic", 1.23);
+        preferences.end();
+
+        Serial.println(p);
+
+
+      }
+      break;
+
        case hash("reboot"):
       {
         ESP.restart();
