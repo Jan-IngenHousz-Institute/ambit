@@ -791,6 +791,19 @@ static bool PAM_interrupt(bool enable, bool check_sleep){
 }
 
 
+void actinic_test(uint8_t act1, uint8_t act2, uint8_t t1, uint8_t t2){
+  AS_LED_Current(act1);
+  AS_LED_ON();
+  delay(t1 * 1000);
+  AS_LED_Current(act2);
+  delay(3000);
+  AS_LED_OFF();            
+  AS_LED_Current(0);
+  
+
+}
+
+
 
 
 
