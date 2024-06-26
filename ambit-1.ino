@@ -17,7 +17,7 @@ ADPD6 adpd;
 Preferences preferences;
 uint8_t CONNECTION_TYPE = 0;
 static uint16_t sleep_threshod_ms = 100;
-extern float_t actinic_offset;
+extern float_t actinic_coef, spec_coef;
 extern double mlx_emissivity;
 char ambit_name[20] = "ambit";
 
@@ -64,13 +64,14 @@ void setup(){
     gpio_sleep_set_pull_mode(GPIO_NUM_1, GPIO_PULLDOWN_ONLY);
 
     preferences.begin("config", true);
-    actinic_offset = preferences.getFloat("actinic", 1.0);
+    actinic_coef = preferences.getFloat("actinic", 1.0);
+    spec_coef = preferences.getFloat("spec", 1.0);
     preferences.getString("name", ambit_name, 20);
     mlx_emissivity = preferences.getDouble("emit", 1.0);
     
     preferences.end();
 
-    Serial.printf("Ambit:%s Compiled at %s-%s\nActinic offset:%f, emit:%f\n", ambit_name, __DATE__, __TIME__, actinic_offset, mlx_emissivity);
+    Serial.printf("Ambit:%s Compiled at %s-%s\nActinic coefficient:%f, Spec coefficient:%f, emit:%f\n", ambit_name, __DATE__, __TIME__, actinic_coef, spec_coef, mlx_emissivity);
     Serial.write(AMBIT_BOOT_IDLE);
 
     esp_sleep_enable_timer_wakeup(10000000);

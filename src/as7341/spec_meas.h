@@ -21,7 +21,7 @@
 #define Spec_COE8 4
 #define Spec_COE9 1
 
-#define PAR_OFFSET 1
+#define PAR_OFFSET 4
 
 extern Adafruit_AS7341 as7341;
 

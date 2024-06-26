@@ -22,11 +22,16 @@ extern uint8_t CONNECTION_TYPE;
 int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false);
 
 extern char ambit_name[];
-float_t actinic_offset = 1.0;
+float_t actinic_coef = 1.0;
+float_t spec_coef = 1.0;
+extern double mlx_emissivity;
+
 struct ambit_info_t{
     bool loaded = false; 
     int32_t mlx_coef[14] = {0};
-    float_t par_offset = 1.0;
+    float_t actinic_coef = 0.1;
+    float_t spec_coef = 1.0;
+    float_t mlx_emissivity = 1.0;
     char ambit_name[20] = "ambit";
 }ambit_info;
 
@@ -131,8 +136,8 @@ int do_esp_cmd(){
     case 31: // get spec
     {
         uint16_t spec[12] = {0};
-        uint16_t par10x = (uint16_t) (get_PAR(spec) * 10);
-        spec[10] = par10x;
+        float par = get_PAR(spec);
+        memcpy(spec + 10, &par, 4);
         Serial.write(ESP_CMD_DONE);
         Serial.write((uint8_t*) spec, 24);
         Serial.write(ESP_CMD_END);
@@ -156,7 +161,9 @@ int do_esp_cmd(){
     {
         ambit_info_t* abi = &ambit_info;        
         mlx_read_coe(abi->mlx_coef);
-        abi->par_offset = actinic_offset;
+        abi->actinic_coef = actinic_coef;
+        abi->spec_coef = spec_coef;
+        abi->mlx_emissivity = mlx_emissivity;
         abi->loaded = true;
         strcpy(abi->ambit_name, ambit_name);        
 
@@ -209,7 +216,15 @@ int do_esp_cmd(){
                 preferences.begin("config", false);
                 preferences.putFloat("actinic", _factor);
                 preferences.end();
-                actinic_offset = _factor;
+                actinic_coef = _factor;
+            }
+        }else if (type == 4){ // set actinic offset
+            _factor = *((float *) &(cmd_arr[3]));
+            if ((_factor > 0.0) && (_factor < 100.01)){
+                preferences.begin("config", false);
+                preferences.putFloat("spec", _factor);
+                preferences.end();
+                spec_coef = _factor;
             }
         }
         Serial.write(ESP_CMD_END);

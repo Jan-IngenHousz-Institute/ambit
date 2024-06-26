@@ -195,7 +195,7 @@ double get_PAR(uint16_t *calc_spec){
 
     //uint16_t calc_spec[10];
 
-    dual_exposure(AS7341_GAIN_8X, AS7341_GAIN_8X, spec);
+    dual_exposure(AS7341_GAIN_2X, AS7341_GAIN_2X, spec);
 
     calc_spec[0] = spec[0] * Spec_COE1;
     calc_spec[1] = spec[1] * Spec_COE2;
