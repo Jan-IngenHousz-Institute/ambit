@@ -11,7 +11,7 @@
 #include "data_utils.h"
 #include "PAM.h"
 #include <Preferences.h>
-
+int check_connections();
 
 extern Preferences preferences;
 
@@ -284,6 +284,11 @@ void do_command(char *choose){
       }
       break;
 
+      case hash("check"):
+      {
+        check_connections();
+      }
+      break;
       
 
       case hash("test"):
