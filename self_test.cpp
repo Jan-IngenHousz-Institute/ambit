@@ -59,8 +59,8 @@ static int test_optic_path(){
             if (counter == num_ptx) break;
             Serial.printf("%d,%d,%d,%d,%d,%d,%d,%d\n", ret[0],ret[1],ret[2],ret[3],ret[4],ret[5],ret[6],ret[7]);
             counter++;
-            if (counter == 120) AS_LED_ON();
-            if (counter == 360) AS_LED_OFF();
+            if (counter == 250) AS_LED_ON();
+            if (counter == 480) AS_LED_OFF();
         }        
     }
 
@@ -74,9 +74,19 @@ static int test_optic_path(){
 
 
 int check_connections(){
-    check_adpd();
-    check_spec();
-    check_mlx();
+    // check_adpd();
+    // check_spec();
+    // check_mlx();
+    double temperature_before, temperature_after, t;
+
+
+    mlx_measure(&t, &temperature_before);
     test_optic_path();
+    mlx_measure(&t, &temperature_after);
+
+
+    Serial.printf("#obj:%f-%f-%f\n", t, temperature_before, temperature_after);
+
+
     return 0;
 }

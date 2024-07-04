@@ -190,8 +190,7 @@ void do_command(char *choose){
     case hash("get_par"):
     {
       
-        uint16_t spec[10];
-        
+        uint16_t spec[10];        
         Serial.println(get_PAR(spec));
         Serial.printf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",spec[0],spec[1],spec[2],spec[3],spec[4],spec[5],spec[6],spec[7],spec[8],spec[9]);
       
