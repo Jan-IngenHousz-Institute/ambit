@@ -21,6 +21,39 @@ extern float_t actinic_coef, spec_coef;
 extern double mlx_emissivity;
 char ambit_name[20] = "ambit";
 
+static struct Reset_Button{
+   unsigned int previous_toggle_t = millis();
+   unsigned int counter = 0;
+}RB;
+
+void ARDUINO_ISR_ATTR RB_toggle(){
+    unsigned int t = millis();
+    unsigned int dt = t - RB.previous_toggle_t;
+    RB.previous_toggle_t = t;
+
+    if ((dt > 8) && (dt < 12)){
+        RB.counter += 1;
+    }else{
+        RB.counter = 0;
+    }
+    if (RB.counter > 3){
+        RB.counter = 0;
+        esp_restart();
+        return;
+    }
+    return;
+}
+
+
+void ambit_light_sleep(){
+    detachInterrupt(BOOT_PIN);
+    gpio_sleep_set_direction(GPIO_NUM_9, GPIO_MODE_INPUT);
+    gpio_sleep_set_pull_mode(GPIO_NUM_9, GPIO_PULLUP_ONLY);
+    gpio_wakeup_enable(GPIO_NUM_9, GPIO_INTR_LOW_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+    esp_light_sleep_start();
+    attachInterrupt(BOOT_PIN, RB_toggle, CHANGE);
+}
 
 
 
@@ -30,9 +63,9 @@ uint16_t flush_serial(uint8_t timeout);
 void setup(){
     esp_timer_early_init();
     pinMode(STF_FLASH_PIN, OUTPUT);
-    pinMode(BOOT_PIN, OUTPUT);
+    pinMode(BOOT_PIN, INPUT_PULLUP);
     digitalWrite(STF_FLASH_PIN, LOW);
-    digitalWrite(BOOT_PIN, LOW);
+    attachInterrupt(BOOT_PIN, RB_toggle, CHANGE);
 
 
     Serial.begin(115200);
@@ -43,7 +76,7 @@ void setup(){
 
 
     digitalWrite(STF_FLASH_PIN, HIGH);
-    delay(1);
+    delayMicroseconds(1);
     digitalWrite(STF_FLASH_PIN, LOW);
     init_i2c_bus();
     init_spi_bus();
@@ -63,6 +96,7 @@ void setup(){
     gpio_sleep_set_direction(GPIO_NUM_1, GPIO_MODE_OUTPUT);
     gpio_sleep_set_pull_mode(GPIO_NUM_1, GPIO_PULLDOWN_ONLY);
 
+    
     preferences.begin("config", true);
     actinic_coef = preferences.getFloat("actinic", 1.0);
     spec_coef = preferences.getFloat("spec", 1.0);
@@ -75,6 +109,8 @@ void setup(){
     Serial.write(AMBIT_BOOT_IDLE);
 
     esp_sleep_enable_timer_wakeup(10000000);
+
+    //esp_sleep_enable_timer_wakeup(200000);
 }
 
 
@@ -86,7 +122,6 @@ void loop(){
     c = -1;
     int b;
     unsigned int sleep_timer = millis();
-
     
     for (;;) {
         c = Serial.available();
@@ -100,7 +135,7 @@ void loop(){
                 //ESP_LOGE(TAG, "ambit sleep");
                 Serial.flush();
                 flush_serial(20);
-                esp_light_sleep_start();
+                ambit_light_sleep();
                 c = esp_sleep_get_wakeup_cause();
                 sleep_timer = millis();
                 if (c == 8){

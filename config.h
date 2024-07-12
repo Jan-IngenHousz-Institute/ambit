@@ -2,7 +2,7 @@
 #define _CONFIG_H
 
 #define STF_FLASH_PIN 1
-#define BOOT_PIN 10
+#define BOOT_PIN 9
 #define AMBIT_BOOT_IDLE 133
 
 enum CONNECTION_TYPES {
