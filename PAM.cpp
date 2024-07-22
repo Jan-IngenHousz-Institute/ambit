@@ -365,7 +365,9 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
 
     Serial.println("Data sent");
   }else if(CONNECTION_TYPE == CONNECTION_TYPES::AMBYTE){
-    d_env->fsm_send_esp(0, allow_interrupt);
+    int ret = d_env->fsm_send_esp(0, allow_interrupt);
+    if (ret != 1) d_env->fsm_send_esp(0, allow_interrupt);
+    
     d_fluor->fsm_send_esp(1);
     d_fluoRef->fsm_send_esp(2);
     if (subsampling > 0){

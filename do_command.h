@@ -168,6 +168,7 @@ void do_command(char *choose){
       case hash("q"):
      {
       uint8_t a = (uint8_t) Serial_Input_Long(",", 10);
+      
       uint8_t b = (uint8_t) Serial_Input_Long(",", 10);
       uint8_t c = (uint8_t) Serial_Input_Long(",", 10);
       
