@@ -273,8 +273,6 @@ void do_command(char *choose){
           preferences.begin("config", false);
           preferences.putFloat("spec", f);
           preferences.end();
-
-
       }
       break;
 
