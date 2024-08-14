@@ -132,21 +132,26 @@ void loop(){
             if (c < 255) break;
         }else{
             if (millis() - sleep_timer > sleep_threshod_ms){
-                //ESP_LOGE(TAG, "ambit sleep");
-                Serial.flush();
-                flush_serial(20);
-                ambit_light_sleep();
-                c = esp_sleep_get_wakeup_cause();
-                sleep_timer = millis();
-                if (c == 8){
-                    sleep_threshod_ms = 1000;
-                }else{
-                    sleep_threshod_ms = 200;
-                }               
+
+
+                // Serial.flush();
+                // flush_serial(20);
+                // ambit_light_sleep();
+                // c = esp_sleep_get_wakeup_cause();
+                // sleep_timer = millis();
+                // if (c == 8){
+                //     sleep_threshod_ms = 1000;
+                // }else{
+                //     sleep_threshod_ms = 200;
+                // }               
                 
-                Serial.write(AMBIT_BOOT_IDLE);
-                Serial.flush();
-                //Serial.read();
+                // Serial.write(AMBIT_BOOT_IDLE);
+                // Serial.flush();
+
+                Serial.print(".");
+                sleep_timer = millis();
+
+
             }else{
                 delay(10);
                 //sleep_threshod_ms = 200;
