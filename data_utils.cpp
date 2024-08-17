@@ -313,7 +313,7 @@ int dataclass::fsm_wake_up_calls(bool interrupt){
     if (ret == 1){ // Normal
         this->data_fsm_state = DATA_STATUS::LENGTHARRAY;
         ESP_LOGV(TAG, "Ambyte awake in %d ms with %d tries", millis() - timer1, this->_num_wake_up_calls);
-        return 0;
+        return 1;
     }else if (ret == 2){ // Lost sync
         ESP_LOGE(TAG, "ERR_LOST_SYNC");
         Serial.read();
@@ -473,10 +473,12 @@ int dataclass::fsm_send_esp(uint8_t arr_idx, bool use_interrupt){
     unsigned int timer1 = millis();
 
     while ((running) && ((millis() - timer1) < 2000)){
+        ret = 0;
         switch (this->data_fsm_state)
         {
         case DATA_STATUS::WAKEUPCALLS:
             ret = this->fsm_wake_up_calls(use_interrupt);
+            if (ret == 1) timer1 = millis();
             if (ret < 0) return ret;
             break;
         
