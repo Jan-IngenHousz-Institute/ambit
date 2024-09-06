@@ -62,6 +62,7 @@ int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, ui
   adpd.led_config.led2_channel = LED_A;
   adpd.SNR_config.TIA_gain_CH1 = G_FR;
   adpd.SNR_config.TIA_gain_CH2 = G_FRref;
+
   adpd.preset_config_3(2, 4);
 
   // Setup timeslot 4-5-6:  Far-red illumination, 0 data
@@ -803,6 +804,27 @@ void actinic_test(uint8_t act1, uint8_t act2, uint8_t t1, uint8_t t2){
   AS_LED_Current(0);
   
 
+}
+
+
+
+
+int fluor_offset_test(uint8_t current, uint8_t num_integ, uint8_t lit_offset, uint8_t dark1_offset, uint8_t dark2_offset, uint8_t pulse_offset, uint8_t pulse_duration){
+
+    // Setup timeslot 2:  Fluor and Ref channels,  4 x 3 bytes
+    // LED 1A = 620nm
+  adpd.led_config.driver1_current = current;
+  adpd.led_config.led1_channel = LED_A;
+    // LED 2A = 730nm
+  adpd.led_config.driver2_current = 0;
+  adpd.led_config.led2_channel = LED_A;
+  adpd.SNR_config.TIA_gain_CH1 = 1;
+  adpd.SNR_config.TIA_gain_CH2 = 5;
+  adpd.preset_config_2x(0, num_integ, lit_offset, dark1_offset, dark2_offset, pulse_offset, pulse_duration);
+
+  adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
+
+  return 0;
 }
 
 

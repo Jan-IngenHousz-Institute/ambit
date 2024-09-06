@@ -90,3 +90,78 @@ int check_connections(){
 
     return 0;
 }
+
+
+int optic_test(){
+    adpd.STOP();
+    conf_slow_FR_1(100, 20, 0, 1, 5, 5, 5, 5, 1);
+
+    adpd.num_ts(3);
+    uint8_t expected_readout_bytes = 24;
+    uint8_t expected_readout = 8;
+    uint32_t ret[expected_readout] = {0};
+    uint16_t fifo_c = 0;
+    uint32_t counter = 0;
+    uint32_t num_ptx = 2000;
+    uint32_t sig = 0;
+
+    AS_LED_OFF();
+    AS_LED_Current(50);
+    adpd.run_freq(25);
+
+    adpd.RUN();
+    while (counter < num_ptx){
+        fifo_c = adpd.fifo_count();
+        while (fifo_c >= expected_readout_bytes){ // read all bytes from FIFO
+            adpd.readfifo(expected_readout, 3, ret);
+            fifo_c -= expected_readout_bytes;
+            if (counter == num_ptx) break;
+            sig = calc_signal(ret[2], ret[3], 1);
+            Serial.printf("%d,%d,%d,%d,%d,%d,%d\n", ret[0]-65000,ret[1]-65000,ret[2]-16000,ret[3]-16000,ret[4]-16000,ret[5]-16000,sig);
+            counter++;
+        }        
+    }
+
+    adpd.STOP();
+    AS_LED_OFF();
+    AS_LED_Current(0);
+    return 0;
+}
+
+
+int optic_test(uint8_t current, uint8_t num_integ, uint8_t lit_offset, uint8_t dark1_offset, uint8_t dark2_offset, uint8_t pulse_offset, uint8_t pulse_duration){
+    adpd.STOP();
+    fluor_offset_test(current, num_integ, lit_offset, dark1_offset, dark2_offset, pulse_offset, pulse_duration);
+
+    adpd.num_ts(1);
+    uint8_t expected_readout_bytes = 12;
+    uint8_t expected_readout = 4;
+    uint32_t ret[expected_readout] = {0};
+    uint16_t fifo_c = 0;
+    uint32_t counter = 0;
+    uint32_t num_ptx = 100;
+    uint32_t sig = 0;
+
+    AS_LED_OFF();
+    AS_LED_Current(50);
+    adpd.run_freq(10);
+
+    adpd.RUN();
+    while (counter < num_ptx){
+        fifo_c = adpd.fifo_count();
+        while (fifo_c >= expected_readout_bytes){ // read all bytes from FIFO
+            adpd.readfifo(expected_readout, 3, ret);
+            fifo_c -= expected_readout_bytes;
+            if (counter == num_ptx) break;
+            sig = calc_signal(ret[0], ret[1], num_integ);
+            Serial.printf("%d,%d,%d,%d,%d\n", ret[0]-16000*num_integ, ret[1]-16000*num_integ,ret[2]-16000*num_integ,ret[3]-16000*num_integ, ret[1] - ret[0]);
+            counter++;
+        }        
+    }
+
+    adpd.STOP();
+    AS_LED_OFF();
+    AS_LED_Current(0);
+    return 0;
+}
+

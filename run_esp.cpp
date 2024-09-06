@@ -212,7 +212,7 @@ int do_esp_cmd(){
             AS_LED_Current(0);
         }else if (type == 2){ // set actinic offset
             _factor = *((float *) &(cmd_arr[3]));
-            if ((_factor > 0.0) && (_factor < 1.01)){
+            if ((_factor > 0.01) && (_factor < 1.01)){
                 preferences.begin("config", false);
                 preferences.putFloat("actinic", _factor);
                 preferences.end();
@@ -220,10 +220,10 @@ int do_esp_cmd(){
             }
         }else if (type == 4){ // set actinic offset
             _factor = *((float *) &(cmd_arr[3]));
-            if ((_factor > 0.0) && (_factor < 100.01)){
-                preferences.begin("config", false);
-                preferences.putFloat("spec", _factor);
-                preferences.end();
+            if ((_factor > 0.05) && (_factor < 100.01)){
+                //preferences.begin("config", false);
+                //preferences.putFloat("spec", _factor);
+                //preferences.end();
                 spec_coef = _factor;
             }
         }

@@ -69,7 +69,7 @@
                 "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.0.4\\libraries\\Preferences\\src"
             ],
             "forcedInclude": [
-                "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.0.2\\cores\\esp32\\Arduino.h"
+                "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.0.4\\cores\\esp32\\Arduino.h"
             ],
             "cStandard": "c11",
             "cppStandard": "c++11",

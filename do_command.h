@@ -233,6 +233,15 @@ void do_command(char *choose){
       CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
       
     }                                                                   
+      break;        
+      
+      
+      case hash("a"):
+     {
+      AS_LED_Current(20);
+      AS_LED_ON();
+      
+    }                                                                   
       break;  
 
    
@@ -255,14 +264,14 @@ void do_command(char *choose){
         preferences.begin("config", false);
         preferences.putString("name", s);
         preferences.end();
-      }                                                                   
+      }                                                                  
       break;
 
       case hash("set_emit"):
       {
-        float_t a = (float_t) Serial_Input_Double(",", 10);
+        double a = Serial_Input_Double(",", 10);
         preferences.begin("config", false);
-        preferences.putFloat("emit", a);
+        preferences.putDouble("emit", a);
         preferences.end();
       }                                                                   
       break;
@@ -288,23 +297,27 @@ void do_command(char *choose){
       }
       break;
       
-
+    int optic_test();
       case hash("test"):
       {
-        Serial.println(mlx_measure());
-        Serial.println(get_PAR());
-        for (uint8_t i = 0; i < 10; i++){
-            AS_LED_OFF();
-            AS_LED_Current(20 * i);
-            AS_LED_ON();
-            delay(10);
-            AS_LED_OFF();
-        }
-
-
+        optic_test();
       }
       break;
 
+      int optic_test(uint8_t current, uint8_t num_integ, uint8_t lit_offset, uint8_t dark1_offset, uint8_t dark2_offset, uint8_t pulse_offset, uint8_t pulse_duration);
+      
+      case hash("test1"):
+      {
+        uint8_t current = (uint8_t) Serial_Input_Long(",", 10);
+        uint8_t num_integ = (uint8_t) Serial_Input_Long(",", 10);
+        uint8_t lit_offset = (uint8_t) Serial_Input_Long(",", 10);
+        uint8_t dark1_offset = (uint8_t) Serial_Input_Long(",", 10);
+        uint8_t dark2_offset = (uint8_t) Serial_Input_Long(",", 10);
+        uint8_t pulse_offset = (uint8_t) Serial_Input_Long(",", 10);
+        uint8_t pulse_duration = (uint8_t) Serial_Input_Long(",", 10);
+        optic_test(current, num_integ, lit_offset, dark1_offset, dark2_offset, pulse_offset, pulse_duration);
+      }
+      break;
     default:
       Serial.println("BAD COMMAND");
     break;
