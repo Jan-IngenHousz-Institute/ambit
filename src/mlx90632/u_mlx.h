@@ -10,6 +10,8 @@ int32_t mlx90632_i2c_read(int16_t register_address, uint16_t *value);
 int16_t mlx90632_i2c_read16(int16_t register_address);
 int32_t mlx90632_i2c_read32(int16_t register_address);
 int32_t mlx90632_i2c_write(int16_t register_address, uint16_t value);
+extern bool FLAG_DEICE;
+
 void usleep(int min_range, int max_range);
 void msleep(int msecs);
 

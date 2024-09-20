@@ -4,6 +4,13 @@ Adafruit_I2CDevice *mlx = NULL;
 static const char* TAG = "MLX";
 double mlx_emissivity = 1.0;
 
+
+
+
+
+
+
+
 int32_t mlx_cali_PR = 0x00587f5b;
 int32_t mlx_cali_PG = 0x04a10289;
 int32_t mlx_cali_PT = 0xfff966f8;

@@ -14,7 +14,7 @@
 int check_connections();
 
 extern Preferences preferences;
-
+extern bool FLAG_DEICE;
 static const char* TAG1 = "do_Cmd";
 void do_c(const char* c);
 
@@ -199,6 +199,18 @@ void do_command(char *choose){
     break;
 
 
+        case hash("awake"):
+    {
+
+      while(1){
+        uint16_t spec[10];        
+        get_PAR(spec);
+      }
+      
+    }
+    break;
+
+
 
       
   case hash("r"):
@@ -217,7 +229,10 @@ void do_command(char *choose){
         conf_slow_FR_1();
         adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
       }
+
+      FLAG_DEICE = true;
       run_arr_type1(3, arr, 0, true);
+      FLAG_DEICE = false;
       CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
       
     }                                                                   
@@ -225,12 +240,8 @@ void do_command(char *choose){
 
       case hash("w"):
      {
-      uint8_t m = (uint8_t) Serial_Input_Long(",", 10);
 
-      CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
-      MPF(m, 0);
-      adpd_mode = ADPD_CONFIG_MODE::MPF_MODE;
-      CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
+ 
       
     }                                                                   
       break;        

@@ -2,6 +2,7 @@
 
 
 static const char* TAG = "DATA_UTIL";
+extern bool FLAG_DEICE;
 
 
 // return 1, 2, 3
@@ -299,12 +300,25 @@ int dataclass::fsm_wake_up_calls(bool interrupt){
             cmd_wait_time = 100;
         }
         if (wake_call_counter > 10){
-            esp_light_sleep_start();
-            wake_up_reason = esp_sleep_get_wakeup_cause();
+            wake_up_reason = 0;
+
+           
+            if (!FLAG_DEICE){  // Power saving mode
+                esp_light_sleep_start();
+                wake_up_reason = esp_sleep_get_wakeup_cause();
+            }else{ // Power wasting mode
+                for (uint8_t j = 0; j < 10; j++){
+                    ret = serial_read_until(AMBYTE_AWAKE, AMBYTE_CALLS, AMBYTE_CALLFORRESET, 100, false);
+                    if (ret > 0) break; 
+                }
+            }
+
             if (wake_up_reason == 8){ // wake up by uart
                 max_wake_try -= wake_call_counter;
                 wake_call_counter = 0;
             }
+
+
         }
         wake_call_counter += 1;
         if (millis() - timer1 > 3600000) break;

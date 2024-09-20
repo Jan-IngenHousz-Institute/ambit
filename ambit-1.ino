@@ -16,6 +16,7 @@ static const char* TAG = "INO";
 ADPD6 adpd;
 Preferences preferences;
 uint8_t CONNECTION_TYPE = 0;
+bool FLAG_DEICE = false;
 static uint16_t sleep_threshod_ms = 100;
 extern float_t actinic_coef, spec_coef;
 extern double mlx_emissivity;
@@ -109,6 +110,8 @@ void setup(){
     Serial.write(AMBIT_BOOT_IDLE);
 
     esp_sleep_enable_timer_wakeup(10000000);
+
+    FLAG_DEICE = false;
 
     //esp_sleep_enable_timer_wakeup(200000);
 }

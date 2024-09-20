@@ -139,12 +139,12 @@ int optic_test(uint8_t current, uint8_t num_integ, uint8_t lit_offset, uint8_t d
     uint32_t ret[expected_readout] = {0};
     uint16_t fifo_c = 0;
     uint32_t counter = 0;
-    uint32_t num_ptx = 100;
+    uint32_t num_ptx = 300;
     uint32_t sig = 0;
 
     AS_LED_OFF();
-    AS_LED_Current(50);
-    adpd.run_freq(10);
+    AS_LED_Current(100);
+    adpd.run_freq(25);
 
     adpd.RUN();
     while (counter < num_ptx){
@@ -153,6 +153,8 @@ int optic_test(uint8_t current, uint8_t num_integ, uint8_t lit_offset, uint8_t d
             adpd.readfifo(expected_readout, 3, ret);
             fifo_c -= expected_readout_bytes;
             if (counter == num_ptx) break;
+            if (counter == 100) AS_LED_ON();
+            if (counter == 200) AS_LED_OFF();
             sig = calc_signal(ret[0], ret[1], num_integ);
             Serial.printf("%d,%d,%d,%d,%d\n", ret[0]-16000*num_integ, ret[1]-16000*num_integ,ret[2]-16000*num_integ,ret[3]-16000*num_integ, ret[1] - ret[0]);
             counter++;
