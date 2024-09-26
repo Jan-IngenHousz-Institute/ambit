@@ -164,6 +164,30 @@ void do_command(char *choose){
     }
       break;  
 
+    case hash("arrun1"):
+     {
+      uint8_t len = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t persist = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t arr[128] = {0};
+      uint8_t tmp_8 = 0;
+      CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
+
+
+      for (uint8_t i = 0; i < len; i++){
+        for (uint8_t j = 0; j < 8; j++){
+          arr[i * 8 + j] = (uint8_t) Serial_Input_Long(",", 10);
+        }
+      }
+
+      if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
+        conf_slow_FR_1();
+        adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
+      }
+      run_arr_type1(16, arr, persist);
+    }
+      Serial.println("Done");
+      break;  
+
 
       case hash("q"):
      {
