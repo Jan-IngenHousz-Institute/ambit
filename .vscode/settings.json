@@ -36,6 +36,10 @@
         "c++config.h": "c",
         "mlx90632_depends.h": "c",
         "compare": "c",
-        "arduino.h": "c"
+        "arduino.h": "c",
+        "adi_adpd6000_config.h": "c",
+        "esp32-hal.h": "c",
+        "esp32-hal-log.h": "c",
+        "ets_sys.h": "c"
     }
 }
