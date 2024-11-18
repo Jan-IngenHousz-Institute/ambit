@@ -7,6 +7,7 @@
             "compilerArgs": [
                 "-MMD",
                 "-w",
+                "-Werror=return-type",
                 "-iprefix"
             ],
             "intelliSenseMode": "gcc-x64",
@@ -70,7 +71,7 @@
                 "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.0.7\\libraries\\Preferences\\src"
             ],
             "forcedInclude": [
-                "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.0.4\\cores\\esp32\\Arduino.h"
+                "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.0.7\\cores\\esp32\\Arduino.h"
             ],
             "cStandard": "c11",
             "cppStandard": "c++11",
@@ -84,7 +85,7 @@
                 "ARDUINO_PARTITION_minimal",
                 "ARDUINO_HOST_OS=\"windows\"",
                 "ARDUINO_FQBN=\"esp32:esp32:esp32c3:JTAGAdapter=default,CDCOnBoot=default,PartitionScheme=minimal,CPUFreq=160,FlashMode=qio,FlashFreq=80,FlashSize=2M,UploadSpeed=921600,DebugLevel=warn,EraseFlash=none,ZigbeeMode=default\"",
-                "ESP32",
+                "ESP32=ESP32",
                 "CORE_DEBUG_LEVEL=2",
                 "ARDUINO_USB_MODE=1",
                 "ARDUINO_USB_CDC_ON_BOOT=0",
