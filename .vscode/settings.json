@@ -40,6 +40,14 @@
         "adi_adpd6000_config.h": "c",
         "esp32-hal.h": "c",
         "esp32-hal-log.h": "c",
-        "ets_sys.h": "c"
+        "ets_sys.h": "c",
+        "freertos.h": "c",
+        "portable.h": "c",
+        "esp32-hal-gpio.h": "c",
+        "esp32-hal-timer.h": "c",
+        "freertosconfig.h": "c",
+        "portmacro.h": "c",
+        "hardwareserial.h": "c",
+        "hwcdc.h": "c"
     }
 }
