@@ -19,6 +19,7 @@ uint8_t CONNECTION_TYPE = 0;
 bool FLAG_DEICE = false;
 static uint16_t sleep_threshod_ms = 100;
 extern float_t actinic_coef, spec_coef;
+extern uint32_t UUID_MAC;
 extern double mlx_emissivity;
 char ambit_name[20] = "ambit";
 
@@ -102,16 +103,23 @@ void setup(){
     actinic_coef = preferences.getFloat("actinic", 1.0);
     spec_coef = preferences.getFloat("spec", 1.0);
     preferences.getString("name", ambit_name, 20);
-    mlx_emissivity = preferences.getDouble("emit", 1.0);
-    
+    mlx_emissivity = preferences.getDouble("emit", 1.0);    
     preferences.end();
 
-    Serial.printf("Ambit:%s Compiled at %s-%s\nActinic coefficient:%f, Spec coefficient:%f, emit:%f\n", ambit_name, __DATE__, __TIME__, actinic_coef, spec_coef, mlx_emissivity);
+    uint64_t mac_addr = ESP.getEfuseMac();
+    UUID_MAC = mac_addr & 0xFFFFFFFF;
+
+
+    Serial.printf("Ambit:%s - %d Compiled at %s-%s\nActinic coefficient:%f, Spec coefficient:%f, emit:%f\n", ambit_name, UUID_MAC, __DATE__, __TIME__, actinic_coef, spec_coef, mlx_emissivity);
     Serial.write(AMBIT_BOOT_IDLE);
 
     esp_sleep_enable_timer_wakeup(10000000);
+    Serial.printf("MAC:%lld\n", ESP.getEfuseMac());
 
     FLAG_DEICE = false;
+
+        
+    
 
     //esp_sleep_enable_timer_wakeup(200000);
 }
