@@ -10,6 +10,7 @@
 #include "driver/uart.h"
 #include "driver/gpio.h"
 #include <Preferences.h>
+#include "Esp.h"
 
 
 static const char* TAG = "INO";
@@ -19,7 +20,7 @@ uint8_t CONNECTION_TYPE = 0;
 bool FLAG_DEICE = false;
 static uint16_t sleep_threshod_ms = 100;
 extern float_t actinic_coef, spec_coef;
-extern uint32_t UUID_MAC;
+
 extern double mlx_emissivity;
 char ambit_name[20] = "ambit";
 
@@ -105,18 +106,17 @@ void setup(){
     preferences.getString("name", ambit_name, 20);
     mlx_emissivity = preferences.getDouble("emit", 1.0);    
     preferences.end();
+      
 
-    uint64_t mac_addr = ESP.getEfuseMac();
-    UUID_MAC = mac_addr & 0xFFFFFFFF;
-
-
-    Serial.printf("Ambit:%s - %d Compiled at %s-%s\nActinic coefficient:%f, Spec coefficient:%f, emit:%f\n", ambit_name, UUID_MAC, __DATE__, __TIME__, actinic_coef, spec_coef, mlx_emissivity);
+    Serial.printf("CHIP MAC:%012llx\tCompile:%s\tSize:%d\n", ESP.getEfuseMac(),__DATE__, ESP.getSketchSize());
+    Serial.printf("Ambit:%s\tCompiled:%s\tAct:%f\tSpec:%f\temit:%f\n", ambit_name, __TIME__, actinic_coef, spec_coef, mlx_emissivity);
     Serial.write(AMBIT_BOOT_IDLE);
 
     esp_sleep_enable_timer_wakeup(10000000);
-    Serial.printf("MAC:%lld\n", ESP.getEfuseMac());
+    
 
     FLAG_DEICE = false;
+    
 
         
     

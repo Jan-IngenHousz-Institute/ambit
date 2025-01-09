@@ -24,7 +24,7 @@ int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0,
 extern char ambit_name[];
 float_t actinic_coef = 1.0;
 float_t spec_coef = 1.0;
-uint32_t UUID_MAC = 0;
+
 
 
 extern double mlx_emissivity;
