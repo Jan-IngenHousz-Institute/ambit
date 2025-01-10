@@ -68,6 +68,8 @@ void setup(){
     pinMode(STF_FLASH_PIN, OUTPUT);
     pinMode(BOOT_PIN, INPUT_PULLUP);
     digitalWrite(STF_FLASH_PIN, LOW);
+    pinMode(10, OUTPUT);
+    digitalWrite(10, LOW);
     attachInterrupt(BOOT_PIN, RB_toggle, CHANGE);
 
 

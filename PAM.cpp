@@ -400,6 +400,139 @@ void adpd_trigger(void){
     digitalWrite(10, LOW);
 }
 
+
+
+
+int run_trigger_spacer(uint16_t length, uint16_t interval, bool change_act, uint8_t act, bool interrrupt){
+  if (length > 3000) return -1;
+  if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_SLOW){
+    conf_slow_FR_1();
+    adpd.STOP();
+    digitalWrite(10, LOW);
+    adpd.gpio_config.GPIO0_cfg = 1;
+    adpd.gpio_config.SYNC_GPIO = 0;
+    adpd.gpio_config.EXT_SYNC_EN = 1;
+    adpd.gpio_setup(&(adpd.gpio_config));
+    adpd_mode = ADPD_CONFIG_MODE::ARRAY_SLOW;        
+  }
+
+
+  // set to max possible bytes
+  uint8_t expected_readout = 8;
+  uint8_t expected_readout_bytes = expected_readout * 3;
+  const uint32_t _wait_time = interval * 100;
+  const uint8_t num_integration = 1;
+  const unsigned int start_t0 = millis();
+
+    // data counter and buffer
+  // [sun-amb, leaf-ir, lit_leaf-ir, dark_leaf-ir, lit_leaf-ref, dark_leaf-ref]
+  uint32_t ret[expected_readout] = {0};
+  uint16_t fifo_c = 0;
+  uint8_t watch_dog_timer = 0;
+  int32_t tmp_var = 0;
+  uint32_t buf_opt[4] = {0};
+  uint32_t _tmparr = 0;
+  uint32_t read_fluor, read_fluoRef, read_sun, read_leaf, read_7, read_7Ref;
+  float_t leaf_temp = 0.0;
+
+
+  unsigned int env_timer1 = millis(), trigger_timer = 0;
+  int waiting_time = 0;
+  bool measure_temperature = false;
+  bool interrupt_run = false;
+  
+
+  dataclass *d_env = new dataclass; //
+  dataclass *d_fluor = new dataclass; // fluorescence signal
+  dataclass *d_fluoRef = new dataclass; // fluorescence reference
+
+  dataclass *d_sun = new dataclass; // sun-side ambient
+  dataclass *d_leaf = new dataclass;  // leaf-side ambient
+  dataclass *d_730 = new dataclass; // 730nm reflectance signal
+  dataclass *d_730Ref = new dataclass;  // 730nm reference
+
+  int _func_ret = -1;
+  if (!(d_env->init(512))) goto del_classes;
+  if (!( (d_fluor->init(length)) && (d_fluoRef->init(length)) )) goto del_classes;
+  if (!( (d_sun->init(length)) && (d_leaf->init(length)) )) goto del_classes;
+  if (!( (d_730->init(length)) && (d_730Ref->init(length)) )) goto del_classes;
+
+
+  _tmparr = PAM_get_env(4, start_t0);
+  d_env->put(_tmparr);
+  leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 10.0;
+
+  adpd.clear_fifo();
+  adpd.run_freq(10);
+  adpd.RUN();
+
+  if(change_act){
+    if (act == 0) AS_LED_OFF();
+    if (act > 0) {
+      AS_LED_Current(act);
+      AS_LED_ON();
+      }
+  }
+  
+  for (uint16_t n = 0; n < length; n++){
+    fifo_c = 0;
+    adpd_trigger();
+    trigger_timer = millis();
+    delay(1);
+    while (fifo_c != expected_readout_bytes){
+      fifo_c = adpd.fifo_count();
+      if (fifo_c >= expected_readout_bytes) break;
+      if (millis() - trigger_timer > 100) break;
+    }
+    if (fifo_c < expected_readout_bytes){
+      ESP_LOGE(TAG, "NOT ENOUGH IN FIFO");
+      break;
+    }
+    adpd.readfifo(expected_readout, 3, ret);
+    if (fifo_c > expected_readout_bytes){
+      adpd.clear_fifo();
+      ESP_LOGE(TAG, "Extra %d byte in FIFO", fifo_c - expected_readout_bytes);
+    }
+
+    read_fluor = calc_signal(ret[2], ret[3], num_integration); d_fluor->put(read_fluor);
+    read_fluoRef = calc_signal(ret[4], ret[5], num_integration); d_fluoRef->put(read_fluoRef);
+    read_sun = ret[0]; d_sun->put(read_sun);
+    read_leaf = ret[1]; d_leaf->put(read_leaf);
+    read_7 = ret[6]; d_730->put(read_7);
+    read_7Ref = ret[7]; d_730Ref->put(read_7Ref);
+
+    Serial.printf("F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", (float)read_fluor/(float)read_fluoRef, read_fluor, read_fluoRef, read_7, read_7Ref, read_sun-65000, read_leaf-65000);    
+
+
+    if (n % 8 ==0){
+      
+    }
+
+    waiting_time = _wait_time - (millis() - trigger_timer);
+    if (waiting_time > 1) delay(waiting_time);
+  }
+
+
+
+   
+
+
+
+
+  
+  _func_ret = 0;
+  del_classes:
+    delete d_fluor;
+    delete d_fluoRef;
+    delete d_sun;
+    delete d_leaf;
+    delete d_730;
+    delete d_730Ref;
+    delete d_env;  
+  return _func_ret;
+}
+
+
 int MPF(uint16_t mode, uint16_t dc_current){
   if (adpd_gains_config.init == false) ESP_LOGE(TAG, "Gain preset not initized, use default!");
   if (adpd_current_config.init == false) ESP_LOGE(TAG, "Current preset not initized, use default!");

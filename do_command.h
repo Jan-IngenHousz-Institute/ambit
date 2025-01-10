@@ -269,6 +269,10 @@ void do_command(char *choose){
 
       case hash("w"):
      {
+      uint8_t length = (uint16_t) Serial_Input_Long(",", 10);
+      uint8_t interval = (uint16_t) Serial_Input_Long(",", 10);
+      uint8_t act = (uint8_t) Serial_Input_Long(",", 10);
+      run_trigger_spacer(length, interval, true, act, false);
 
  
       
