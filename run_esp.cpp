@@ -40,6 +40,23 @@ struct ambit_info_t{
 
 
 
+struct ambit_FW_info_t{
+    uint64_t MAC = 0;
+    uint32_t Size = 0;
+    char FW_date[12];
+    char reserved[12];
+    uint32_t num = 0;   
+}ambit_FW_info;
+
+static void _get_FW_info(void){
+    ambit_FW_info.MAC = ESP.getEfuseMac();
+    ambit_FW_info.Size = ESP.getSketchSize();
+    strncpy(ambit_FW_info.FW_date, __DATE__, 12);
+    return;
+}
+
+
+
 
 int do_esp_cmd(){
     uint8_t cmd_arr[8], c, ret;
@@ -177,6 +194,8 @@ int do_esp_cmd(){
     break;
 
     
+
+    
     case 34: // get temp and raw
     {
         double leaf, leaf_1, chip;
@@ -193,6 +212,17 @@ int do_esp_cmd(){
         Serial.write((uint8_t*) (&a2), 2);
         Serial.write((uint8_t*) (&a3), 2);
         Serial.write((uint8_t*) (&a4), 2);
+        Serial.write(ESP_CMD_END);
+    }
+    break;
+
+    case 35:    // retrieve firmware info
+    {
+        if (ambit_FW_info.Size == 0){
+            _get_FW_info();
+        }
+        Serial.write(ESP_CMD_DONE);
+        Serial.write((uint8_t*) (&ambit_FW_info), sizeof(ambit_FW_info_t));
         Serial.write(ESP_CMD_END);
     }
     break;

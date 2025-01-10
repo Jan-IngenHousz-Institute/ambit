@@ -5,7 +5,7 @@
 #include "src/devices_init.h"
 #include "src/mlx90632/u_mlx.h"
 #include "data_utils.h"
-
+#include <Arduino.h>
 
 
 extern ADPD6 adpd;
