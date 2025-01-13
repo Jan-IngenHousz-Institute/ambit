@@ -77,7 +77,7 @@ int do_esp_cmd(){
         ESP_LOGE(TAG, "ESP cmd parse failed");
         return -1;        
     }
-    ESP_LOGV(TAG, "cmd is %d, %d, %d, %d, %d, %d, %d, %d", cmd_arr[0], cmd_arr[1], cmd_arr[2], cmd_arr[3], cmd_arr[4], cmd_arr[5], cmd_arr[6], cmd_arr[7]);
+    //Serial.printf("cmd is %d, %d, %d, %d, %d, %d, %d, %d\n", cmd_arr[0], cmd_arr[1], cmd_arr[2], cmd_arr[3], cmd_arr[4], cmd_arr[5], cmd_arr[6], cmd_arr[7]);
 
     switch (cmd_arr[0])
     {
@@ -112,13 +112,21 @@ int do_esp_cmd(){
         break;
 
     case 20: // run mpf
+    {
         if (adpd_gains_config_local.init == false) ESP_LOGE(TAG, "Gain preset not initized, use default!");
         if (adpd_current_config_local.init == false) ESP_LOGE(TAG, "Current preset not initized, use default!");
-        Serial.write(ESP_CMD_DONE);
-        MPF(cmd_arr[1], adpd_current_config_local.I620, cmd_arr[2], adpd_gains_config_local.Fluo, adpd_gains_config_local.FluoRef);
-        adpd_mode = ADPD_CONFIG_MODE::MPF_MODE;
-        Serial.write(ESP_CMD_END);
+
+        uint16_t length = (((uint16_t) cmd_arr[1]) << 7) + cmd_arr[2];
+        uint8_t interval = cmd_arr[3];
+        bool change_act = (bool) cmd_arr[4];
+        uint8_t act = cmd_arr[5];
+
+        //Serial.printf("%d, %d, %d, %d\n", length, interval, change_act, act);
         
+        Serial.write(ESP_CMD_DONE);
+        run_trigger_spacer(length, interval, change_act, act, true);
+        Serial.write(ESP_CMD_END);
+    }    
         break;
 
     case 21:// run

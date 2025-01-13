@@ -1,8 +1,8 @@
 {
-    "configuration": "JTAGAdapter=default,CDCOnBoot=default,PartitionScheme=minimal,CPUFreq=160,FlashMode=qio,FlashFreq=80,FlashSize=2M,UploadSpeed=921600,DebugLevel=warn,EraseFlash=none,ZigbeeMode=default",
+    "configuration": "JTAGAdapter=default,CDCOnBoot=default,PartitionScheme=minimal,CPUFreq=160,FlashMode=qio,FlashFreq=80,FlashSize=2M,UploadSpeed=921600,DebugLevel=none,EraseFlash=none,ZigbeeMode=default",
     "board": "esp32:esp32:esp32c3",
     "sketch": "ambit-1.ino",
-    "port": "COM10",
+    "port": "COM9",
     "output": "../tmp",
     "programmer": "esptool"
 }

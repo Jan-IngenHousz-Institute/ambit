@@ -355,7 +355,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
   };
 
 
-  if  (CONNECTION_TYPE == CONNECTION_TYPES::COMPUTER){
+  if (CONNECTION_TYPE == CONNECTION_TYPES::COMPUTER){
     d_env->send_serial("ENV");
     d_fluor->send_serial("Fluo");
     d_fluoRef->send_serial("Fluoref");
@@ -403,24 +403,26 @@ void adpd_trigger(void){
 
 
 
-int run_trigger_spacer(uint16_t length, uint16_t interval, bool change_act, uint8_t act, bool interrrupt){
+int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8_t act, bool interrrupt){
+
   if (length > 3000) return -1;
-  if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_SLOW){
-    conf_slow_FR_1();
-    adpd.STOP();
-    digitalWrite(10, LOW);
-    adpd.gpio_config.GPIO0_cfg = 1;
-    adpd.gpio_config.SYNC_GPIO = 0;
-    adpd.gpio_config.EXT_SYNC_EN = 1;
-    adpd.gpio_setup(&(adpd.gpio_config));
-    adpd_mode = ADPD_CONFIG_MODE::ARRAY_SLOW;        
-  }
+  adpd.STOP();
+
+  if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1) conf_slow_FR_1();
+
+  digitalWrite(10, LOW);
+  adpd.gpio_config.GPIO0_cfg = 1;
+  adpd.gpio_config.SYNC_GPIO = 0;
+  adpd.gpio_config.EXT_SYNC_EN = 1;
+  adpd.gpio_setup(&(adpd.gpio_config));
+  adpd_mode = ADPD_CONFIG_MODE::ARRAY_SLOW;
+  
 
 
   // set to max possible bytes
   uint8_t expected_readout = 8;
   uint8_t expected_readout_bytes = expected_readout * 3;
-  const uint32_t _wait_time = interval * 100;
+  const uint32_t _wait_time_ms = interval * 100;
   const uint8_t num_integration = 1;
   const unsigned int start_t0 = millis();
 
@@ -435,12 +437,11 @@ int run_trigger_spacer(uint16_t length, uint16_t interval, bool change_act, uint
   uint32_t read_fluor, read_fluoRef, read_sun, read_leaf, read_7, read_7Ref;
   float_t leaf_temp = 0.0;
 
-
-  unsigned int env_timer1 = millis(), trigger_timer = 0;
+  unsigned int env_timer1 = millis(), trigger_timer = 0, expected_millis = 0;
   int waiting_time = 0;
   bool measure_temperature = false;
   bool interrupt_run = false;
-  
+  esp_sleep_enable_timer_wakeup(90000);
 
   dataclass *d_env = new dataclass; //
   dataclass *d_fluor = new dataclass; // fluorescence signal
@@ -456,15 +457,19 @@ int run_trigger_spacer(uint16_t length, uint16_t interval, bool change_act, uint
   if (!( (d_fluor->init(length)) && (d_fluoRef->init(length)) )) goto del_classes;
   if (!( (d_sun->init(length)) && (d_leaf->init(length)) )) goto del_classes;
   if (!( (d_730->init(length)) && (d_730Ref->init(length)) )) goto del_classes;
-
+  
 
   _tmparr = PAM_get_env(4, start_t0);
   d_env->put(_tmparr);
   leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 10.0;
+  env_timer1 = millis();
+
 
   adpd.clear_fifo();
   adpd.run_freq(10);
+  adpd.num_ts(3);
   adpd.RUN();
+  delay(5);
 
   if(change_act){
     if (act == 0) AS_LED_OFF();
@@ -478,6 +483,7 @@ int run_trigger_spacer(uint16_t length, uint16_t interval, bool change_act, uint
     fifo_c = 0;
     adpd_trigger();
     trigger_timer = millis();
+    expected_millis = trigger_timer + _wait_time_ms;
     delay(1);
     while (fifo_c != expected_readout_bytes){
       fifo_c = adpd.fifo_count();
@@ -501,25 +507,57 @@ int run_trigger_spacer(uint16_t length, uint16_t interval, bool change_act, uint
     read_7 = ret[6]; d_730->put(read_7);
     read_7Ref = ret[7]; d_730Ref->put(read_7Ref);
 
-    Serial.printf("F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", (float)read_fluor/(float)read_fluoRef, read_fluor, read_fluoRef, read_7, read_7Ref, read_sun-65000, read_leaf-65000);    
 
-
-    if (n % 8 ==0){
-      
+    if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
+      Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)read_fluor/(float)read_fluoRef, read_fluor, read_fluoRef, read_7, read_7Ref, read_sun-65000, read_leaf-65000);    
+      Serial.flush();
     }
 
-    waiting_time = _wait_time - (millis() - trigger_timer);
-    if (waiting_time > 1) delay(waiting_time);
+
+
+    if (interrupt_run) break;
+    if (millis() > expected_millis) continue; // overdue
+    waiting_time = expected_millis - millis();
+
+    if ((n % 8 == 7) && (waiting_time > 100)){
+      if (millis() - env_timer1 > 2000){
+        _tmparr = PAM_get_env(4, start_t0);
+        d_env->put(_tmparr);
+        leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 10.0;
+        env_timer1 = millis();
+      }      
+    }    
+
+
+    
+    waiting_time = expected_millis - millis();
+    if (waiting_time > 12){  // wait time > 12ms
+      esp_sleep_enable_timer_wakeup((waiting_time - 8) * 1000);
+      interrupt_run = PAM_interrupt(interrrupt, false);
+      if (!interrupt_run) esp_light_sleep_start();
+      interrupt_run = PAM_interrupt(interrrupt, true);
+    } // wait time >12 
+    if (interrupt_run) break;
+
+    waiting_time = expected_millis - millis();
+    if (waiting_time > 1) delay(waiting_time);     
+  } /// End of Loop
+
+
+  adpd.STOP();
+  adpd.clear_fifo();
+
+  if (CONNECTION_TYPE == CONNECTION_TYPES::AMBYTE){
+    int ret = d_env->fsm_send_esp(0, interrrupt);
+    if (ret != 1) d_env->fsm_send_esp(0, interrrupt);    
+    d_fluor->fsm_send_esp(1);
+    d_fluoRef->fsm_send_esp(2);    
+    d_sun->fsm_send_esp(3);
+    d_leaf->fsm_send_esp(4);    
+    d_730->fsm_send_esp(5);
+    d_730Ref->fsm_send_esp(6);
   }
 
-
-
-   
-
-
-
-
-  
   _func_ret = 0;
   del_classes:
     delete d_fluor;
@@ -528,7 +566,12 @@ int run_trigger_spacer(uint16_t length, uint16_t interval, bool change_act, uint
     delete d_leaf;
     delete d_730;
     delete d_730Ref;
-    delete d_env;  
+    delete d_env;
+    
+  adpd.gpio_config.GPIO0_cfg = 0;
+  adpd.gpio_config.EXT_SYNC_EN = 0;
+  adpd.gpio_setup(&(adpd.gpio_config));
+  adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;        
   return _func_ret;
 }
 
