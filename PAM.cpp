@@ -402,7 +402,6 @@ void adpd_trigger(void){
 
 
 
-
 int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8_t act, bool interrrupt){
 
   if (length > 3000) return -1;
@@ -574,6 +573,138 @@ int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8
   adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;        
   return _func_ret;
 }
+
+
+int external_trigger_run(void){
+
+  adpd.STOP();
+  conf_slow_FR_1();
+
+
+  digitalWrite(10, LOW);
+  adpd.gpio_config.GPIO0_cfg = 1;
+  adpd.gpio_config.SYNC_GPIO = 0;
+  adpd.gpio_config.EXT_SYNC_EN = 1;
+  adpd.gpio_setup(&(adpd.gpio_config));
+
+
+  // set to max possible bytes
+  uint8_t expected_readout = 6, num_integration = 1;
+  uint8_t expected_readout_bytes = expected_readout * 3;
+  
+    // data counter and buffer
+  // [sun-amb, leaf-ir, lit_leaf-ir, dark_leaf-ir, lit_leaf-ref, dark_leaf-ref]
+  uint32_t ret[expected_readout] = {0};
+  uint16_t fifo_c = 0;  
+  uint32_t read_fluor, read_fluoRef, read_sun, read_leaf;
+  float_t leaf_temp = 0.0;
+
+  adpd.clear_fifo();
+  adpd.run_freq(10);
+  adpd.num_ts(2);
+  adpd.RUN();
+  delay(5);
+
+  unsigned int watchdog_timer = millis(), trigger_timer = 0, start_timer = millis();
+  bool keep_running = true, do_measure = false, change_act = false;
+  char c, c1, c2;
+
+  Serial.println("Run Start");
+
+  while(keep_running){ 
+    
+    while (Serial.available() == 0){
+      if (millis() - watchdog_timer > 30000){
+        keep_running = false;
+        break;
+      }
+      delayMicroseconds(200);
+    }
+    if (!keep_running) break;
+    
+    while (Serial.available() > 0){
+      c = Serial.read();
+      if (c == 'G'){
+        do_measure = true;
+        watchdog_timer = millis();
+        
+      }else if(c == 'E'){
+        do_measure = false;
+        keep_running = false;
+      }else if(c == 'A'){
+        delay(1);
+        c1 = 0;
+        if (Serial.available() > 0){
+          c1 = Serial.read();
+          change_act = true;
+        }
+      }
+    }
+
+    if (!keep_running) break;
+    if (change_act){
+      change_act = false;
+      if (c1 > 3){
+        AS_LED_Current(c1);
+        AS_LED_ON();
+      }else{
+        AS_LED_OFF();
+      }
+    }
+    if (!do_measure) continue;
+
+
+    fifo_c = 0;
+    adpd_trigger();
+    do_measure = false;
+    trigger_timer = millis(); 
+    delay(1);
+    while (fifo_c != expected_readout_bytes){
+      fifo_c = adpd.fifo_count();
+      if (fifo_c >= expected_readout_bytes) break;
+      if (millis() - trigger_timer > 100) break;
+    }
+    if (fifo_c < expected_readout_bytes){
+      Serial.println("NOT ENOUGH IN FIFO");
+      break;
+    }
+    adpd.readfifo(expected_readout, 3, ret);
+    if (fifo_c > expected_readout_bytes){
+      adpd.clear_fifo();
+      Serial.printf("Extra %d byte in FIFO", fifo_c - expected_readout_bytes);
+    }
+
+    read_fluor = calc_signal(ret[2], ret[3], num_integration); 
+    read_fluoRef = calc_signal(ret[4], ret[5], num_integration); 
+    read_sun = ret[0]; 
+    read_leaf = ret[1]; 
+
+
+
+    Serial.printf("T:%d,S:%d,R:%d,F:%d,B:%d\n", millis() - start_timer, read_fluor, read_fluoRef, read_sun-65000, read_leaf-65000);    
+    Serial.flush();    
+  } /// End of Loop
+
+
+  adpd.STOP();
+  adpd.clear_fifo();
+    
+  adpd.gpio_config.GPIO0_cfg = 0;
+  adpd.gpio_config.EXT_SYNC_EN = 0;
+  adpd.gpio_setup(&(adpd.gpio_config));
+
+  AS_LED_Current(0);
+  AS_LED_OFF();
+
+  Serial.println("Run Stopped");
+
+  return 0;
+}
+
+
+
+
+
 
 
 int MPF(uint16_t mode, uint16_t dc_current){

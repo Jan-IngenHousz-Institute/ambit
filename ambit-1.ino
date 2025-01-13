@@ -118,11 +118,6 @@ void setup(){
     
 
     FLAG_DEICE = false;
-    
-
-        
-    
-
     //esp_sleep_enable_timer_wakeup(200000);
 }
 

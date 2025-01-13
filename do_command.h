@@ -74,15 +74,11 @@ void do_command(char *choose){
     }                                                                   
       break;
 
-      
-    case hash("mpf"):
+    int external_trigger_run(void);
+    case hash("ww"):
      {
-      uint16_t m = Serial_Input_Long(",", 100);
-      uint16_t l = Serial_Input_Long(",", 100);
-      uint16_t n = Serial_Input_Long(",", 100);
-      uint16_t g1 = Serial_Input_Long(",", 100);
-      uint16_t g2 = Serial_Input_Long(",", 100);
-      MPF(m, l, n, g1, g2);
+      external_trigger_run();
+
     }                                                                   
       break;
 
