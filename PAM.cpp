@@ -415,6 +415,9 @@ int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8
   adpd.gpio_config.EXT_SYNC_EN = 1;
   adpd.gpio_setup(&(adpd.gpio_config));
   adpd_mode = ADPD_CONFIG_MODE::ARRAY_SLOW;
+
+  gpio_sleep_set_direction(GPIO_NUM_10, GPIO_MODE_OUTPUT);
+  gpio_sleep_set_pull_mode(GPIO_NUM_10, GPIO_PULLDOWN_ONLY);
   
 
 
