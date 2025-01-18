@@ -236,7 +236,7 @@ void ADPD6::load_default(struct ts_signal *ts){
     ts->ac_type = 0;
     ts->gpio_out = 0;
     ts->INT2BUT = 0;
-    ts->AFE_PATh = 0x28;
+    ts->AFE_PATh = 0x28; // 0x28
     ts->IN34 = 0;
     ts->IN12 = 1;
     ts->pre_condition_type = 0;
@@ -683,7 +683,7 @@ int32_t ADPD6::preset_config_2(uint8_t ts, uint8_t num_integ){
   ADPD6::signal_config.pre_condition_type = 5;
   ADPD6::SNR_config.Ch1_R_int = 1;
   ADPD6::SNR_config.C_int_CH1 = 1;
-  ADPD6::SNR_config.Ch2_R_int = 1;
+  ADPD6::SNR_config.Ch2_R_int = 2; // 1
   ADPD6::SNR_config.C_int_CH2 = 1;
   ADPD6::signal_config.INT2BUT = 1;
   ADPD6::signal_config.ac_type = 2;
