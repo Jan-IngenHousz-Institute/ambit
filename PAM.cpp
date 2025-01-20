@@ -530,17 +530,19 @@ int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8
       }      
     }    
 
+    
 
     
     waiting_time = expected_millis - millis();
-    if (waiting_time > 12){  // wait time > 12ms
-      esp_sleep_enable_timer_wakeup((waiting_time - 8) * 1000);
+    while (waiting_time > 250){
+      esp_sleep_enable_timer_wakeup((waiting_time - 50) * 1000);
       interrupt_run = PAM_interrupt(interrrupt, false);
       if (!interrupt_run) esp_light_sleep_start();
       interrupt_run = PAM_interrupt(interrrupt, true);
-    } // wait time >12 
+      if (interrupt_run) break;
+      waiting_time = expected_millis - millis();
+    }
     if (interrupt_run) break;
-
     waiting_time = expected_millis - millis();
     if (waiting_time > 1) delay(waiting_time);     
   } /// End of Loop
