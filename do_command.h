@@ -120,18 +120,23 @@ void do_command(char *choose){
 
     case hash("temp"):
     { 
-      uint32_t ret;
-      uint8_t mode = 5;
-      float_t temp = 0.0;
+      // uint32_t ret;
+      // uint8_t mode = 5;
+      // float_t temp = 0.0;
 
 
-      ret = PAM_get_env(0, 500);
-      Serial.print(PAM_retrieve_env(ret, &mode));
-      Serial.printf(" %d \n", mode);
+      // ret = PAM_get_env(0, 500);
+      // Serial.print(PAM_retrieve_env(ret, &mode));
+      // Serial.printf(" %d \n", mode);
 
-      ret = PAM_get_env(4, 600);
-      Serial.println(PAM_retrieve_env(ret, &mode, &temp));
-      Serial.printf(" %d %f \n", mode, temp);
+      // ret = PAM_get_env(4, 600);
+      // Serial.println(PAM_retrieve_env(ret, &mode, &temp));
+      // Serial.printf(" %d %f \n", mode, temp);
+      double obj,amb,obj_r;
+      int16_t a1,a2,a3,a4;
+
+      mlx_measure(&obj, &amb, &obj_r, &a1, &a2, &a3, &a4);
+      Serial.printf("%.4f\t%.4f\t%.4f\n", obj, amb, obj_r);
 
 
     }    
