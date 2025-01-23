@@ -585,6 +585,14 @@ int external_trigger_run(void){
   adpd.STOP();
   conf_slow_FR_1();
 
+  adpd.led_config.driver1_current = adpd_current_config.I620;
+  adpd.led_config.led1_channel = LED_A;
+  adpd.led_config.driver2_current = 0;
+  adpd.led_config.led2_channel = LED_A;
+  adpd.SNR_config.TIA_gain_CH1 = adpd_gains_config.Fluo;
+  adpd.SNR_config.TIA_gain_CH2 = adpd_gains_config.FluoRef;
+  adpd.preset_config_2(1, 4);
+
 
   digitalWrite(10, LOW);
   adpd.gpio_config.GPIO0_cfg = 1;
@@ -594,7 +602,7 @@ int external_trigger_run(void){
 
 
   // set to max possible bytes
-  uint8_t expected_readout = 6, num_integration = 1;
+  uint8_t expected_readout = 6, num_integration = 4;
   uint8_t expected_readout_bytes = expected_readout * 3;
   
     // data counter and buffer
@@ -609,12 +617,13 @@ int external_trigger_run(void){
   adpd.num_ts(2);
   adpd.RUN();
   delay(5);
+  uint8_t unknown_input_counter = 0;
 
   unsigned int watchdog_timer = millis(), trigger_timer = 0, start_timer = millis();
   bool keep_running = true, do_measure = false, change_act = false;
   char c, c1, c2;
 
-  Serial.println("Run Start");
+  Serial.println("Run");
 
   while(keep_running){ 
     
@@ -643,6 +652,9 @@ int external_trigger_run(void){
           c1 = Serial.read();
           change_act = true;
         }
+      }else{
+        unknown_input_counter += 1;
+        if (unknown_input_counter > 200) keep_running = false;
       }
     }
 
@@ -701,7 +713,7 @@ int external_trigger_run(void){
   AS_LED_Current(0);
   AS_LED_OFF();
 
-  Serial.println("Run Stopped");
+  Serial.println("Stop");
 
   return 0;
 }

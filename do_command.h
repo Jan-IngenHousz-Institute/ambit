@@ -54,7 +54,7 @@ void do_command(char *choose){
   }
 
 
-  Serial.printf("cmd: %s\n", choose);
+  //Serial.printf("cmd: %s\n", choose);
   // process single commands
   switch (val) {
     case hash("C"):{
@@ -77,7 +77,9 @@ void do_command(char *choose){
     int external_trigger_run(void);
     case hash("ww"):
      {
+      Serial.println("Start");
       external_trigger_run();
+      Serial.println("Exit");
 
     }                                                                   
       break;
