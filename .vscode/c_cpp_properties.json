@@ -52,9 +52,9 @@
         "-IC:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.1.1\\libraries\\Preferences\\src",
         "@E:\\AA_Folder\\Instruments\\ESP32\\Ambit\\tmp/build_opt.h",
         "@E:\\AA_Folder\\Instruments\\ESP32\\Ambit\\tmp/file_opts",
-        "E:\\AA_Folder\\Instruments\\ESP32\\Ambit\\tmp\\sketch\\PAM.cpp",
+        "E:\\AA_Folder\\Instruments\\ESP32\\Ambit\\tmp\\sketch\\ambit-1.ino.cpp",
         "-o",
-        "E:\\AA_Folder\\Instruments\\ESP32\\Ambit\\tmp\\sketch\\PAM.cpp.o"
+        "E:\\AA_Folder\\Instruments\\ESP32\\Ambit\\tmp\\sketch\\ambit-1.ino.cpp.o"
       ],
       "defines": [
         "F_CPU=160000000L",
