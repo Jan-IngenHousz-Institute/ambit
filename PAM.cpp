@@ -619,8 +619,9 @@ int external_trigger_run(void){
   delay(5);
   uint8_t unknown_input_counter = 0;
 
-  unsigned int watchdog_timer = millis(), trigger_timer = 0, start_timer = millis();
+  unsigned int watchdog_timer = millis(), trigger_timer = 0, start_timer = millis(), temp_timer = millis();
   bool keep_running = true, do_measure = false, change_act = false;
+  double obj_T, chip_T;
   char c, c1, c2;
 
   Serial.println("Run");
@@ -641,7 +642,6 @@ int external_trigger_run(void){
       if (c == 'G'){
         do_measure = true;
         watchdog_timer = millis();
-        
       }else if(c == 'E'){
         do_measure = false;
         keep_running = false;
@@ -652,7 +652,15 @@ int external_trigger_run(void){
           c1 = Serial.read();
           change_act = true;
         }
-      }else{
+      }else if(c == 'T'){
+        temp_timer = millis();
+        mlx_measure(&obj_T, &chip_T);
+        Serial.printf("T:%d,o:%.3f,a:%.3f,d:%d\n", millis() - start_timer, obj_T, chip_T, millis() - temp_timer);
+        Serial.flush();
+        watchdog_timer = millis();
+        continue;
+      }
+      else{
         unknown_input_counter += 1;
         if (unknown_input_counter > 200) keep_running = false;
       }
