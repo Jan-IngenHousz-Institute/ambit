@@ -142,22 +142,22 @@ void loop(){
             if (millis() - sleep_timer > sleep_threshod_ms){
 
 
-                Serial.flush();
-                flush_serial(20);
-                ambit_light_sleep();
-                c = esp_sleep_get_wakeup_cause();
-                sleep_timer = millis();
-                if (c == 8){
-                    sleep_threshod_ms = 1000;
-                }else{
-                    sleep_threshod_ms = 200;
-                }               
+                // Serial.flush();
+                // flush_serial(20);
+                // ambit_light_sleep();
+                // c = esp_sleep_get_wakeup_cause();
+                // sleep_timer = millis();
+                // if (c == 8){
+                //     sleep_threshod_ms = 1000;
+                // }else{
+                //     sleep_threshod_ms = 200;
+                // }               
                 
-                Serial.write(AMBIT_BOOT_IDLE);
-                Serial.flush();
+                // Serial.write(AMBIT_BOOT_IDLE);
+                // Serial.flush();
 
 
-                //sleep_timer = millis();
+                sleep_timer = millis();
 
 
             }else{

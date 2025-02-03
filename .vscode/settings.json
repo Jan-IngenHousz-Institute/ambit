@@ -48,6 +48,8 @@
         "freertosconfig.h": "c",
         "portmacro.h": "c",
         "hardwareserial.h": "c",
-        "hwcdc.h": "c"
+        "hwcdc.h": "c",
+        "stop_token": "cpp",
+        "bitset": "cpp"
     }
 }

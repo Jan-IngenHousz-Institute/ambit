@@ -84,6 +84,18 @@ void do_command(char *choose){
     }                                                                   
       break;
 
+    int external_trigger_run_Flash(unsigned int gate_time, unsigned int dt, const uint16_t num);
+    case hash("ff"):
+     {
+      unsigned int t = Serial_Input_Long(",", 10);
+      unsigned int dt = Serial_Input_Long(",", 10);
+      unsigned int num = Serial_Input_Long(",", 10);
+      external_trigger_run_Flash(t, dt, num);
+
+    }                                                                   
+      break;
+
+
 
     case hash("set_currents"):
      {
@@ -288,6 +300,20 @@ void do_command(char *choose){
       
     }                                                                   
       break;  
+
+         
+      case hash("aa"):
+     {
+      AS_LED_Current(250);
+      AS_LED_ON();
+      delay(120);
+      AS_LED_OFF();
+      AS_LED_Current(0);
+
+      
+    }                                                                   
+      break;  
+
 
    
 

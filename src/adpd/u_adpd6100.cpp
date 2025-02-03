@@ -111,9 +111,7 @@ int32_t ADPD6::readfifo(uint16_t num_samples, uint8_t width, uint32_t* data){
     for (j = 0; j < width; j++){
       data[i] += readout[j] << ((width - j - 1) * 8);
     }
-  }
-
-  
+  }  
   return 0;
 }
 
@@ -874,12 +872,12 @@ int32_t ADPD6::preset_config_ext_fast(uint8_t ts, uint8_t integ){
   // Channel 1: PD2 (leaf-facing IR), channel 2: PD4 (leaf-facing Vis)
 
   ADPD6::STOP();
-  ADPD6::DI_config.period_min = 58;
-  ADPD6::DI_config.LIT_OFFSET = 64;
+  ADPD6::DI_config.period_min = 50;
+  ADPD6::DI_config.LIT_OFFSET = 70;
   ADPD6::DI_config.DARK_OFFSET1 = 48;
-  ADPD6::DI_config.DARK_OFFSET2 = 90;
+  ADPD6::DI_config.DARK_OFFSET2 = 85;
   ADPD6::DI_config.LED_pulse_offset = 60;
-  ADPD6::DI_config.LED_pulse_width = 19;
+  ADPD6::DI_config.LED_pulse_width = 15;
   ADPD6::DI_config.sample_type = 3;
   ADPD6::DI_config.signal_size = 0;
   ADPD6::DI_config.num_integration = integ;
@@ -890,7 +888,7 @@ int32_t ADPD6::preset_config_ext_fast(uint8_t ts, uint8_t integ){
   ADPD6::signal_config.pre_condition_type = 5;
   ADPD6::SNR_config.Ch1_R_int = 1;
   ADPD6::SNR_config.C_int_CH1 = 1;
-  ADPD6::SNR_config.Ch2_R_int = 1;
+  ADPD6::SNR_config.Ch2_R_int = 2;
   ADPD6::SNR_config.C_int_CH2 = 1;
   ADPD6::signal_config.INT2BUT = 1;
   ADPD6::signal_config.ac_type = 2;

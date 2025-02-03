@@ -118,7 +118,6 @@ uint32_t arr_line_parse_type1(uint8_t* line, uint8_t* num1, uint16_t* num2, uint
     }
     if (type == 2) data_count[2] = 0;
 
-
     return data_count[0] * 2 + data_count[1] * 2 + data_count[2] * 2;
 
   }
@@ -727,7 +726,177 @@ int external_trigger_run(void){
 }
 
 
+int external_trigger_run_Flash(unsigned int gate_time, unsigned int dt, const uint16_t num){
+  adpd.STOP();
+  const uint8_t _NUM_TS = 8;
 
+  adpd.led_config.driver1_current = 80;
+  adpd.led_config.led1_channel = LED_A;
+    // LED 2A = 730nm
+  adpd.led_config.driver2_current = 0;
+  adpd.led_config.led2_channel = LED_A;
+  adpd.SNR_config.TIA_gain_CH1 = 1;
+  adpd.SNR_config.TIA_gain_CH2 = 5;
+  
+  for (uint8_t i = 0; i < 12; i++){
+    adpd.preset_config_ext_fast(i, 2);
+  }
+
+  digitalWrite(STF_FLASH_PIN, LOW);
+  digitalWrite(10, LOW);
+  adpd.gpio_config.GPIO0_cfg = 1;
+  adpd.gpio_config.SYNC_GPIO = 0;
+  adpd.gpio_config.EXT_SYNC_EN = 1;
+  adpd.gpio_setup(&(adpd.gpio_config));
+  AS_LED_OFF();
+  AS_LED_Current(dt);
+
+
+  // set to max possible bytes
+  uint8_t expected_readout = _NUM_TS * 4, num_integration = 2;
+  uint8_t expected_readout_bytes = expected_readout * 3;
+  
+    // data counter and buffer
+
+  uint32_t ret[expected_readout] = {0};
+  uint16_t fifo_c = 0;  
+  uint32_t read_fluor, read_fluoRef, read_sun, read_leaf;
+  float_t leaf_temp = 0.0;
+
+  adpd.clear_fifo();
+  adpd.run_freq(10);
+  adpd.num_ts(_NUM_TS);
+  adpd.RUN();
+  delay(5);
+  uint16_t _counter = 0;
+
+  unsigned int watchdog_timer = millis(), trigger_timer = 0, start_timer = millis(), temp_timer = millis();
+  bool keep_running = true, do_measure = false, change_act = false;
+  double obj_T, chip_T;
+  char c, c1, c2;
+
+  dataclass *d_fluor = new dataclass; // fluorescence signal
+  dataclass *d_fluoRef = new dataclass; // fluorescence reference
+  
+  
+
+  Serial.println("Run");
+  unsigned long timer1 = micros();
+  unsigned long timer2 = micros();
+  unsigned int flash_duration = expected_readout;
+  uint16_t _num_sample = num < 20 ? num * _NUM_TS : 20 * _NUM_TS + (num - 20);
+
+
+
+  if (!( (d_fluor->init(_num_sample + 1)) && (d_fluoRef->init(_num_sample + 1)) )) goto del_classes;
+  while(keep_running){
+    _counter += 1;
+    if (_counter > num) break;
+    if (!keep_running) break;
+    fifo_c = 0;
+    //if ((_counter == 5) && (dt > 0)) AS_LED_ON();
+    adpd_trigger();    
+    timer1 = micros();
+    delayMicroseconds(1000);
+    fifo_c = adpd.fifo_count();
+    while (fifo_c != expected_readout_bytes){
+      fifo_c = adpd.fifo_count();
+      if (fifo_c >= expected_readout_bytes) break;
+      if (micros() - timer1 > 10000) break;
+    }
+    //Serial.printf("%ld: %d\n", micros() - timer1, fifo_c);
+
+    if (fifo_c < expected_readout_bytes){
+      Serial.printf("NOT ENOUGH IN FIFO: %d < %d\n", fifo_c, expected_readout_bytes);
+      break;
+    }
+    
+
+    if ((gate_time > 0) && (flash_duration > 0) && (_counter > 2)) digitalWrite(STF_FLASH_PIN, HIGH);
+    //if ((_counter == 15) && (dt > 0)) AS_LED_OFF();
+
+    timer1 = micros();
+    for (uint8_t r = 0; r < expected_readout; r++){
+      adpd.readfifo(1, 3, ret + r);
+      if (flash_duration == r) digitalWrite(STF_FLASH_PIN, LOW);
+    }
+    //Serial.println(micros() - timer1);
+    
+    
+    if (_counter <= 20){
+      for (uint8_t r = 0; r < _NUM_TS; r++){
+        d_fluor->put(calc_signal(ret[0 + r * 4], ret[1 + r * 4], num_integration));
+        d_fluoRef->put(calc_signal(ret[2 + r * 4], ret[3 + r * 4], num_integration));
+      }
+    }else{
+      read_fluor = 0; read_fluoRef = 0;
+      for (uint8_t r = 0; r < _NUM_TS; r++){
+        read_fluor += calc_signal(ret[0 + r * 4], ret[1 + r * 4], num_integration);
+        read_fluoRef += calc_signal(ret[2 + r * 4], ret[3 + r * 4], num_integration);
+      }
+      d_fluor->put(read_fluor / _NUM_TS);
+      d_fluoRef->put(read_fluoRef / _NUM_TS);
+      if (_counter == 100) flash_duration = 4;
+      if (_counter == 300) flash_duration = 2;
+      if (_counter == 500) flash_duration = 1;
+      if (_counter == 700) flash_duration = 32;
+    }
+
+
+    if (fifo_c > expected_readout_bytes){
+      fifo_c = adpd.fifo_count();
+      if (fifo_c > 0){
+        adpd.clear_fifo();
+        digitalWrite(STF_FLASH_PIN, LOW);
+        Serial.printf("Extra %d byte in FIFO\n", fifo_c - expected_readout_bytes);
+        }      
+    }
+    
+    // flash_duration = gate_time - (micros() - timer1);    
+    // if ((flash_duration > 1) && (flash_duration < 500)) delayMicroseconds(flash_duration - 1);
+    // digitalWrite(STF_FLASH_PIN, LOW);
+    //
+
+    
+    //Serial.printf("T:%d,S:%d,R:%d,F:%d,B:%d\n", millis() - start_timer, read_fluor, read_fluoRef, read_sun-65000, read_leaf-65000);    
+    // Serial.printf("T:%d,S:%d,R:%d\n", millis() - start_timer, read_fluor, read_fluoRef);    
+    // flash_duration = gate_time - (micros() - timer1);
+    // if (flash_duration > 2){
+    //   digitalWrite(STF_FLASH_PIN, HIGH);
+    //   delayMicroseconds(flash_duration - 1);
+    // }
+
+
+
+    digitalWrite(STF_FLASH_PIN, LOW);
+  } /// End of Loop
+  //Serial.printf("%f for %dpoints\n", float(micros() - timer2)/num, num);
+  AS_LED_OFF();
+  digitalWrite(STF_FLASH_PIN, LOW);
+  adpd.STOP();
+  adpd.clear_fifo();
+
+  
+    
+  adpd.gpio_config.GPIO0_cfg = 0;
+  adpd.gpio_config.EXT_SYNC_EN = 0;
+  adpd.gpio_setup(&(adpd.gpio_config));
+
+  AS_LED_Current(0);
+  AS_LED_OFF();
+  digitalWrite(STF_FLASH_PIN, LOW);
+
+  for (uint16_t n = 2; n < _num_sample; n++){
+    Serial.printf("%d,%d,%.4f\n", d_fluor->arr[n], d_fluoRef->arr[n], ((float) d_fluor->arr[n]) / d_fluoRef->arr[n]);
+  }
+  
+  del_classes:
+    delete d_fluor;
+    delete d_fluoRef;
+  
+
+  return 0;
+}
 
 
 
