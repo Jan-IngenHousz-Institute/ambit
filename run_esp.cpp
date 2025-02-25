@@ -48,6 +48,20 @@ struct ambit_FW_info_t{
     uint32_t num = 0;   
 }ambit_FW_info;
 
+
+struct metadata_t {
+    double lon = 1.0;
+    double lat = 1.0;
+    float alt = 1.0; 
+    uint32_t time = 1.0;
+    float acc = 1.0;
+    float vacc = 1.0;
+    char info1[200] = "NA";
+    char info2[240] = "NA";
+    uint8_t checksum = 0;
+}metadata_epprom, metadata_incoming;
+
+
 static void _get_FW_info(void){
     ambit_FW_info.MAC = ESP.getEfuseMac();
     ambit_FW_info.Size = ESP.getSketchSize();
@@ -55,6 +69,34 @@ static void _get_FW_info(void){
     return;
 }
 
+static void _load_metadata(void){
+    preferences.begin("metadata", true);
+    if (preferences.isKey("lon")) metadata_epprom.lon = preferences.getDouble("lon", 1.0);
+    if (preferences.isKey("lat")) metadata_epprom.lat = preferences.getDouble("lat", 1.0);
+    if (preferences.isKey("alt")) metadata_epprom.alt = preferences.getFloat("alt", 1.0);
+    if (preferences.isKey("time")) metadata_epprom.time = (uint32_t)preferences.getInt("time", 1);
+    if (preferences.isKey("acc")) metadata_epprom.acc = preferences.getFloat("acc", 1.0);
+    if (preferences.isKey("vacc")) metadata_epprom.vacc = preferences.getFloat("vacc", 1.0);
+    if (preferences.isKey("info1")) preferences.getString("info1", metadata_epprom.info1, 200);
+    if (preferences.isKey("info2")) preferences.getString("info2", metadata_epprom.info2, 240);
+    preferences.end();
+    return;
+}
+
+static void _save_metadata(void){
+    preferences.begin("metadata", false);
+    preferences.putDouble("lon", metadata_incoming.lon);
+    preferences.putDouble("lat", metadata_incoming.lat);
+    preferences.putFloat("alt", metadata_incoming.alt);
+    preferences.putInt("time", metadata_incoming.time);
+    preferences.putFloat("acc", metadata_incoming.acc);
+    preferences.putFloat("vacc", metadata_incoming.vacc);
+    preferences.putString("info1", metadata_incoming.info1);
+    preferences.putString("info2", metadata_incoming.info2);
+    preferences.end();
+
+    return;
+}
 
 
 
@@ -234,6 +276,26 @@ int do_esp_cmd(){
         Serial.write(ESP_CMD_END);
     }
     break;
+
+    case 36:    // retrieve metadata
+    {
+        _load_metadata();        
+        Serial.write(ESP_CMD_DONE);
+        Serial.write((uint8_t*) (&metadata_epprom), sizeof(metadata_t));
+        Serial.write(ESP_CMD_END);
+    }
+    break;
+
+    case 37:    // set metadata
+    {
+        
+        Serial.write(ESP_CMD_DONE);
+        Serial.readBytes((uint8_t*) (&metadata_incoming), sizeof(metadata_t));
+        Serial.write(ESP_CMD_END);
+        _save_metadata();
+    }
+    break;
+
 
 
     case 4: // try/set actinic

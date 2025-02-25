@@ -51,5 +51,6 @@
         "hwcdc.h": "c",
         "stop_token": "cpp",
         "bitset": "cpp"
-    }
+    },
+    "C_Cpp.default.compilerPath": "C:/Users/hjcbj/AppData/Local/Arduino15/packages/esp32/tools/esp-rv32/2405/bin/riscv32-esp-elf-g++"
 }
