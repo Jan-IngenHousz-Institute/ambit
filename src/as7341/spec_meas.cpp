@@ -220,3 +220,59 @@ double get_PAR(){
     uint16_t spec[10];
     return get_PAR(spec);
 }
+
+
+
+uint8_t as7431_reg_write(uint8_t reg, uint8_t data){
+    Wire.beginTransmission(AS7341_I2CADDR_DEFAULT);
+    Wire.write(reg);
+    Wire.write(data);
+    return Wire.endTransmission();
+}
+
+
+uint8_t as7431_reg_read(uint8_t reg, uint8_t* data, uint16_t len){
+    Wire.beginTransmission(AS7341_I2CADDR_DEFAULT);
+    Wire.write(reg);
+    Wire.endTransmission();
+    Wire.requestFrom((uint8_t)AS7341_I2CADDR_DEFAULT, (uint8_t)len, (uint8_t)0);
+    for (uint16_t i = 0; i < len; i++) {
+        data[i] = Wire.read();
+    }
+    return 0;
+}
+
+
+void as7431_blink(uint8_t n, uint8_t intensity){
+
+    while (Serial.available()) Serial.print(Serial.read());
+
+    uint8_t reg = intensity >> 1;
+    if (intensity < 4) reg = 1;
+    reg |= 0b10000000;
+
+    as7431_reg_write(0xA9, 0b00010000);
+    as7431_reg_write(0x70, 0b00001000);
+    as7431_reg_write(0x74, 0x00);
+
+
+
+    unsigned long timer = millis();
+    uint8_t a,b;
+    a = 18 - n * 2;
+    b = 30 - a;
+
+    while(millis() - timer < 60000){
+        for (uint8_t z = 0; z < 128; z++){
+            as7431_reg_write(0x74, reg);
+            delayMicroseconds(a * 1024);
+            as7431_reg_write(0x74, 0x00);
+            delayMicroseconds(b * 1024);
+        }
+        if (Serial.available() > 1) break;
+    }
+    as7431_reg_write(0x74, 0x00);
+    as7431_reg_write(0xA9, 0x0);
+    
+    return;   
+}

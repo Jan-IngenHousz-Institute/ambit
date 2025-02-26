@@ -295,8 +295,11 @@ void do_command(char *choose){
       
       case hash("a"):
      {
-      AS_LED_Current(20);
-      AS_LED_ON();
+      uint8_t a = (uint16_t) Serial_Input_Long(",", 10);
+      uint8_t b = (uint16_t) Serial_Input_Long(",", 10);
+
+      as7431_blink(a, b);
+      
       
     }                                                                   
       break;  
@@ -304,11 +307,23 @@ void do_command(char *choose){
          
       case hash("aa"):
      {
-      AS_LED_Current(250);
-      AS_LED_ON();
-      delay(120);
-      AS_LED_OFF();
-      AS_LED_Current(0);
+      uint8_t a = (uint16_t) Serial_Input_Long(",", 10);
+      
+      for (uint8_t i = 0; i < 4; i++){
+        as7431_blink(i, a);
+      }
+
+      for (uint8_t i = 0; i < 4; i++){
+        as7431_blink(i, a);
+      }
+
+      for (uint8_t i = 0; i < 4; i++){
+        as7431_blink(i, a);
+      }
+
+      for (uint8_t i = 0; i < 4; i++){
+        as7431_blink(i, a);
+      }
 
       
     }                                                                   

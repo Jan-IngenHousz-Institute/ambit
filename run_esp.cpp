@@ -334,6 +334,18 @@ int do_esp_cmd(){
     }
     break;
 
+    
+    case 5:
+    {
+        uint8_t ambit_id = cmd_arr[1];
+        uint8_t intensity = cmd_arr[2];
+        Serial.write(ESP_CMD_DONE);
+        if ((ambit_id < 4) && (intensity > 4) && (intensity < 254)) as7431_blink(ambit_id, intensity);
+        Serial.write(ESP_CMD_END);
+    }
+    break;
+
+
 
     default:
         ESP_LOGE(TAG, "Bad command");

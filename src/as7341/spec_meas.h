@@ -36,3 +36,8 @@ void AS_all_channel(uint16_t T1, uint16_t T2);
 double get_PAR();
 double get_PAR(uint16_t *spec);
 
+
+
+uint8_t as7431_reg_write(uint8_t reg, uint8_t data);
+uint8_t as7431_reg_read(uint8_t reg, uint8_t* data, uint16_t len);
+void as7431_blink(uint8_t n, uint8_t intensity);
