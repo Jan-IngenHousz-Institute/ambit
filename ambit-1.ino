@@ -11,7 +11,7 @@
 #include "driver/gpio.h"
 #include <Preferences.h>
 #include "Esp.h"
-
+#include "nvs1.h"
 
 static const char* TAG = "INO";
 ADPD6 adpd;
@@ -19,10 +19,6 @@ Preferences preferences;
 uint8_t CONNECTION_TYPE = 0;
 bool FLAG_DEICE = false;
 static uint16_t sleep_threshod_ms = 100;
-extern float_t actinic_coef, spec_coef;
-
-extern double mlx_emissivity;
-char ambit_name[20] = "ambit";
 
 static struct Reset_Button{
    unsigned int previous_toggle_t = millis();
@@ -101,17 +97,9 @@ void setup(){
     gpio_sleep_set_direction(GPIO_NUM_1, GPIO_MODE_OUTPUT);
     gpio_sleep_set_pull_mode(GPIO_NUM_1, GPIO_PULLDOWN_ONLY);
 
-    
-    preferences.begin("config", true);
-    actinic_coef = preferences.getFloat("actinic", 1.0);
-    spec_coef = preferences.getFloat("spec", 1.0);
-    preferences.getString("name", ambit_name, 20);
-    mlx_emissivity = preferences.getDouble("emit", 1.0);    
-    preferences.end();
-      
+    load_info_from_nvs(true);
 
-    Serial.printf("CHIP MAC:%012llx\tCompile:%s\tSize:%d\n", ESP.getEfuseMac(),__DATE__, ESP.getSketchSize());
-    Serial.printf("Ambit:%s\tCompiled:%s\tAct:%f\tSpec:%f\temit:%f\n", ambit_name, __TIME__, actinic_coef, spec_coef, mlx_emissivity);
+    
     Serial.write(AMBIT_BOOT_IDLE);
 
     esp_sleep_enable_timer_wakeup(10000000);

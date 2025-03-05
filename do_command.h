@@ -10,14 +10,14 @@
 #include "src/wrench.h"
 #include "data_utils.h"
 #include "PAM.h"
+#include "nvs1.h"
 #include <Preferences.h>
-int check_connections();
 
+int check_connections();
 extern Preferences preferences;
 extern bool FLAG_DEICE;
 static const char* TAG1 = "do_Cmd";
 void do_c(const char* c);
-extern float_t actinic_coef, spec_coef;
 
 constexpr unsigned hash(const char *string)
 {
@@ -239,7 +239,7 @@ void do_command(char *choose){
     case hash("PAR"):
     {      
         uint16_t spec[10];
-        Serial.println(get_PAR(spec) * spec_coef);
+        Serial.println(get_PAR(spec) * ambit_calibration_local.spec_coef);
         Serial.printf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",spec[0],spec[1],spec[2],spec[3],spec[4],spec[5],spec[6],spec[7],spec[8],spec[9]);      
     }
     break;

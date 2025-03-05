@@ -4,6 +4,7 @@
 #include "src/mlx90632/u_mlx.h"
 #include "PAM.h"
 #include <Preferences.h>
+#include "nvs1.h"
 
 #define TAG "ESP"
 #define ESP_CMD_HEADER 160
@@ -11,6 +12,9 @@
 #define ESP_CMD_END 240
 #define ESP_WAKE_FOR_CMD 170
 #define MAX_ARR_LEN 16
+
+
+
 
 
 // keep a local copy of settings for run-time change
@@ -21,83 +25,10 @@ extern Preferences preferences;
 extern uint8_t CONNECTION_TYPE;
 int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false);
 
-extern char ambit_name[];
-float_t actinic_coef = 1.0;
-float_t spec_coef = 1.0;
-
-
-
-extern double mlx_emissivity;
-
-struct ambit_info_t{
-    bool loaded = false; 
-    int32_t mlx_coef[14] = {0};
-    float_t actinic_coef = 0.1;
-    float_t spec_coef = 1.0;
-    float_t mlx_emissivity = 1.0;
-    char ambit_name[20] = "ambit";
-}ambit_info;
-
-
-
-struct ambit_FW_info_t{
-    uint64_t MAC = 0;
-    uint32_t Size = 0;
-    char FW_date[12];
-    char reserved[12];
-    uint32_t num = 0;   
-}ambit_FW_info;
-
-
-struct metadata_t {
-    double lon = 1.0;
-    double lat = 1.0;
-    float alt = 1.0; 
-    uint32_t time = 1.0;
-    float acc = 1.0;
-    float vacc = 1.0;
-    char info1[200] = "NA";
-    char info2[240] = "NA";
-    uint8_t checksum = 0;
-}metadata_epprom, metadata_incoming;
-
-
-static void _get_FW_info(void){
-    ambit_FW_info.MAC = ESP.getEfuseMac();
-    ambit_FW_info.Size = ESP.getSketchSize();
-    strncpy(ambit_FW_info.FW_date, __DATE__, 12);
-    return;
-}
-
-static void _load_metadata(void){
-    preferences.begin("metadata", true);
-    if (preferences.isKey("lon")) metadata_epprom.lon = preferences.getDouble("lon", 1.0);
-    if (preferences.isKey("lat")) metadata_epprom.lat = preferences.getDouble("lat", 1.0);
-    if (preferences.isKey("alt")) metadata_epprom.alt = preferences.getFloat("alt", 1.0);
-    if (preferences.isKey("time")) metadata_epprom.time = (uint32_t)preferences.getInt("time", 1);
-    if (preferences.isKey("acc")) metadata_epprom.acc = preferences.getFloat("acc", 1.0);
-    if (preferences.isKey("vacc")) metadata_epprom.vacc = preferences.getFloat("vacc", 1.0);
-    if (preferences.isKey("info1")) preferences.getString("info1", metadata_epprom.info1, 200);
-    if (preferences.isKey("info2")) preferences.getString("info2", metadata_epprom.info2, 240);
-    preferences.end();
-    return;
-}
-
-static void _save_metadata(void){
-    preferences.begin("metadata", false);
-    preferences.putDouble("lon", metadata_incoming.lon);
-    preferences.putDouble("lat", metadata_incoming.lat);
-    preferences.putFloat("alt", metadata_incoming.alt);
-    preferences.putInt("time", metadata_incoming.time);
-    preferences.putFloat("acc", metadata_incoming.acc);
-    preferences.putFloat("vacc", metadata_incoming.vacc);
-    preferences.putString("info1", metadata_incoming.info1);
-    preferences.putString("info2", metadata_incoming.info2);
-    preferences.end();
-
-    return;
-}
-
+// extern char ambit_name[];
+// float_t actinic_coef = 1.0;
+// float_t spec_coef = 1.0;
+// extern double mlx_emissivity;
 
 
 int do_esp_cmd(){
@@ -229,17 +160,21 @@ int do_esp_cmd(){
 
     case 33:    // retrieve ambit info
     {
-        ambit_info_t* abi = &ambit_info;        
-        mlx_read_coe(abi->mlx_coef);
-        abi->actinic_coef = actinic_coef;
-        abi->spec_coef = spec_coef;
-        abi->mlx_emissivity = mlx_emissivity;
-        abi->loaded = true;
-        strcpy(abi->ambit_name, ambit_name);        
-
-        Serial.write(ESP_CMD_DONE);
-        Serial.write((uint8_t*) abi, sizeof(ambit_info_t));
-        Serial.write(ESP_CMD_END);
+        if (cmd_arr[1] == 1){ // send calibration info
+            Serial.write(ESP_CMD_DONE);
+            Serial.write((uint8_t*) &ambit_calibration_local, sizeof(ambit_calibration_info_t));
+            Serial.write(ESP_CMD_END);
+        }else if (cmd_arr[1] == 2){ // send FW info
+            Serial.write(ESP_CMD_DONE);
+            Serial.write((uint8_t*) &ambit_FW_info, sizeof(ambit_FW_info_t));
+            Serial.write(ESP_CMD_END);
+        }else if (cmd_arr[1] == 3){ // send metadata
+            Serial.write(ESP_CMD_DONE);
+            Serial.write((uint8_t*) &metadata_epprom, sizeof(metadata_t));
+            Serial.write(ESP_CMD_END);
+        }else{
+            Serial.write(ESP_CMD_END);
+        }
     }
     break;
 
@@ -266,33 +201,15 @@ int do_esp_cmd(){
     }
     break;
 
-    case 35:    // retrieve firmware info
-    {
-        if (ambit_FW_info.Size == 0){
-            _get_FW_info();
-        }
-        Serial.write(ESP_CMD_DONE);
-        Serial.write((uint8_t*) (&ambit_FW_info), sizeof(ambit_FW_info_t));
-        Serial.write(ESP_CMD_END);
-    }
-    break;
-
-    case 36:    // retrieve metadata
-    {
-        _load_metadata();        
-        Serial.write(ESP_CMD_DONE);
-        Serial.write((uint8_t*) (&metadata_epprom), sizeof(metadata_t));
-        Serial.write(ESP_CMD_END);
-    }
-    break;
-
+    
     case 37:    // set metadata
     {
         
         Serial.write(ESP_CMD_DONE);
         Serial.readBytes((uint8_t*) (&metadata_incoming), sizeof(metadata_t));
         Serial.write(ESP_CMD_END);
-        _save_metadata();
+        save_metadata();
+        load_info_from_nvs(false);
     }
     break;
 
@@ -319,7 +236,7 @@ int do_esp_cmd(){
                 preferences.begin("config", false);
                 preferences.putFloat("actinic", _factor);
                 preferences.end();
-                actinic_coef = _factor;
+                ambit_calibration_local.actinic_coef = _factor;
             }
         }else if (type == 4){ // set actinic offset
             _factor = *((float *) &(cmd_arr[3]));
@@ -327,7 +244,7 @@ int do_esp_cmd(){
                 //preferences.begin("config", false);
                 //preferences.putFloat("spec", _factor);
                 //preferences.end();
-                spec_coef = _factor;
+                ambit_calibration_local.spec_coef = _factor;
             }
         }
         Serial.write(ESP_CMD_END);
