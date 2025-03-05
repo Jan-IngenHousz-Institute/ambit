@@ -1329,6 +1329,102 @@ int fluor_offset_test(uint8_t current, uint8_t num_integ, uint8_t lit_offset, ui
 }
 
 
+int fluor_offset(uint32_t* fret){
+
+  if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
+    conf_slow_FR_1();
+    ESP_LOGW(TAG, "Run array was not configured!");
+  }
+  // set to max possible bytes
+  uint8_t expected_readout = 8;
+  uint8_t expected_readout_bytes = expected_readout * 3;
+  const uint8_t num_integration = 1;
+  const unsigned int start_t0 = millis();
+ 
+
+  // variables for each trace
+  uint8_t pc = 0;
+  uint8_t _type = 0;
+  uint8_t farred, actinic, subsampling = 0;
+  uint16_t num_ptx = 0;
+
+  // data counter and buffer
+  // [sun-amb, leaf-ir, lit_leaf-ir, dark_leaf-ir, lit_leaf-ref, dark_leaf-ref]
+  uint32_t ret[expected_readout] = {0};
+  uint32_t counter = 0;
+  uint16_t fifo_c = 0;
+  uint8_t watch_dog_timer = 0;
+  int32_t tmp_var = 0;
+  uint32_t buf_opt[4] = {0};
+  uint32_t _tmparr = 0;
+  uint8_t _repeats = 1;
+
+
+
+  adpd.STOP();
+  adpd.run_freq(100);
+  adpd.clear_fifo();
+  adpd.num_ts(3);
+  expected_readout = 8;
+  expected_readout_bytes = expected_readout * 3;
+  AS_LED_OFF();
+  AS_LED_Current(0);
+
+ 
+  num_ptx = 64;
+
+  uint32_t fluor, fluoRef, sun, leaf, r730, r730Ref;
+  uint32_t ret_fluor = 0, ret_fluoRef = 0, ret_sun = 0, ret_leaf = 0, ret_r730 = 0, ret_r730Ref = 0;
+
+  for (uint8_t n = 0; n < 4; n++){
+    adpd.RUN();
+    delay(1);
+    fluor = 0; fluoRef = 0; sun = 0; leaf = 0; r730 = 0; r730Ref = 0;
+    counter = 0;
+
+    while (counter < num_ptx){
+      fifo_c = adpd.fifo_count();
+      while (fifo_c >= expected_readout_bytes){ // read all bytes from FIFO
+        adpd.readfifo(expected_readout, 3, ret);
+        fifo_c -= expected_readout_bytes;
+        if (counter == num_ptx) break;
+        // 0: sun-vis; 1: leaf-ir; 2: fluoS_dark; 3: fluoS_lit; 4: fluoR_dark; 5: fluoR_lit; 6: Reflect_signal; 7: reflect_ref
+        // save fluor signal and ref
+        fluor += calc_signal(ret[2], ret[3], num_integration);       
+        fluoRef += calc_signal(ret[4], ret[5], num_integration);
+        r730 += ret[6];
+        r730Ref += ret[7];
+        sun += ret[0];
+        leaf += ret[1];
+        counter += 1;
+      }
+      
+    }
+    adpd.STOP();
+
+    if (counter > 10){
+      ret_fluor += fluor / counter;
+      ret_fluoRef += fluoRef / counter;
+      ret_sun += sun / counter;
+      ret_leaf += leaf / counter;
+      ret_r730 += r730 / counter;
+      ret_r730Ref += r730Ref / counter;
+    }
+    
+  }
+  fret[0] = ret_fluor / 4;
+  fret[1] = ret_fluoRef / 4;
+  fret[2] = ret_sun / 4;
+  fret[3] = ret_leaf / 4;
+  fret[4] = ret_r730 / 4;
+  fret[5] = ret_r730Ref / 4;
+  return 0;
+
+}
+
+
+
+
 
 
 

@@ -156,7 +156,34 @@ void do_command(char *choose){
     }    
     break;
 
+    case hash("clean_nvs"):
+    {
+      nvs_flash_erase();
+      nvs_flash_init();
+      Serial.println("NVS cleaned");
+    }
+    break;
 
+    case hash("baseline"):
+    {
+      conf_slow_FR_1(100, 20, 0, 1, 5, 5, 1, 5, 5);
+      uint8_t c = Serial_Input_Long(",", 10);
+      adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
+      uint32_t ret[6] = {0};
+      fluor_offset(ret);
+      Serial.printf("%d,%d,%d,%d,%d,%d\n", ret[0], ret[1], ret[2], ret[3], ret[4], ret[5]);
+      if (c == 1){
+        if (ret[0] > 400){
+          Serial.println("Baseline too high");
+          break;
+        }
+        preferences.begin("config", false);
+        preferences.putUInt("adpd_dark", ret[0]);
+        preferences.end();
+        Serial.println("Baseline saved");
+      }
+    }
+    break;
 
 
 
@@ -362,7 +389,7 @@ void do_command(char *choose){
       }                                                                   
       break;
 
-      case hash("set_spec_coef"):
+      case hash("set_spec"):
       {
           float_t f = (float_t) Serial_Input_Double(",", 10);
           preferences.begin("config", false);

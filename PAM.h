@@ -45,7 +45,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
 int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8_t act, bool interrrupt);
 uint32_t PAM_get_env(uint8_t mode, unsigned int t0);
 uint32_t PAM_retrieve_env(uint32_t r, uint8_t* mode, float_t* data_f = NULL, int16_t* data_i = NULL);
-
+int fluor_offset(uint32_t* ret);
 enum ADPD_CONFIG_MODE {
     MPF_MODE,
     IDLE,

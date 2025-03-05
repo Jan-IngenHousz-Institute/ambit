@@ -262,6 +262,44 @@ int do_esp_cmd(){
     }
     break;
 
+    case 6: // do adpd baseline flash
+    {
+        Serial.write(ESP_CMD_DONE);
+        uint32_t ret[6] = {0};
+        fluor_offset(ret);
+        preferences.begin("config", false);
+        preferences.putUInt("adpd_lit", ret[1]);
+        preferences.putUInt("adpd_sun", ret[2]);
+        preferences.putUInt("adpd_leaf", ret[3]);
+        preferences.putUInt("adpd_730", ret[4]);
+        preferences.putUInt("adpd_730r", ret[5]);
+        preferences.end();
+        Serial.write(ESP_CMD_END);
+        load_info_from_nvs(false);
+
+    }
+    break;
+
+    case 17: // nvs update
+    {
+        uint8_t type = cmd_arr[1]; // 1: actinic 
+        uint8_t dtype = cmd_arr[2]; // 1: float
+        if ((type == 1) && (dtype == 1)){ // update actinic coef
+            Serial.write(ESP_CMD_DONE);
+            float_t _factor = *((float *) &(cmd_arr[3]));
+            if ((_factor > 0.01) && (_factor < 1.01)){
+                preferences.begin("config", false);
+                preferences.putFloat("actinic", _factor);
+                preferences.end();
+                ambit_calibration_local.actinic_coef = _factor;
+                load_info_from_nvs(false);
+            }
+            Serial.write(ESP_CMD_END);
+        }
+
+    }   
+    break; 
+
 
 
     default:
