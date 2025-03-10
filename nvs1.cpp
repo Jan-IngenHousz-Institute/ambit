@@ -60,8 +60,12 @@ static void load_calibration_info(){
     if (preferences.isKey("name")) preferences.getString("name", ambit_calibration_local.ambit_name, 20);
     if (preferences.isKey("temp_offset")) ambit_calibration_local.temp_offset = preferences.getFloat("temp_offset", 0.0);
     if (preferences.isKey("temp_slope")) ambit_calibration_local.temp_slope = preferences.getFloat("temp_slope", 1.0);
-    if (preferences.isKey("spec_offset1")) ambit_calibration_local.spec_offset1 = preferences.getFloat("spec_offset1", 0.0);
-    if (preferences.isKey("spec_offset2")) ambit_calibration_local.spec_offset2 = preferences.getFloat("spec_offset2", 0.0);
+
+    if (preferences.isKey("act_50")) ambit_calibration_local.act_50 = preferences.getUShort("act_50", 1);
+    if (preferences.isKey("act_100")) ambit_calibration_local.act_100 = preferences.getUShort("act_100", 2);
+    if (preferences.isKey("act_150")) ambit_calibration_local.act_150 = preferences.getUShort("act_150", 3);
+    if (preferences.isKey("act_200")) ambit_calibration_local.act_200 = preferences.getUShort("act_200", 4);
+    if (preferences.isKey("act_250")) ambit_calibration_local.act_250 = preferences.getUShort("act_250", 5);
 
     if (preferences.isKey("adpd_lit")) ambit_calibration_local.adpd[1] = preferences.getUInt("adpd_lit", 0);
     if (preferences.isKey("adpd_dark")) ambit_calibration_local.adpd[0] = preferences.getUInt("adpd_dark", 0);
@@ -85,8 +89,11 @@ void load_info_from_nvs(bool print){
     }
     load_calibration_info();
     if (print){
-        Serial.printf("Calibration: name:%s\tact:%f\tspec:%f\temit:%f\tsun:%f\toffset:%f\tslope:%f\toffset1:%f\toffset2:%f\tadpd:%d\tadpd_dark:%d\n", 
-            ambit_calibration_local.ambit_name, ambit_calibration_local.actinic_coef, ambit_calibration_local.spec_coef, ambit_calibration_local.mlx_emissivity, ambit_calibration_local.sun_coef, ambit_calibration_local.temp_offset, ambit_calibration_local.temp_slope, ambit_calibration_local.spec_offset1, ambit_calibration_local.spec_offset2, ambit_calibration_local.adpd[1], ambit_calibration_local.adpd[0]);
+        // print all ambit_calibration_local
+        Serial.printf("Calibration: Name:%s\tActinic:%f\tSpec:%f\tEmit:%f\tSun:%f\tTemp_offset:%f\tTemp_slope:%f\n", ambit_calibration_local.ambit_name, ambit_calibration_local.actinic_coef, ambit_calibration_local.spec_coef, ambit_calibration_local.mlx_emissivity, ambit_calibration_local.sun_coef, ambit_calibration_local.temp_offset, ambit_calibration_local.temp_slope);
+        Serial.printf("Calibration: Act_50:%d\tAct_100:%d\tAct_150:%d\tAct_200:%d\tAct_250:%d\n", ambit_calibration_local.act_50, ambit_calibration_local.act_100, ambit_calibration_local.act_150, ambit_calibration_local.act_200, ambit_calibration_local.act_250);
+        Serial.printf("Calibration: ADPD: %d\t%d\t%d\t%d\t%d\t%d\n", ambit_calibration_local.adpd[0], ambit_calibration_local.adpd[1], ambit_calibration_local.adpd[2], ambit_calibration_local.adpd[3], ambit_calibration_local.adpd[4], ambit_calibration_local.adpd[5]);
+      
         Serial.printf("MLX: ");
         for (int i = 0; i < 14; i++){
             Serial.printf("%d\t", ambit_calibration_local.mlx_coef[i]);

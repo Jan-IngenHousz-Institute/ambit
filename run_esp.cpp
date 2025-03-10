@@ -221,6 +221,7 @@ int do_esp_cmd(){
         Serial.write(ESP_CMD_DONE);
         uint8_t type = cmd_arr[1];
         uint8_t var = cmd_arr[2];
+        uint8_t var2 = cmd_arr[3];
         float_t _factor = 1.0;
         if (type == 1){ // try actinics
             AS_LED_Current(50);
@@ -246,6 +247,11 @@ int do_esp_cmd(){
                 //preferences.end();
                 ambit_calibration_local.spec_coef = _factor;
             }
+        }else if (type == 5){
+            AS_LED_Current(var);
+            AS_LED_ON();
+            delay(var2 * 100);
+            AS_LED_OFF();
         }
         Serial.write(ESP_CMD_END);
     }
@@ -280,7 +286,7 @@ int do_esp_cmd(){
     }
     break;
 
-    case 17: // nvs update
+    case 17: // nvs update scalar
     {
         uint8_t type = cmd_arr[1]; // 1: actinic 
         uint8_t dtype = cmd_arr[2]; // 1: float
@@ -299,6 +305,36 @@ int do_esp_cmd(){
 
     }   
     break; 
+
+    case 18: // nvs update array
+    {
+        uint8_t type = cmd_arr[1]; // 1: actinic linear test
+        if (type == 1){ // update actinic linear readings
+            uint16_t _readingsf[6] = {0};
+            Serial.write(ESP_CMD_DONE);
+            Serial.readBytes((uint8_t*) _readingsf, 12);
+            uint16_t checksum = 0;
+            for (int i = 0; i < 5; i++){
+                checksum += _readingsf[i];
+            }
+            if (checksum == _readingsf[5]){
+                preferences.begin("config", false);
+                preferences.putUShort("act_50", _readingsf[0]);
+                preferences.putUShort("act_100", _readingsf[1]);
+                preferences.putUShort("act_150", _readingsf[2]);
+                preferences.putUShort("act_200", _readingsf[3]);
+                preferences.putUShort("act_250", _readingsf[4]);
+                preferences.end();
+                load_info_from_nvs(false);                
+            }
+            Serial.write(ESP_CMD_END);
+        }
+
+    }   
+    break; 
+
+
+
 
 
 

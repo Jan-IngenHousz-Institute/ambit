@@ -185,6 +185,10 @@ void do_command(char *choose){
     }
     break;
 
+    case hash("tttt"):
+      Serial.println(sizeof(ambit_calibration_info_t));
+    break;
+
 
 
     case hash("arrun"):

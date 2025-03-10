@@ -16,8 +16,11 @@ struct ambit_calibration_info_t{
     float_t temp_slope = 1.0;
     float_t actinic_coef = 0.1;
     float_t spec_coef = 1.0;
-    float_t spec_offset1 = 0.0;
-    float_t spec_offset2 = 0.0;
+    uint16_t act_50 = 5;
+    uint16_t act_100 = 4;
+    uint16_t act_150 = 3;
+    uint16_t act_200 = 2;
+    uint16_t act_250 = 1;
     float_t mlx_emissivity = 1.0;
     float_t sun_coef = 1.0;
 };
