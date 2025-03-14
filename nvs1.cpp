@@ -22,7 +22,7 @@ static void load_metadata(void){
     if (preferences.isKey("lon")) metadata_epprom.lon = preferences.getDouble("lon", 1.0);
     if (preferences.isKey("lat")) metadata_epprom.lat = preferences.getDouble("lat", 1.0);
     if (preferences.isKey("alt")) metadata_epprom.alt = preferences.getFloat("alt", 1.0);
-    if (preferences.isKey("time")) metadata_epprom.time = (uint32_t)preferences.getUInt("time", 1);
+    if (preferences.isKey("time")) metadata_epprom.time = preferences.getUInt("time", 1);
     if (preferences.isKey("acc")) metadata_epprom.acc = preferences.getFloat("acc", 1.0);
     if (preferences.isKey("vacc")) metadata_epprom.vacc = preferences.getFloat("vacc", 1.0);
     if (preferences.isKey("info1")) preferences.getString("info1", metadata_epprom.info1, 200);
@@ -39,7 +39,7 @@ void save_metadata(void){
     preferences.putDouble("lon", metadata_incoming.lon);
     preferences.putDouble("lat", metadata_incoming.lat);
     preferences.putFloat("alt", metadata_incoming.alt);
-    preferences.getUInt("time", metadata_incoming.time);
+    preferences.putUInt("time", metadata_incoming.time);
     preferences.putFloat("acc", metadata_incoming.acc);
     preferences.putFloat("vacc", metadata_incoming.vacc);
     preferences.putString("info1", metadata_incoming.info1);

@@ -309,11 +309,13 @@ int do_esp_cmd(){
     case 18: // nvs update array
     {
         uint8_t type = cmd_arr[1]; // 1: actinic linear test
+        float_t _factor = 1.0;
         if (type == 1){ // update actinic linear readings
             uint16_t _readingsf[6] = {0};
             Serial.write(ESP_CMD_DONE);
             Serial.readBytes((uint8_t*) _readingsf, 12);
             uint16_t checksum = 0;
+            _factor = *((float *) &(cmd_arr[4]));
             for (int i = 0; i < 5; i++){
                 checksum += _readingsf[i];
             }
@@ -324,6 +326,7 @@ int do_esp_cmd(){
                 preferences.putUShort("act_150", _readingsf[2]);
                 preferences.putUShort("act_200", _readingsf[3]);
                 preferences.putUShort("act_250", _readingsf[4]);
+                preferences.putFloat("actinic", _factor);
                 preferences.end();
                 load_info_from_nvs(false);                
             }

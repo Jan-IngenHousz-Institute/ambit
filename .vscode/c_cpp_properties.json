@@ -10,7 +10,7 @@
         "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.1.0\\libraries\\SPI\\src/**",
         "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.1.0\\libraries\\Preferences\\src/**",
         "C:\\Users\\hjcbj\\Documents\\Arduino\\libraries/**",
-        "E:\\AA_Folder\\Instruments\\ESP32\\Ambit\\ambit-1/**",
+        "E:\\AA_Folder\\Instruments\\ambits\\ambit-1/**",
         "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-arduino-libs\\idf-release_v5.3-083aad99-v2\\esp32c3\\include/**"
       ],
       "forcedInclude": [
@@ -39,7 +39,7 @@
         "-DARDUINO_USB_MODE=1",
         "-DARDUINO_USB_CDC_ON_BOOT=0",
         "@C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-arduino-libs\\idf-release_v5.3-083aad99-v2\\esp32c3/flags/defines",
-        "-IE:\\AA_Folder\\Instruments\\ESP32\\Ambit\\ambit-1",
+        "-IE:\\AA_Folder\\Instruments\\ambits\\ambit-1",
         "-iprefix",
         "C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-arduino-libs\\idf-release_v5.3-083aad99-v2\\esp32c3/include/",
         "@C:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-arduino-libs\\idf-release_v5.3-083aad99-v2\\esp32c3/flags/includes",
@@ -50,11 +50,11 @@
         "-IC:\\Users\\hjcbj\\Documents\\Arduino\\libraries\\Adafruit_BusIO",
         "-IC:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.1.0\\libraries\\SPI\\src",
         "-IC:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.1.0\\libraries\\Preferences\\src",
-        "@E:\\AA_Folder\\Instruments\\ESP32\\Ambit\\tmp/build_opt.h",
-        "@E:\\AA_Folder\\Instruments\\ESP32\\Ambit\\tmp/file_opts",
-        "E:\\AA_Folder\\Instruments\\ESP32\\Ambit\\tmp\\sketch\\ambit-1.ino.cpp",
+        "@E:\\AA_Folder\\Instruments\\ambits\\tmp/build_opt.h",
+        "@E:\\AA_Folder\\Instruments\\ambits\\tmp/file_opts",
+        "E:\\AA_Folder\\Instruments\\ambits\\tmp\\sketch\\PAM.cpp",
         "-o",
-        "E:\\AA_Folder\\Instruments\\ESP32\\Ambit\\tmp\\sketch\\ambit-1.ino.cpp.o"
+        "E:\\AA_Folder\\Instruments\\ambits\\tmp\\sketch\\PAM.cpp.o"
       ],
       "defines": [
         "F_CPU=160000000L",
