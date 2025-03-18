@@ -52,9 +52,9 @@
         "-IC:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.1.0\\libraries\\Preferences\\src",
         "@E:\\AA_Folder\\Instruments\\ambits\\tmp/build_opt.h",
         "@E:\\AA_Folder\\Instruments\\ambits\\tmp/file_opts",
-        "E:\\AA_Folder\\Instruments\\ambits\\tmp\\sketch\\PAM.cpp",
+        "E:\\AA_Folder\\Instruments\\ambits\\tmp\\sketch\\do_c.cpp",
         "-o",
-        "E:\\AA_Folder\\Instruments\\ambits\\tmp\\sketch\\PAM.cpp.o"
+        "E:\\AA_Folder\\Instruments\\ambits\\tmp\\sketch\\do_c.cpp.o"
       ],
       "defines": [
         "F_CPU=160000000L",

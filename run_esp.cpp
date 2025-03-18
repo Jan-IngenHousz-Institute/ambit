@@ -203,12 +203,11 @@ int do_esp_cmd(){
 
     
     case 37:    // set metadata
-    {
-        
+    {        
         Serial.write(ESP_CMD_DONE);
         Serial.readBytes((uint8_t*) (&metadata_incoming), sizeof(metadata_t));
         Serial.write(ESP_CMD_END);
-        save_metadata();
+        if (metadata_incoming.EOF_MARK == 2025) save_metadata();
         load_info_from_nvs(false);
     }
     break;

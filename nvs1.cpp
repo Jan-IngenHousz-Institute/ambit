@@ -13,6 +13,8 @@ static void get_FW_info(void){
     ambit_FW_info.MAC = ESP.getEfuseMac();
     ambit_FW_info.Size = ESP.getSketchSize();
     strncpy(ambit_FW_info.FW_date, __DATE__, 12);
+    ambit_FW_info.Checksum = 0xFF & (MAJOR_VERSION << 4) & (MINOR_VERSION << 2) & (BATCH_VERSION << 0);
+    
     return;
 }
 
@@ -35,6 +37,11 @@ static void load_metadata(void){
 }
 
 void save_metadata(void){
+    //QC
+    if (metadata_incoming.lon < -180.0 || metadata_incoming.lon > 360.0) return;
+    if (metadata_incoming.lat < -90.0 || metadata_incoming.lat > 90.0) return;
+    if (metadata_incoming.alt < -500.0 || metadata_incoming.alt > 30000.0) return;
+    // Save metadata to NVS
     preferences.begin("metadata", false);
     preferences.putDouble("lon", metadata_incoming.lon);
     preferences.putDouble("lat", metadata_incoming.lat);

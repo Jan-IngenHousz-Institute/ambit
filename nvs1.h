@@ -30,14 +30,14 @@ extern struct ambit_calibration_info_t ambit_calibration_local, ambit_calibratio
 
 
 struct ambit_FW_info_t{
-    uint64_t MAC = 0;
     uint8_t Major = MAJOR_VERSION;
     uint8_t Minor = MINOR_VERSION;
-    uint8_t Batch = BATCH_VERSION;
-    uint8_t Pad = 0; 
+    uint8_t Batch = BATCH_VERSION;    
     uint32_t Size = 0;
+    uint64_t MAC = 0;
     char FW_date[12];
     char reserved[12];      
+    uint8_t Checksum = 0; 
 };
 
 extern struct ambit_FW_info_t ambit_FW_info;
@@ -48,13 +48,12 @@ struct metadata_t {
     float alt = 1.0; 
     float acc = 1.0;
     float vacc = 1.0;
-
     uint32_t time = 0;
     float x = 0.0;
     float y = 0.0;
     float z = 0.0;
-
-    char info1[200] = "NO input";
+    char info1[200] = "New_Ambit";
+    uint16_t EOF_MARK = 2025; // end of file marker, used to check if the metadata is valid
 };
 
 extern struct metadata_t metadata_epprom, metadata_incoming;
