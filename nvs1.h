@@ -5,7 +5,7 @@
 
 #define MAJOR_VERSION 0
 #define MINOR_VERSION 0
-#define BATCH_VERSION 1
+#define BATCH_VERSION 2
 
 
 struct ambit_calibration_info_t{

@@ -33,7 +33,7 @@
         "-DARDUINO_VARIANT=\"esp32c3\"",
         "-DARDUINO_PARTITION_minimal",
         "-DARDUINO_HOST_OS=\"windows\"",
-        "-DARDUINO_FQBN=\"esp32:esp32:esp32c3:UploadSpeed=921600,CDCOnBoot=default,CPUFreq=160,FlashFreq=80,FlashMode=qio,FlashSize=2M,PartitionScheme=minimal,DebugLevel=none,EraseFlash=all,JTAGAdapter=default,ZigbeeMode=default\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32c3:UploadSpeed=921600,CDCOnBoot=default,CPUFreq=160,FlashFreq=80,FlashMode=qio,FlashSize=2M,PartitionScheme=minimal,DebugLevel=none,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\"",
         "-DESP32=ESP32",
         "-DCORE_DEBUG_LEVEL=0",
         "-DARDUINO_USB_MODE=1",
@@ -52,9 +52,9 @@
         "-IC:\\Users\\hjcbj\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.1.0\\libraries\\Preferences\\src",
         "@E:\\AA_Folder\\Instruments\\ambits\\tmp/build_opt.h",
         "@E:\\AA_Folder\\Instruments\\ambits\\tmp/file_opts",
-        "E:\\AA_Folder\\Instruments\\ambits\\tmp\\sketch\\ambit-1.ino.cpp",
+        "E:\\AA_Folder\\Instruments\\ambits\\tmp\\sketch\\PAM.cpp",
         "-o",
-        "E:\\AA_Folder\\Instruments\\ambits\\tmp\\sketch\\ambit-1.ino.cpp.o"
+        "E:\\AA_Folder\\Instruments\\ambits\\tmp\\sketch\\PAM.cpp.o"
       ],
       "defines": [
         "F_CPU=160000000L",
@@ -65,7 +65,7 @@
         "ARDUINO_VARIANT=\"esp32c3\"",
         "ARDUINO_PARTITION_minimal",
         "ARDUINO_HOST_OS=\"windows\"",
-        "ARDUINO_FQBN=\"esp32:esp32:esp32c3:UploadSpeed=921600,CDCOnBoot=default,CPUFreq=160,FlashFreq=80,FlashMode=qio,FlashSize=2M,PartitionScheme=minimal,DebugLevel=none,EraseFlash=all,JTAGAdapter=default,ZigbeeMode=default\"",
+        "ARDUINO_FQBN=\"esp32:esp32:esp32c3:UploadSpeed=921600,CDCOnBoot=default,CPUFreq=160,FlashFreq=80,FlashMode=qio,FlashSize=2M,PartitionScheme=minimal,DebugLevel=none,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\"",
         "ESP32=ESP32",
         "CORE_DEBUG_LEVEL=0",
         "ARDUINO_USB_MODE=1",
@@ -73,7 +73,7 @@
         "ARDUINO_BOARD=\\\"ESP32C3_DEV\\\"\"",
         "ARDUINO_VARIANT=\\\"esp32c3\\\"\"",
         "ARDUINO_HOST_OS=\\\"windows\\\"\"",
-        "ARDUINO_FQBN=\\\"esp32:esp32:esp32c3:UploadSpeed=921600,CDCOnBoot=default,CPUFreq=160,FlashFreq=80,FlashMode=qio,FlashSize=2M,PartitionScheme=minimal,DebugLevel=none,EraseFlash=all,JTAGAdapter=default,ZigbeeMode=default\\\"\"",
+        "ARDUINO_FQBN=\\\"esp32:esp32:esp32c3:UploadSpeed=921600,CDCOnBoot=default,CPUFreq=160,FlashFreq=80,FlashMode=qio,FlashSize=2M,PartitionScheme=minimal,DebugLevel=none,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default\\\"\"",
         "ARDUINO_CORE_BUILD",
         "USBCON"
       ],

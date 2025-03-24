@@ -1180,8 +1180,8 @@ uint32_t PAM_get_env(uint8_t mode, unsigned int t0){
   }
 
   if (mode == 4){  // get leaf temp
-    data = (int16_t) (mlx_measure() * 10);
-    d_type = mode;
+    data = (int16_t) ((mlx_measure() + 20) * 20);
+    d_type = 3;
     ret = time_16 << 16 | d_type << 12 | data;
     return ret;
   }
