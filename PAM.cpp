@@ -213,7 +213,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
 
   _tmparr = PAM_get_env(4, start_t0);
   d_env->put(_tmparr);
-  leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 10.0;
+  leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 20.0 - 20;
 
 
   adpd.STOP();
@@ -322,7 +322,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
           if (measure_temperature && (millis() - env_timer1 > 2000)){
             _tmparr = PAM_get_env(4, start_t0);
             d_env->put(_tmparr);
-            leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 10.0;
+            leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 20.0 - 20;
             env_timer1 = millis();
             esp_sleep_enable_timer_wakeup(1000);
           }
@@ -462,7 +462,7 @@ int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8
 
   _tmparr = PAM_get_env(4, start_t0);
   d_env->put(_tmparr);
-  leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 10.0;
+  leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 20.0 - 20;
   env_timer1 = millis();
 
 
@@ -524,7 +524,7 @@ int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8
       if (millis() - env_timer1 > 2000){
         _tmparr = PAM_get_env(4, start_t0);
         d_env->put(_tmparr);
-        leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 10.0;
+        leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 20.0 - 20;
         env_timer1 = millis();
       }      
     }    
@@ -1181,7 +1181,7 @@ uint32_t PAM_get_env(uint8_t mode, unsigned int t0){
 
   if (mode == 4){  // get leaf temp
     data = (int16_t) ((mlx_measure() + 20) * 20);
-    d_type = 3;
+    d_type = mode;
     ret = time_16 << 16 | d_type << 12 | data;
     return ret;
   }
@@ -1197,7 +1197,7 @@ uint32_t PAM_retrieve_env(uint32_t r, uint8_t* mode, float_t* data_f, int16_t* d
     t += data;
     if (mode != NULL) *mode = d_type;
   }else if (d_type == 4){ // temperature
-    if (data_f != NULL) *data_f = (data / 10.0);
+    if (data_f != NULL) *data_f = (data / 20.0 - 20);
     if (mode != NULL) *mode = d_type;  }
   
   
