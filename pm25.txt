@@ -1,0 +1,24 @@
+import serial
+
+with serial.Serial("COM15", baudrate=9600) as ser:
+    _line = bytearray([])
+    _line_counter = 0
+    _line_start = False
+    while True:
+        if ser.in_waiting > 0:
+            c = ser.read()
+            if c == bytes([0x42]):
+                _line_start = True
+                _line = bytearray([0x42])
+                _line_counter = 1
+            else:
+                if _line_start:
+                    _line.append(c[0])
+                    _line_counter += 1
+                    
+            if _line_counter == 32:
+                _line_counter = 0
+                _line_start = False
+                for n in range(6):
+                    print(_line[16 + n * 2] * 256 + _line[17 + n * 2], end = '\t')
+                print()
