@@ -2,11 +2,11 @@ import serial
 import time
 import sys
 def main(input_str = "", output = "", hello = False):
-    with serial.Serial("COM10", 115200) as ser:
+    with serial.Serial("COM31", 115200) as ser:
         readable = ""
         timer0 = time.perf_counter()
-        
-        while time.perf_counter() - timer0 < 51:
+        ser.write(("\r\n").encode())    
+        while time.perf_counter() - timer0 < 5:
             time.sleep(0.01)
             try:
                 pass
@@ -18,7 +18,7 @@ def main(input_str = "", output = "", hello = False):
                 time.sleep(0.1)
                 if output == "": return 0
             
-            while ser.in_waiting > 0:
+            while ser.in_waiting > 0:                
                 _c = ser.read()
                 if (_c > bytes([128]) or _c < bytes([32])) and not (_c == b"\r" or _c == b"\n"or _c == b"\t"):
                     print(int.from_bytes(_c))
@@ -37,7 +37,7 @@ def main(input_str = "", output = "", hello = False):
             
 
 def cali_par(ground_truth = 1000):
-    with serial.Serial("COM10", 115200) as ser:
+    with serial.Serial("COM31", 115200) as ser:
         readable = ""           
 
         
@@ -71,7 +71,7 @@ def cali_par(ground_truth = 1000):
                 
                 if (meas > 0):
                     print(f'{ground_truth / meas:.6f}')
-                    if (ground_truth / meas > 0.5 or ground_truth / meas < 0.1):
+                    if (ground_truth / meas > 0.65 or ground_truth / meas < 0.1):
                         print("calibration failed")
                         return 0
                     ser.write(f"set_spec,{ground_truth / meas:.6f}".encode())
@@ -101,7 +101,8 @@ if __name__ == "__main__":
         
         
             
-    if main("", "NEW Name Here", True) == 1:
+    if main("hello,", "NEW Name Here", True) == 1:
+        print("hello")
         main("set_name,"+ambit_name, "")
         time.sleep(0.25)
         main("set_emit,0.9", "")
@@ -112,5 +113,10 @@ if __name__ == "__main__":
             cali_par(ground_truth = 0)
         else:
             cali_par(ground_truth = par)
+
+        input("Press Enter to do baseline")
+        main("baseline,1", "")
+        time.sleep(2)
+        main("hello,", "NEW Name Here")
         
     

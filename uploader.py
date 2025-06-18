@@ -25,7 +25,7 @@ if __name__ == '__main__':
     files = os.listdir("../tmp/")
     if not 'ambit-1.ino.bin' in files:
         print("FW NOT found")
-        sys.exit()
+        sys.exit() 
     if not 'ambit-1.ino.bootloader.bin' in files:
         print("Bootloader NOT found")
         sys.exit()
