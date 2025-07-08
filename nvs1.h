@@ -7,9 +7,9 @@
 #define MINOR_VERSION 0
 #define BATCH_VERSION 3
 
-
-struct ambit_calibration_info_t{
-    char ambit_name[20] = "AmbitV002";
+struct ambit_calibration_info_t
+{
+    char ambit_name[20] = "AmbitV003";
     int32_t mlx_coef[14] = {0};
     uint32_t adpd[6] = {0};
     float_t temp_offset = 0.0;
@@ -27,25 +27,25 @@ struct ambit_calibration_info_t{
 
 extern struct ambit_calibration_info_t ambit_calibration_local, ambit_calibration_income;
 
-
-
-struct ambit_FW_info_t{
+struct ambit_FW_info_t
+{
     uint8_t Major = MAJOR_VERSION;
     uint8_t Minor = MINOR_VERSION;
-    uint8_t Batch = BATCH_VERSION;    
+    uint8_t Batch = BATCH_VERSION;
     uint32_t Size = 0;
     uint64_t MAC = 0;
     char FW_date[12];
-    char reserved[12];      
-    uint8_t Checksum = 0; 
+    char reserved[12];
+    uint8_t Checksum = 0;
 };
 
 extern struct ambit_FW_info_t ambit_FW_info;
 
-struct metadata_t {
+struct metadata_t
+{
     double lon = 1.0;
     double lat = 1.0;
-    float alt = 1.0; 
+    float alt = 1.0;
     float acc = 1.0;
     float vacc = 1.0;
     uint32_t time = 0;
@@ -60,16 +60,5 @@ extern struct metadata_t metadata_epprom, metadata_incoming;
 
 void load_info_from_nvs(bool print);
 void save_metadata(void);
-
-
-
-
-
-
-
-
-
-
-
 
 #endif // _NVS1_H_
