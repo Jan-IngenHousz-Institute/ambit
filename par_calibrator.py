@@ -2,7 +2,7 @@ import serial
 import time
 import sys
 def main(input_str = "", output = "", hello = False):
-    with serial.Serial("COM31", 115200) as ser:
+    with serial.Serial("COM35", 115200) as ser:
         readable = ""
         timer0 = time.perf_counter()
         ser.write(("\r\n").encode())    
@@ -37,7 +37,7 @@ def main(input_str = "", output = "", hello = False):
             
 
 def cali_par(ground_truth = 1000):
-    with serial.Serial("COM31", 115200) as ser:
+    with serial.Serial("COM35", 115200) as ser:
         readable = ""           
 
         

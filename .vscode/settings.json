@@ -4,5 +4,7 @@
         "string_view": "cpp",
         "*.tcc": "cpp",
         "random": "cpp"
-    }
+    },
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda"
 }

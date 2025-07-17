@@ -2,7 +2,7 @@
   "configuration": "UploadSpeed=921600,CDCOnBoot=default,CPUFreq=160,FlashFreq=80,FlashMode=qio,FlashSize=2M,PartitionScheme=minimal,DebugLevel=none,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default",
   "board": "esp32:esp32:esp32c3",
   "sketch": "ambit-1.ino",
-  "port": "COM33",
+  "port": "COM35",
   "output": "../tmp",
   "programmer": "Esptool",
   "monitorPortSettings": {
@@ -13,5 +13,6 @@
     "parity": "none",
     "stopBits": "one"
   },
-  "configurationRequired": true
+  "configurationRequired": true,
+  "optimize_for_debug": false
 }
