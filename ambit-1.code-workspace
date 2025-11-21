@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "D:/Python_env/conn_env"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"bitset": "cpp",
+			"string_view": "cpp",
+			"*.tcc": "cpp",
+			"random": "cpp"
+		},
+		"python-envs.defaultPackageManager": "ms-python.python:conda"
+	}
+}
