@@ -1,2 +1,7 @@
-.vscode/c_cpp_properties.json
+.vscode
 .upload.bat
+old
+*.ipynb
+*.py
+*.pdf
+*.code-workspace
