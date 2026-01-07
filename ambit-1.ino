@@ -13,6 +13,7 @@
 #include "Esp.h"
 #include "nvs1.h"
 
+
 static const char* TAG = "INO";
 ADPD6 adpd;
 Preferences preferences;
@@ -111,6 +112,7 @@ void setup(){
 
 
 int do_esp_cmd();
+void read_json_from_serial();
 int c = -1;
 char choose[50];
 
@@ -180,6 +182,9 @@ void loop(){
             }
         }
         
+    }else if (c == '{'){
+        read_json_from_serial();
+        sleep_threshod_ms = 50000;
     }else{
         sleep_threshod_ms = 30000;
         Serial_Input_Chars(choose, ":,", 200, sizeof(choose) - 1);
