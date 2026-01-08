@@ -378,6 +378,24 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
         d_730Ref->fsm_send_esp(6);
       }
     }
+  }else if(CONNECTION_TYPE == CONNECTION_TYPES::JSON){
+    
+    d_env->send_serial_json("ENV");
+    serial_print_with_crc(",");
+    d_fluor->send_serial_json("Fluo");
+    serial_print_with_crc(",");
+    d_fluoRef->send_serial_json("Fluoref");
+    serial_print_with_crc(",");
+    d_sun->send_serial_json("SUN", -65000);
+    serial_print_with_crc(",");
+    d_leaf->send_serial_json("leaf", -65000);
+    // serial_print_with_crc(",");
+    // d_730->send_serial_json("730");
+    // serial_print_with_crc(",");
+    // d_730Ref->send_serial_json("730ref");
+    // serial_print_with_crc("}");
+
+    // Serial.println("Data sent");
   }
 
   delete d_fluor;

@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include "config.h"
+#include "src/crc32.h"
 
 
 #define MAX_DATACLASS_SIZE 2000
@@ -60,6 +61,7 @@ class dataclass{
     bool init(uint16_t length);
     void print_all();
     void send_serial(const char*);
+    void send_serial_json(const char* tag, int offset = 0);
 
     //-- FSM--//
     int fsm_wake_up_calls(void);
@@ -68,6 +70,7 @@ class dataclass{
     int fsm_send_data(void);
     int fsm_send_esp(uint8_t arr_idx);
     int fsm_send_esp(uint8_t arr_idx, bool interrupt);
+    
     int fsm_send_waitesp();
     //int send_esp(uint8_t);
 

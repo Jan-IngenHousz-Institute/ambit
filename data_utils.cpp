@@ -274,6 +274,32 @@ void dataclass::send_serial(const char* tag){
     return;
 }
 
+void dataclass::send_serial_json(const char* tag, int offset){
+
+    if (!this->available) return; 
+    uint16_t tmp_var = dataclass::get_length();
+    char buffer[50];
+    snprintf(buffer, sizeof(buffer), "\"%s\":[", tag);
+    serial_print_with_crc(buffer);
+
+    if (tmp_var == 0){
+        snprintf(buffer, sizeof(buffer), "]");
+        serial_print_with_crc(buffer);
+        return;
+    }
+    for (uint16_t i = 0; i < tmp_var; i++){
+        if (i < tmp_var - 1) snprintf(buffer, sizeof(buffer), "%d,", dataclass::pop() + offset);
+        else snprintf(buffer, sizeof(buffer), "%d", dataclass::pop() + offset);
+        serial_print_with_crc(buffer);
+    }
+    snprintf(buffer, sizeof(buffer), "]");
+    serial_print_with_crc(buffer);
+    return;
+}
+
+
+
+
 static void send_binary_array(uint32_t* arr, uint16_t len){
     Serial.write((uint8_t*) arr, len * 4);
 }

@@ -8,7 +8,8 @@
 enum CONNECTION_TYPES {
     PLOTTING, 
     AMBYTE, 
-    COMPUTER,  
+    COMPUTER,
+    JSON
 };
 
 extern uint8_t CONNECTION_TYPE;

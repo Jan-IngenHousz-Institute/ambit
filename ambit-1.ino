@@ -182,9 +182,9 @@ void loop(){
             }
         }
         
-    }else if (c == '{'){
+    }else if (c == '['){
         read_json_from_serial();
-        sleep_threshod_ms = 50000;
+        sleep_threshod_ms = 500000;
     }else{
         sleep_threshod_ms = 30000;
         Serial_Input_Chars(choose, ":,", 200, sizeof(choose) - 1);
