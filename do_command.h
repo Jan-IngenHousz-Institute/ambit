@@ -243,9 +243,10 @@ void do_command(char *choose){
       uint8_t b = (uint8_t) Serial_Input_Long(",", 10);
       uint8_t c = (uint8_t) Serial_Input_Long(",", 10);
       
-      uint8_t arr[24] = {a, 0, 1, 0, 0, b, 0, 1, \
-                        a, 0, 1, 0, 0, b, c, 1,\
-                        a, 0, 1, 0, 0, b, 0, 1};
+      uint8_t arr[32] = {a, 0, 0, 100, 0, b, 0, 1, \
+                        a, 1, 0, 100, 0, b, 0, 1,\
+                        a, 0, 0, 100, 0, b, c, 1,\
+                        a, 0, 0, 100, 0, b, 0, 1};
 
       CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
       //CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
@@ -253,7 +254,7 @@ void do_command(char *choose){
         conf_slow_FR_1();
         adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
       }
-      run_arr_type1(3, arr, 0);
+      run_arr_type1(4, arr, 0);
       CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
       
     }                                                                   
