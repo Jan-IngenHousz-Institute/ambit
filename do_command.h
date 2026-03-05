@@ -11,6 +11,7 @@
 #include "data_utils.h"
 #include "PAM.h"
 #include "nvs1.h"
+#include "src/tcs3448/Adafruit_AS7343.h"
 #include <Preferences.h>
 
 int check_connections();
@@ -18,6 +19,8 @@ extern Preferences preferences;
 extern bool FLAG_DEICE;
 static const char* TAG1 = "do_Cmd";
 void do_c(const char* c);
+
+
 
 constexpr unsigned hash(const char *string)
 {
@@ -161,6 +164,68 @@ void do_command(char *choose){
       nvs_flash_erase();
       nvs_flash_init();
       Serial.println("NVS cleaned");
+    }
+    break;
+
+    case hash("new_spec"):
+    {
+      Adafruit_AS7343 as7343;
+      if (!as7343.begin()) {
+        Serial.println("Could not find a valid AS7343 sensor, check wiring!");
+        break;
+      }
+
+
+      uint8_t current = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t gain = (uint8_t) Serial_Input_Long(",", 10);
+      uint16_t time = (uint16_t) Serial_Input_Long(",", 10);
+      
+      as7343.setSMUXMode(AS7343_SMUX_18CH);
+      as7343.enableLED(false);
+      as7343.setLEDCurrent(current);
+
+      as7343.setGain((as7343_gain_t)gain);
+      as7343.setATIME(time);
+      as7343.setASTEP(time);
+
+      uint16_t readings[18];
+  
+      as7343.enableLED(true);
+      as7343.startMeasurement();
+      while (!as7343.dataReady()) {
+        delay(1);
+      }
+      as7343.readAllChannels(readings);
+      as7343.enableLED(false);
+
+      // Wavelengths (nm) for each channel index; 0 = clear channel
+      int wavelengths[] = {450, 555, 600, 855, 0, 0,      // indices 0-5
+                          425, 475, 515, 640, 0, 0,     // indices 6-11
+                          405, 690, 745, 550, 0, 0};    // indices 12-17
+
+      // First line: channels 0-5 (6 readings)
+      Serial.printf("%d:%d\t%d:%d\t%d:%d\t%d:%d\n",
+          wavelengths[0], readings[0],
+          wavelengths[1], readings[1],
+          wavelengths[2], readings[2],
+          wavelengths[3], readings[3]);
+
+      // Second line: channels 6-11 (6 readings)
+      Serial.printf("%d:%d\t%d:%d\t%d:%d\t%d:%d\n",
+          wavelengths[6], readings[6],
+          wavelengths[7], readings[7],
+          wavelengths[8], readings[8],
+          wavelengths[9], readings[9]);
+
+      // Third line: channels 12-17 (6 readings)
+      Serial.printf("%d:%d\t%d:%d\t%d:%d\t%d:%d\n",
+          wavelengths[12], readings[12],
+          wavelengths[13], readings[13],
+          wavelengths[14], readings[14],
+          wavelengths[15], readings[15]);
+
+
+
     }
     break;
 
