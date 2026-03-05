@@ -5,11 +5,11 @@
 
 #define MAJOR_VERSION 0
 #define MINOR_VERSION 0
-#define BATCH_VERSION 3
+#define BATCH_VERSION 4
 
 struct ambit_calibration_info_t
 {
-    char ambit_name[20] = "AmbitV003";
+    char ambit_name[20] = "AmbitV004";
     int32_t mlx_coef[14] = {0};
     uint32_t adpd[6] = {0};
     float_t temp_offset = 0.0;
