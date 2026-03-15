@@ -4,7 +4,7 @@
 #include "src/adpd/u_adpd6100.h"
 #include "src/as7341/spec_meas.h"
 #include "src/mlx90632/u_mlx.h"
-
+#include "driver/temperature_sensor.h"
 
 extern ADPD6 adpd;
 static char STR_SUC[] = "Success";
@@ -15,28 +15,47 @@ char* str_results[3] = {STR_FAIL, STR_SUC, STR_FAIL};
 
 
 static int check_adpd(){
+    Serial.print("Checking ADPD\t\t");
     uint8_t ret = (uint8_t)adpd.begin();
-    if (ret < 2) Serial.printf("ADPD check %s", str_results[ret]);
     return ret;
 }
 
 static int check_spec(){
+    Serial.print("Checking AS7341\t\t");
     uint8_t ret = (uint8_t)check_AS7341();
-    if (ret < 2) Serial.printf("AS7341 check %s", str_results[ret]);
+    uint16_t spec[12] = {0};
+    AS_all_channel(99, 199, spec);
+
+
+
+
+    if (ret < 2) Serial.printf("%s", str_results[ret]);
+    if (ret != 1){
+        Serial.println("");
+        return ret;
+    }
+    Serial.printf("\t%d,%d,%d,%d,%d,%d,%d,%d\n", spec[0], spec[1], spec[2], spec[3], spec[4], spec[5], spec[6], spec[7]);
+
+
     return ret;
 }
 
 
 static int check_mlx(){
+    Serial.print("Checking MLX90632\t");
     uint8_t ret = (uint8_t)mlx_init();
-    if (ret < 2) Serial.printf("MLX90632 check %s", str_results[ret]);
+    double obj, board;
+    unsigned int start = millis();
+    mlx_measure(&obj, &board);
+    unsigned int time_used = millis() - start;
+    if (ret < 2) Serial.printf("%s\t%d\t%2.2f\t%2.2f\n", str_results[ret], time_used, obj, board);
     return ret;
 }
 
 
 static int test_optic_path(){
     adpd.STOP();
-    conf_slow_FR_1(40, 20, 0, 5, 5, 5, 5, 5, 3);
+    conf_slow_FR_1(40, 8, 0, 5, 5, 5, 5, 5, 5);
 
     adpd.num_ts(3);
     uint8_t expected_readout_bytes = 24;
@@ -44,11 +63,15 @@ static int test_optic_path(){
     uint32_t ret[expected_readout] = {0};
     uint16_t fifo_c = 0;
     uint32_t counter = 0;
-    uint32_t num_ptx = 500;
+    uint32_t num_ptx = 64+64+64;
 
     AS_LED_OFF();
-    AS_LED_Current(50);
-    adpd.run_freq(50);
+    AS_LED_Current(15);
+    adpd.run_freq(128);
+
+    uint32_t dark1[8] = {0};
+    uint32_t dark2[8] = {0};
+    uint32_t lit[8] = {0};
 
     adpd.RUN();
     while (counter < num_ptx){
@@ -57,16 +80,36 @@ static int test_optic_path(){
             adpd.readfifo(expected_readout, 3, ret);
             fifo_c -= expected_readout_bytes;
             if (counter == num_ptx) break;
-            Serial.printf("%d,%d,%d,%d,%d,%d,%d,%d\n", ret[0],ret[1],ret[2],ret[3],ret[4],ret[5],ret[6],ret[7]);
+            for (int i=0; i<8; i++){
+                if (i < 2) ret[i] -= 65000;
+                else if (i < 6) ret[i] -= 16000;
+                if (counter < 64) dark1[i] += ret[i];
+                else if (counter >= 128) dark2[i] += ret[i];
+                else lit[i] += ret[i];
+                // Serial.print(ret[i]);
+                // if (i < 7) Serial.print(",");
+            }
+            // Serial.println("");
             counter++;
-            if (counter == 250) AS_LED_ON();
-            if (counter == 480) AS_LED_OFF();
+            if (counter == 64) AS_LED_ON();
+            if (counter == 128) AS_LED_OFF();
         }        
     }
 
     adpd.STOP();
     AS_LED_OFF();
     AS_LED_Current(0);
+
+    for (int i=0; i<8; i++){
+        dark1[i] /= 64;
+        dark2[i] /= 64;
+        lit[i] /= 64;
+
+        if (i < 6) Serial.printf("%d:[%d,%d,%d]\n",i + 1, (int)dark1[i]-300, (int)lit[i]-300, (int)dark2[i]-300);
+        else Serial.printf("%d:[%d,%d,%d]\n",i + 1, dark1[i], lit[i], dark2[i]);
+
+    }
+
     return 0;
 }
 
@@ -74,18 +117,36 @@ static int test_optic_path(){
 
 
 int check_connections(){
-    // check_adpd();
-    // check_spec();
-    // check_mlx();
-    double temperature_before, temperature_after, t;
+    int ret1 = check_adpd();
+    int ret2 = check_spec();
+    int ret3 = check_mlx();
+
+    temperature_sensor_handle_t temp_handle = NULL;
+    temperature_sensor_config_t temp_sensor_config = TEMPERATURE_SENSOR_CONFIG_DEFAULT(15, 55);
+    float tsens_out;
+
+    temperature_sensor_install(&temp_sensor_config, &temp_handle);
+    temperature_sensor_enable(temp_handle);
+    temperature_sensor_get_celsius(temp_handle, &tsens_out);
+    printf("ESP32Temp\t\t%2.2f\n", tsens_out);
+    temperature_sensor_disable(temp_handle);
+    temperature_sensor_uninstall(temp_handle);
 
 
-    mlx_measure(&t, &temperature_before);
+    Serial.println("ADPD_readings:");
     test_optic_path();
-    mlx_measure(&t, &temperature_after);
 
 
-    Serial.printf("#obj:%f-%f-%f\n", t, temperature_before, temperature_after);
+    // if ((ret1 == 1) && (ret2 == 1) && (ret3 == 1)){
+    //     AS_LED_OFF();
+    //     AS_LED_Current(4);
+    //     AS_LED_ON();
+    //     delay(300);
+    //     AS_LED_OFF();
+    // } 
+  
+
+
 
 
     return 0;

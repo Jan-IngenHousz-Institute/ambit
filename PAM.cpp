@@ -689,13 +689,13 @@ int external_trigger_run(void){
       if (millis() - trigger_timer > 100) break;
     }
     if (fifo_c < expected_readout_bytes){
-      Serial.println("NOT ENOUGH IN FIFO");
+      Serial.println("[E] NOT ENOUGH IN FIFO");
       break;
     }
     adpd.readfifo(expected_readout, 3, ret);
     if (fifo_c > expected_readout_bytes){
       adpd.clear_fifo();
-      Serial.printf("Extra %d byte in FIFO", fifo_c - expected_readout_bytes);
+      Serial.printf("[E] Extra %d byte in FIFO\n", fifo_c - expected_readout_bytes);
     }
 
     read_fluor = calc_signal(ret[2], ret[3], num_integration); 
@@ -703,9 +703,20 @@ int external_trigger_run(void){
     read_sun = ret[0]; 
     read_leaf = ret[1]; 
 
+    Serial.print("T:");
+    Serial.print(millis() - start_timer);
+    Serial.print(",S:");
+    Serial.print(read_fluor);
+    Serial.print(",R:");
+    Serial.print(read_fluoRef);
+    Serial.print(",F:");
+    Serial.print(read_sun - 65000);
+    Serial.print(",B:");
+    Serial.println(read_leaf - 65000);
 
 
-    Serial.printf("T:%d,S:%d,R:%d,F:%d,B:%d\n", millis() - start_timer, read_fluor, read_fluoRef, read_sun-65000, read_leaf-65000);    
+
+    // Serial.printf("T:%d,S:%d,R:%d,F:%d,B:%d\n", millis() - start_timer, read_fluor, read_fluoRef, read_sun-65000, read_leaf-65000);    
     Serial.flush();    
   } /// End of Loop
 
