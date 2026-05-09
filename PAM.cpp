@@ -508,30 +508,31 @@ int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8
     read_7 = ret[6]; d_730->put(read_7);
     read_7Ref = ret[7]; d_730Ref->put(read_7Ref);
 
-
     if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
       Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)read_fluor/(float)read_fluoRef, read_fluor, read_fluoRef, read_7, read_7Ref, read_sun-65000, read_leaf-65000);    
       Serial.flush();
     }
 
-
-
     if (interrupt_run) break;
     if (millis() > expected_millis) continue; // overdue
     waiting_time = expected_millis - millis();
 
-    if ((n % 8 == 7) && (waiting_time > 100)){
+    if ((n % 4 == 3) && (waiting_time > 500)){
       if (millis() - env_timer1 > 2000){
-        _tmparr = PAM_get_env(4, start_t0);
-        d_env->put(_tmparr);
-        leaf_temp = ((int16_t) (_tmparr & 0xFFF)) / 20.0 - 20;
+        if (n % 8 == 7){ // measure leaf temp
+          _tmparr = PAM_get_env(4, start_t0);
+          leaf_temp = ((int16_t) (_tmparr & 0x0FFF)) / 20.0 - 20;
+          Serial.printf("Temp:%f\n", leaf_temp);
+        } else{ // measure PAR
+          _tmparr = PAM_get_env(3, start_t0);
+          Serial.printf("PAR:%d\n", _tmparr & 0x0FFF);
+        }
+        d_env->put(_tmparr);        
         env_timer1 = millis();
-      }      
-    }    
-
-    
-
-    
+        
+      }
+    }
+        
     waiting_time = expected_millis - millis();
     while (waiting_time > 250){
       esp_sleep_enable_timer_wakeup((waiting_time - 50) * 1000);
@@ -1182,12 +1183,21 @@ uint32_t PAM_get_env(uint8_t mode, unsigned int t0){
   uint8_t d_type = 0;
   int16_t data = 0;
 
-  if (mode < 4){ // timestamp only 0 - 3
+  if (mode < 3){ // timestamp only 0 - 2
     data = (time & 0x3F);
     d_type = mode;
     ret = time_16 << 16 | d_type << 12 | data;
     return ret;
 
+  }
+
+  if (mode == 3){  // get leaf temp
+    
+    data = (uint16_t) (get_PAR());
+    data &= 0x0FFF;
+    d_type = mode;
+    ret = time_16 << 16 | d_type << 12 | data;
+    return ret;
   }
 
   if (mode == 4){  // get leaf temp
