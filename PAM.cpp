@@ -519,16 +519,16 @@ int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8
 
     if ((n % 4 == 3) && (waiting_time > 500)){
       if (millis() - env_timer1 > 2000){
-        if (n % 8 == 7){ // measure leaf temp
+        if (n % 32 != 31){ // measure leaf temp
           _tmparr = PAM_get_env(4, start_t0);
           leaf_temp = ((int16_t) (_tmparr & 0x0FFF)) / 20.0 - 20;
-          Serial.printf("Temp:%f\n", leaf_temp);
-        } else{ // measure PAR
+          d_env->put(_tmparr);        
+          env_timer1 = millis();
+        } else { // measure PAR
           _tmparr = PAM_get_env(3, start_t0);
-          Serial.printf("PAR:%d\n", _tmparr & 0x0FFF);
-        }
-        d_env->put(_tmparr);        
-        env_timer1 = millis();
+          d_env->put(_tmparr);        
+          env_timer1 = millis();
+        }       
         
       }
     }

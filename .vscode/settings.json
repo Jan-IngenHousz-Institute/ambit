@@ -5,5 +5,10 @@
         "*.tcc": "cpp",
         "random": "cpp"
     },
-    "python-envs.defaultPackageManager": "ms-python.python:conda"
+    "python-envs.defaultPackageManager": "ms-python.python:pip",
+    "python-envs.workspaceSearchPaths": [
+        ".venv",
+        "*/.venv",
+        "D:\\Python_env\\conn_env\\.venv"
+    ]
 }

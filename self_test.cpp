@@ -116,6 +116,84 @@ static int test_optic_path(){
 
 
 
+static int test_optic_path2(){
+    adpd.STOP();
+    adpd.led_config.driver1_current = 0;
+    adpd.led_config.driver2_current = 0;
+
+    for (int i = 0; i < 5; i++){
+        adpd.SNR_config.TIA_gain_CH2 = i + 1;       // channel 2: leaf IR reflection
+        adpd.SNR_config.TIA_gain_CH1 = i + 1;      // channel 1: sun vis
+        adpd.preset_config_1(i, 1);
+    }
+
+
+    adpd.led_config.driver1_current = 0;
+    adpd.led_config.led1_channel = LED_A;
+    adpd.led_config.led2_channel = LED_A;
+    adpd.SNR_config.TIA_gain_CH1 = 5;
+    adpd.SNR_config.TIA_gain_CH2 = 5;
+
+    for (int i = 0; i < 5; i++){
+        adpd.led_config.driver2_current = i * 10 + 10;
+        adpd.preset_config_2(i + 5, 1);
+    }
+
+
+    uint8_t expected_readout_bytes = 2 * 3 * 5 + 4 * 3 * 5;
+    uint8_t expected_readout = expected_readout_bytes / 3;
+    uint32_t ret[expected_readout] = {0};
+    uint16_t fifo_c = 0;
+    uint32_t counter = 0;
+    uint32_t num_ptx = 64;
+
+
+
+    AS_LED_OFF();
+    adpd.run_freq(128);
+
+    uint32_t sun[5] = {0};
+    uint32_t leaf[5] = {0};
+    uint32_t sig[5] = {0};
+    uint32_t ref[5] = {0};
+
+
+    adpd.RUN();
+    while (counter < num_ptx){
+        fifo_c = adpd.fifo_count();
+        while (fifo_c >= expected_readout_bytes){ // read all bytes from FIFO
+            adpd.readfifo(expected_readout, 3, ret);
+            fifo_c -= expected_readout_bytes;
+            if (counter == num_ptx) break;
+
+            for (uint8_t i = 0; i < 5; i++){
+                sun[i] += ret[i * 2] - 16300;
+                leaf[i] += ret[i * 2 + 1] - 16300;
+
+                sig[i] += ret[10 + i * 4 + 1] - ret[10 + i * 4];
+                ref[i] += ret[10 + i * 4 + 3] - ret[10 + i * 4 + 2];
+
+
+
+            }
+
+            counter++;  
+        }        
+    }
+
+    adpd.STOP();
+    AS_LED_OFF();
+
+    Serial.printf("Sun PD\t\t%d\t%d\t%d\t%d\t%d\n", sun[4]/64,sun[3]/64,sun[2]/64,sun[1]/64,sun[0]/64);
+    Serial.printf("Leaf PD\t\t%d\t%d\t%d\t%d\t%d\n", leaf[4]/64,leaf[3]/64,leaf[2]/64,leaf[1]/64,leaf[0]/64);
+    Serial.printf("Signal\t\t%d\t%d\t%d\t%d\t%d\n", sig[0]/64,sig[1]/64,sig[2]/64,sig[3]/64,sig[4]/64);
+    Serial.printf("Ref\t\t%d\t%d\t%d\t%d\t%d\n", ref[0]/64,ref[1]/64,ref[2]/64,ref[3]/64,ref[4]/64);
+
+    return 0;
+}
+
+
+
 int check_connections(){
     int ret1 = check_adpd();
     int ret2 = check_spec();
@@ -134,8 +212,9 @@ int check_connections(){
 
 
     Serial.println("ADPD_readings:");
+    test_optic_path2();
     test_optic_path();
-
+    Serial.println("Done!!");
 
     // if ((ret1 == 1) && (ret2 == 1) && (ret3 == 1)){
     //     AS_LED_OFF();

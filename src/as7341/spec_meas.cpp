@@ -197,22 +197,22 @@ double get_PAR(uint16_t *calc_spec){
 
     dual_exposure(AS7341_GAIN_2X, AS7341_GAIN_2X, spec);
 
-    calc_spec[0] = spec[0] * Spec_COE1;
-    calc_spec[1] = spec[1] * Spec_COE2;
-    calc_spec[2] = spec[2] * Spec_COE3;
-    calc_spec[3] = spec[3] * Spec_COE4;
-    calc_spec[4] = spec[6] * Spec_COE5;
-    calc_spec[5] = spec[7] * Spec_COE6;
-    calc_spec[6] = spec[8] * Spec_COE7;
-    calc_spec[7] = spec[9] * Spec_COE8;
-    calc_spec[8] = spec[11] * Spec_COE9;
-    calc_spec[9] = spec[10];
+    calc_spec[0] = spec[0] * Spec_COE1 / 2;
+    calc_spec[1] = spec[1] * Spec_COE2 / 2;
+    calc_spec[2] = spec[2] * Spec_COE3 / 2;
+    calc_spec[3] = spec[3] * Spec_COE4 / 2;
+    calc_spec[4] = spec[6] * Spec_COE5 / 2;
+    calc_spec[5] = spec[7] * Spec_COE6 / 2;
+    calc_spec[6] = spec[8] * Spec_COE7 / 2;
+    calc_spec[7] = spec[9] * Spec_COE8 / 2;
+    calc_spec[8] = spec[11] * Spec_COE9 / 2;
+    calc_spec[9] = spec[10] / 2;
 
     for (uint8_t n = 0; n < 8; n++){
         calc_par +=  calc_spec[n];
     }
     calc_par = calc_par * 0.006 - calc_spec[8] * 0.0075;
-    return calc_par * PAR_OFFSET;
+    return calc_par * PAR_OFFSET * 2;
 }
 
 
