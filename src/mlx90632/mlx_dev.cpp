@@ -726,4 +726,29 @@ mlx90632_meas_t mlx90632_get_refresh_rate(void)
     return (mlx90632_meas_t)MLX90632_REFRESH_RATE(meas1);
 }
 
+int32_t mlx90632_check_and_set_refresh_rate_16Hz(void)
+{
+    int32_t ret;
+    uint16_t meas1, meas2;
+    ret = mlx90632_i2c_read(MLX90632_EE_MEDICAL_MEAS1, &meas1);
+    if (ret < 0)
+        return ret;
+    ret = mlx90632_i2c_read(MLX90632_EE_MEDICAL_MEAS2, &meas2);
+    if (ret < 0)
+        return ret;
+
+    Serial.printf("MEAS_1: 0x%04X, MEAS_2: 0x%04X\n", meas1, meas2);
+
+    if (meas1 != 0x850D){
+       ret = mlx90632_write_eeprom(MLX90632_EE_MEDICAL_MEAS1, 0x850D);
+       Serial.printf("Write MEAS_1 = %d\n", ret);
+    }
+    if (meas2 != 0x851D){
+        ret = mlx90632_write_eeprom(MLX90632_EE_MEDICAL_MEAS2, 0x851D);
+        Serial.printf("Write MEAS_2 = %d\n", ret);
+    }
+
+    return 0;
+}
+
 ///@}

@@ -453,6 +453,7 @@ int32_t mlx90632_set_refresh_rate(mlx90632_meas_t measRate);
  */
 mlx90632_meas_t mlx90632_get_refresh_rate(void);
 int32_t mlx90632_get_meas_type(void);
+int32_t mlx90632_check_and_set_refresh_rate_16Hz(void);
 
 ///@}
 

@@ -119,8 +119,8 @@ bool mlx_init(void){
     mlx_cali_Ka = mlx90632_i2c_read16(0x242F);
     mlx_cali_Ha = mlx90632_i2c_read16(0x2481);
     mlx_cali_Hb = mlx90632_i2c_read16(0x2482);
-    mlx90632_set_refresh_rate(MLX90632_MEAS_HZ_16);
-
+    // mlx90632_set_refresh_rate(MLX90632_MEAS_HZ_16);
+    mlx90632_check_and_set_refresh_rate_16Hz();
     mlx90632_set_emissivity(mlx_emissivity);
 
     ESP_LOGI(TAG, "MLX90632 initate OK");
