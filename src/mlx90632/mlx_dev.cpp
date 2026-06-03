@@ -737,15 +737,15 @@ int32_t mlx90632_check_and_set_refresh_rate_16Hz(void)
     if (ret < 0)
         return ret;
 
-    Serial.printf("MEAS_1: 0x%04X, MEAS_2: 0x%04X\n", meas1, meas2);
+    // Serial.printf("MEAS_1: 0x%04X, MEAS_2: 0x%04X\n", meas1, meas2);
 
     if (meas1 != 0x850D){
        ret = mlx90632_write_eeprom(MLX90632_EE_MEDICAL_MEAS1, 0x850D);
-       Serial.printf("Write MEAS_1 = %d\n", ret);
+    //    Serial.printf("Write MEAS_1 = %d\n", ret);
     }
     if (meas2 != 0x851D){
         ret = mlx90632_write_eeprom(MLX90632_EE_MEDICAL_MEAS2, 0x851D);
-        Serial.printf("Write MEAS_2 = %d\n", ret);
+        // Serial.printf("Write MEAS_2 = %d\n", ret);
     }
 
     return 0;
