@@ -17,6 +17,7 @@
 #include "nvs1.h"
 #include "config.h"
 #include "PAM.h"
+#include "core.h"
 
 extern ADPD6 adpd;   // defined in ambit-1.ino
 
@@ -106,6 +107,26 @@ static void cmd_arrun(const String& args, Print& out) {
   run_arr_type1(16, arr, persist, false, true);   // json_output -> writes the JSON object to Serial
 }
 
+// ── config setters (snapshot: ack with the applied values; command-as-root) ──
+// 0-indexed values; they take effect on the next run (core marks config dirty).
+static void cmd_set_currents(const String& args, JsonVariant root) {
+  core_set_currents((uint8_t) arg_long(args, 0), (uint8_t) arg_long(args, 1), (uint8_t) arg_long(args, 2));
+  root["I620"] = adpd_current_config.I620;
+  root["I720"] = adpd_current_config.I720;
+  root["IR"]   = adpd_current_config.IR;
+}
+
+static void cmd_set_gains(const String& args, JsonVariant root) {
+  core_set_gains((uint8_t) arg_long(args, 0), (uint8_t) arg_long(args, 1), (uint8_t) arg_long(args, 2),
+                 (uint8_t) arg_long(args, 3), (uint8_t) arg_long(args, 4), (uint8_t) arg_long(args, 5));
+  root["Fluo"]    = adpd_gains_config.Fluo;
+  root["FluoRef"] = adpd_gains_config.FluoRef;
+  root["IR"]      = adpd_gains_config.IR;
+  root["IRRef"]   = adpd_gains_config.IRRef;
+  root["Sun"]     = adpd_gains_config.Sun;
+  root["Leaf"]    = adpd_gains_config.Leaf;
+}
+
 // printf reaches the ESP-IDF console (USB-Serial/JTAG) regardless of CDC DTR, so
 // these per-step markers show exactly where init reaches / hangs.
 #define INIT_STEP(label, expr) do { printf("[init] " label "...\n"); expr; printf("[init] " label " ok\n"); } while (0)
@@ -145,6 +166,8 @@ void cloud_setup() {
   ojii::on("temp",    cmd_temp);
   ojii::on("get_par", cmd_get_par);
   ojii::on("PAR",     cmd_PAR);
+  ojii::on("set_currents", cmd_set_currents);
+  ojii::on("set_gains",    cmd_set_gains);
   ojii::on_stream("arrun", cmd_arrun);
 
   printf("[init] Ready (cloud)\n");
