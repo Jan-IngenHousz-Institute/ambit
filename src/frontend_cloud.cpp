@@ -127,6 +127,22 @@ static void cmd_set_gains(const String& args, JsonVariant root) {
   root["Leaf"]    = adpd_gains_config.Leaf;
 }
 
+// ── config getters (read back the staged config; command-as-root) ───────────
+static void cmd_get_currents(const String& args, JsonVariant root) {
+  root["I620"] = adpd_current_config.I620;
+  root["I720"] = adpd_current_config.I720;
+  root["IR"]   = adpd_current_config.IR;
+}
+
+static void cmd_get_gains(const String& args, JsonVariant root) {
+  root["Fluo"]    = adpd_gains_config.Fluo;
+  root["FluoRef"] = adpd_gains_config.FluoRef;
+  root["IR"]      = adpd_gains_config.IR;
+  root["IRRef"]   = adpd_gains_config.IRRef;
+  root["Sun"]     = adpd_gains_config.Sun;
+  root["Leaf"]    = adpd_gains_config.Leaf;
+}
+
 // printf reaches the ESP-IDF console (USB-Serial/JTAG) regardless of CDC DTR, so
 // these per-step markers show exactly where init reaches / hangs.
 #define INIT_STEP(label, expr) do { printf("[init] " label "...\n"); expr; printf("[init] " label " ok\n"); } while (0)
@@ -168,6 +184,8 @@ void cloud_setup() {
   ojii::on("PAR",     cmd_PAR);
   ojii::on("set_currents", cmd_set_currents);
   ojii::on("set_gains",    cmd_set_gains);
+  ojii::on("get_currents", cmd_get_currents);
+  ojii::on("get_gains",    cmd_get_gains);
   ojii::on_stream("arrun", cmd_arrun);
 
   printf("[init] Ready (cloud)\n");
