@@ -88,7 +88,7 @@ static uint8_t arg_array8(const String& a, uint8_t from, uint8_t* arr, uint8_t m
 }
 
 // arrun,<len>,<persist>,<8*len array bytes> — runs an array-mode measurement and
-// emits one JSON object {"env":[..],"s_fluo":[..],...}. run_arr_type1's json_output
+// emits one JSON object {"env":[..],"s_630":[..],...}. run_arr_type1's json_output
 // path writes it to Serial, which IS the openJII output stream in the cloud build.
 static void cmd_arrun(const String& args, Print& out) {
   uint8_t len     = (uint8_t) arg_long(args, 0);

@@ -156,8 +156,8 @@ static void pam_send_results(dataclass* d_env, dataclass* d_fluor, dataclass* d_
                              bool has_730, bool allow_interrupt){
   if (CONNECTION_TYPE == CONNECTION_TYPES::COMPUTER){
     d_env->send_serial("env");
-    d_fluor->send_serial("s_fluo");
-    d_fluoRef->send_serial("r_fluo");
+    d_fluor->send_serial("s_630");
+    d_fluoRef->send_serial("r_630");
     d_sun->send_serial("sun");
     d_leaf->send_serial("leaf");
     d_730->send_serial("s_730");
@@ -228,6 +228,27 @@ static void send_env_json(dataclass* d){
       float temp = (int16_t)(raw & 0xFFFF) / 100.0f;
       if (i > 0) Serial.print(',');
       Serial.printf("{\"temp_c\":%.2f}", temp);
+    }
+  }
+  Serial.print(']');
+}
+
+// Cloud/openJII derived channel: fluo = s_630 / r_630 (signal / reference), one float
+// per sample. Computed on-device only for the cloud build because the openJII sink
+// consumes the JSON verbatim and does no math. MUST run BEFORE d_fluor / d_fluoRef are
+// drained by send_json(): it reads arr[] directly and relies on read_ptr == 0 (nothing
+// popped yet). den == 0 -> 0 (calc_signal floors the reference at 0 when dark dominates).
+static void send_fluo_json(dataclass* num, dataclass* den){
+  Serial.print("\"fluo\":[");
+  if (num->available && den->available){
+    uint16_t n = num->get_length();
+    uint16_t m = den->get_length();
+    if (m < n) n = m;                     // defensive: emit only paired samples
+    for (uint16_t i = 0; i < n; i++){
+      if (i > 0) Serial.print(',');
+      uint32_t d = den->arr[i];
+      if (d == 0) Serial.print('0');
+      else Serial.printf("%.5f", (double)num->arr[i] / (double)d);
     }
   }
   Serial.print(']');
@@ -313,7 +334,16 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
       adpd.run_freq(freq);
       adpd.clear_fifo();
       light_sleep_time = (1000/freq);
+#ifdef VARIANT_CLOUD
+      // Cloud/app path: exactly ONE env temperature per array, sampled once at the start
+      // (the unconditional d_env->put() before this loop). No in-run 2 s resampling, so
+      // env is a single {"temp_c":..} for every array — fast or slow. The ambyte binary
+      // path keeps the original cadence below: that env stream is part of the FROZEN wire
+      // contract with the datalogger, so its bytes must not change.
+      measure_temperature = false;
+#else
       measure_temperature = (light_sleep_time > 20) && measure_temp && actinic < 50;
+#endif
 
 
       if (_type == 1){ // use IR reflect
@@ -441,11 +471,13 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
 
 
 #ifdef VARIANT_CLOUD
-  if (json_output) {            // one JSON object: {"env":[..],"s_fluo":[..],...}
+  if (json_output) {            // one JSON object: {"env":[..],"fluo":[..],"s_630":[..],...}
     Serial.print('{');
     send_env_json(d_env);
-    Serial.print(','); d_fluor->send_json("s_fluo");
-    Serial.print(','); d_fluoRef->send_json("r_fluo");
+    // fluo first: it reads d_fluor/d_fluoRef before send_json() drains them.
+    Serial.print(','); send_fluo_json(d_fluor, d_fluoRef);
+    Serial.print(','); d_fluor->send_json("s_630");
+    Serial.print(','); d_fluoRef->send_json("r_630");
     if (d_sun->available)    { Serial.print(','); d_sun->send_json("sun"); }
     if (d_leaf->available)   { Serial.print(','); d_leaf->send_json("leaf"); }
     if (d_730->available)    { Serial.print(','); d_730->send_json("s_730"); }
@@ -1266,8 +1298,8 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
     d_fluoRef->fsm_send_esp(1);
   }
   else{
-    d_fluor->send_serial("s_fluo");
-    d_fluoRef->send_serial("r_fluo");
+    d_fluor->send_serial("s_630");
+    d_fluoRef->send_serial("r_630");
     Serial.println("Data sent");
   }
 
