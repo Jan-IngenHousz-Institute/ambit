@@ -59,10 +59,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SUBJECT=$(git log -1 --pretty=%s)
-          PR_NUMBER=$(printf '%s' "${SUBJECT}" | sed -nE 's/.*\(#([0-9]+)\).*/\1/p')
+          # Find the PR whose build produced the artifact we republish. Parsing the
+          # commit subject is NOT reliable: a squash merge writes "(#N)", a merge
+          # commit writes "Merge pull request #N", and a direct push writes neither
+          # (v1.1.0's first attempt failed exactly here, on a merge commit). Ask the
+          # API which merged PR contains each recent commit instead, newest first,
+          # so a follow-up direct push to main still finds the last released PR.
+          PR_NUMBER=""
+          for SHA in $(git log -n 20 --pretty=%H); do
+            PR_NUMBER=$(gh api "repos/${REPO}/commits/${SHA}/pulls" \
+              --jq '[.[] | select(.merged_at != null) | .number] | first // empty' 2>/dev/null || true)
+            if [[ -n "${PR_NUMBER}" ]]; then
+              echo "release commit traced to PR #${PR_NUMBER} (via ${SHA})"
+              break
+            fi
+          done
           if [[ -z "${PR_NUMBER}" ]]; then
-            echo "::error::Release commit subject has no squash PR number: ${SUBJECT}"
+            echo "::error::No merged PR found in the last 20 commits; cannot locate a reviewed firmware artifact"
             exit 1
           fi
           HEAD_SHA=$(gh pr view "${PR_NUMBER}" --repo "${REPO}" --json headRefOid -q .headRefOid)
