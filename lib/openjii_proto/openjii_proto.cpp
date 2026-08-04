@@ -1,7 +1,5 @@
 // openjii_proto implementation — see openjii_proto.h and
-// CommunicationProtocolOpenJIISerial.md. Gated on VARIANT_CLOUD.
-#ifdef VARIANT_CLOUD
-
+// CommunicationProtocolOpenJIISerial.md.
 #include "openjii_proto.h"
 #include <ctype.h>
 
@@ -19,7 +17,7 @@ size_t   s_ncmds = 0;
 struct SEntry { const char* name; StreamFn fn; };
 SEntry   s_streams[MAX_CMDS];
 size_t   s_nstreams = 0;
-Identity s_id = { "device", "0", 0.0f };
+Identity s_id = { "device", "0", "0" };
 
 // receiver state
 String   s_rx;
@@ -205,8 +203,8 @@ void handle_json(const String& doc_str, Print& out) {
 
   out.print("{\"device_name\":\""); out.print(s_id.device);
   out.print("\",\"device_version\":\""); out.print(s_id.version);
-  out.print("\",\"device_battery\":0,\"device_firmware\":"); out.print(s_id.firmware, 3);
-  out.print(",\"sample\":[{\"protocol_id\":\"NaN\",\"set\":[");
+  out.print("\",\"device_battery\":0,\"device_firmware\":\""); out.print(s_id.firmware);
+  out.print("\",\"sample\":[{\"protocol_id\":\"NaN\",\"set\":[");
   bool first = true;
   for (JsonObjectConst entry : list) {
     const char* label = entry["label"];
@@ -234,6 +232,10 @@ void on_stream(const char* name, StreamFn fn) {
 }
 
 void identity(const Identity& id) { s_id = id; }
+
+bool busy(void) { return s_mode != Mode::UNKNOWN || s_rx.length() > 0; }
+
+void reset(void) { reset_rx(); }
 
 void poll(Stream& io) {
   while (io.available() > 0) {
@@ -288,5 +290,3 @@ void poll(Stream& io) {
 }
 
 }  // namespace ojii
-
-#endif  // VARIANT_CLOUD

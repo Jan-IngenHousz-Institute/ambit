@@ -58,9 +58,14 @@ void do_command(char *choose){
   switch (val) {
     case hash("hello"):
      {
-      Serial.print("NEW Name Here");
-      Serial.println(" Ready");
-    }                                                                   
+      // "NEW" and "Ready" are the sentinels the openJII app driver and the
+      // Calibratron match (substring / \bready\b); the name and FW:<semver>
+      // tokens are additive, both hosts tolerate them.
+      Serial.print("NEW ");
+      Serial.print(ambit_calibration_local.ambit_name);
+      Serial.print(" Ready FW:");
+      Serial.println(AMBIT_FW_VERSION);
+    }
       break;
 
     int external_trigger_run(void);

@@ -3,9 +3,25 @@
 #include <Arduino.h>
 #include "nvs_flash.h"
 
-#define MAJOR_VERSION 0
-#define MINOR_VERSION 0
-#define BATCH_VERSION 6   // bump on every hosted build: a post-OTA cmd 33/2 version read confirms the update landed
+// Version is build-injected by tools/version.py (semantic-release tag in CI,
+// git describe locally). These fallbacks only apply if the pre-script did not
+// run. A post-OTA cmd 33/2 version read confirms an update landed.
+#ifndef AMBIT_FW_VERSION
+#define AMBIT_FW_VERSION "0.0.0-dev"
+#endif
+#ifndef AMBIT_FW_MAJOR
+#define AMBIT_FW_MAJOR 0
+#endif
+#ifndef AMBIT_FW_MINOR
+#define AMBIT_FW_MINOR 0
+#endif
+#ifndef AMBIT_FW_BATCH
+#define AMBIT_FW_BATCH 0
+#endif
+// Legacy names, kept because the frozen cmd 33/2 wire struct fields use them.
+#define MAJOR_VERSION AMBIT_FW_MAJOR
+#define MINOR_VERSION AMBIT_FW_MINOR
+#define BATCH_VERSION AMBIT_FW_BATCH
 
 struct ambit_calibration_info_t
 {
@@ -36,7 +52,12 @@ struct ambit_FW_info_t
     uint32_t Size = 0;
     uint64_t MAC = 0;
     char FW_date[12];
-    char reserved[12];
+    // hw_rev occupies the first byte of what was reserved[12]: same offsets, same
+    // 48-byte total, so the frozen cmd 33/2 wire layout is unchanged (old readers
+    // never looked at these bytes). 0 = unknown; NVS "config"/"hw_rev" once boards
+    // start being programmed with a hardware revision.
+    uint8_t hw_rev = 0;
+    char reserved[11];
     uint8_t Checksum = 0;
 };
 

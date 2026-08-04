@@ -1,0 +1,44 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          { "type": "feat", "release": "minor" },
+          { "type": "fix", "release": "patch" },
+          { "type": "perf", "release": "patch" },
+          { "type": "revert", "release": "patch" },
+          { "type": "docs", "release": false },
+          { "type": "style", "release": false },
+          { "type": "chore", "release": false },
+          { "type": "refactor", "release": false },
+          { "type": "test", "release": false },
+          { "type": "build", "release": false },
+          { "type": "ci", "release": false },
+          { "breaking": true, "release": "major" }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      { "preset": "conventionalcommits" }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          { "path": "release-assets/manifest.json", "label": "Flash manifest (offsets + sha256)" },
+          { "path": "release-assets/ambit-fw-v*.bin", "label": "Application image (OTA / 0x10000)" },
+          { "path": "release-assets/bootloader.bin", "label": "Bootloader (0x0)" },
+          { "path": "release-assets/partitions.bin", "label": "Partition table (0x8000)" },
+          { "path": "release-assets/boot_app0.bin", "label": "OTA data init (0xe000)" }
+        ],
+        "successComment": false,
+        "failComment": false,
+        "releasedLabels": false
+      }
+    ]
+  ]
+}

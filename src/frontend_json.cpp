@@ -1,12 +1,13 @@
-// frontend_cloud — cloud/app (USB-CDC) variant: wires the device's snapshot
-// commands into the openJII protocol module and drives it. Gated on VARIANT_CLOUD
-// so it is empty in the ambyte image.
+// frontend_json — wires the device's snapshot commands into the openJII protocol
+// module (was frontend_cloud, gated on the deleted VARIANT_CLOUD). In the single
+// image the main loop routes only '{'/'[' envelope traffic here; bare printable
+// lines keep their legacy do_command console replies (that text console is what
+// the openJII app driver and the Calibratron actually parse), and openJII LINE
+// mode is intentionally unreachable — it had no live consumer.
 //
-// Increment 1: snapshot commands only (hello / temp / get_par / PAR). Measurement
-// commands (arrun/q/mpf as one streamed JSON value per envelope position) are
-// added once D6 — the app's exact in-envelope measurement shape — is settled.
-#ifdef VARIANT_CLOUD
-
+// Measurement commands beyond arrun (q/mpf as one streamed JSON value per
+// envelope position) are added once D6 — the app's exact in-envelope measurement
+// shape — is settled.
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include "openjii_proto.h"
@@ -25,7 +26,7 @@ extern ADPD6 adpd;   // defined in ambit-1.ino
 
 static void cmd_hello(const String& args, JsonVariant root) {
   root["device"]  = "Ambit";
-  root["version"] = "0.0.3";
+  root["version"] = AMBIT_FW_VERSION;   // build-injected, same source as cmd 33/2 and text hello
   root["name"]    = ambit_calibration_local.ambit_name;
 }
 
@@ -53,8 +54,6 @@ static void cmd_PAR(const String& args, JsonVariant root) {
   JsonArray ch = root["channels"].to<JsonArray>();
   for (int i = 0; i < 10; i++) ch.add(spec[i]);
 }
-
-// ── entry points called from ambit-1.ino under VARIANT_CLOUD ────────────────
 
 // ── measurement command (one streamed JSON value per envelope slot) ─────────
 // n-th comma token of `a` (token 0 is before the first comma).
@@ -143,41 +142,12 @@ static void cmd_get_gains(const String& args, JsonVariant root) {
   root["Leaf"]    = adpd_gains_config.Leaf;
 }
 
-// printf reaches the ESP-IDF console (USB-Serial/JTAG) regardless of CDC DTR, so
-// these per-step markers show exactly where init reaches / hangs.
-#define INIT_STEP(label, expr) do { printf("[init] " label "...\n"); expr; printf("[init] " label " ok\n"); } while (0)
-
-void cloud_setup() {
-  // Pin setup + STF strobe pulse BEFORE device init — mirrors fork A's proven
-  // app-compatible startup; skipping the strobe can hang the detector init.
-  esp_timer_early_init();
-  pinMode(STF_FLASH_PIN, OUTPUT);
-  digitalWrite(STF_FLASH_PIN, LOW);
-  pinMode(10, OUTPUT);
-  digitalWrite(10, LOW);
-
-  Serial.begin(115200);
-  Serial.setTimeout(50);
-  printf("\n[init] boot (cloud)\n");
-  esp_log_level_set("*", ESP_LOG_NONE);
-
-  digitalWrite(STF_FLASH_PIN, HIGH);
-  delayMicroseconds(1);
-  digitalWrite(STF_FLASH_PIN, LOW);
-
-  INIT_STEP("i2c_bus",  init_i2c_bus());
-  INIT_STEP("spi_bus",  init_spi_bus());
-  INIT_STEP("adpd",     adpd.begin());
-  INIT_STEP("as7341",   as7341.begin());
-  INIT_STEP("check_as", check_AS7341());
-  INIT_STEP("led_off",  AS_LED_OFF());
-  INIT_STEP("mlx",      mlx_init());
-  INIT_STEP("nvs",      load_info_from_nvs(false));
-
-  esp_log_level_set("*", ESP_LOG_NONE);   // UART0 is also the protocol port — keep it clean
-  CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
-
-  ojii::identity({ "Ambit", "0.0.3", 0.003f });
+// Register the openJII envelope surface. Called once from setup() in
+// ambit-1.ino; the device init itself lives there (single shared boot path).
+// No printf/markers here: UART0 is the protocol port, and ASCII in front of a
+// binary frame breaks the Ambyte session.
+void frontend_json_register() {
+  ojii::identity({ "Ambit", AMBIT_FW_VERSION, AMBIT_FW_VERSION });
   ojii::on("hello",   cmd_hello);
   ojii::on("temp",    cmd_temp);
   ojii::on("get_par", cmd_get_par);
@@ -187,12 +157,4 @@ void cloud_setup() {
   ojii::on("get_currents", cmd_get_currents);
   ojii::on("get_gains",    cmd_get_gains);
   ojii::on_stream("arrun", cmd_arrun);
-
-  printf("[init] Ready (cloud)\n");
 }
-
-void cloud_loop() {
-  ojii::poll(Serial);
-}
-
-#endif  // VARIANT_CLOUD
