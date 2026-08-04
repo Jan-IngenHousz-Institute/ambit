@@ -227,6 +227,13 @@ void loop(){
         // The old `sleep_threshod_ms = 30000` stay-awake heuristic is
         // superseded by the TEXT latch.
         host_latch = HOST_TEXT;
+        /* Claim the sink for this host before dispatching. do_esp_cmd() latches
+         * CONNECTION_TYPE=AMBYTE on every binary command and nothing used to
+         * clear it, so a text command that does not set its own sink (plain
+         * `arrun`; arrun1/arrun2/q/r/w all do) would run with the ambyte sink
+         * still selected and emit FSM wake traffic at a text host. Verbs that
+         * set their own sink still override this. */
+        CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
         Serial_Input_Chars(choose, ":,", 200, sizeof(choose) - 1);
         do_command(choose);
 

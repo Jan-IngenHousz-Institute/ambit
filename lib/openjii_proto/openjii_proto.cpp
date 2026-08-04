@@ -233,7 +233,10 @@ void on_stream(const char* name, StreamFn fn) {
 
 void identity(const Identity& id) { s_id = id; }
 
-bool busy(void) { return s_mode != Mode::UNKNOWN || s_rx.length() > 0; }
+// Mid-frame == a mode is locked. Buffered bytes alone must NOT count: with no
+// mode locked the buffer can only hold whitespace (anything else would have
+// locked a mode), and treating that as busy stalled the caller's router forever.
+bool busy(void) { return s_mode != Mode::UNKNOWN; }
 
 void reset(void) { reset_rx(); }
 
@@ -243,10 +246,24 @@ void poll(Stream& io) {
     if (c == '\r') continue;                 // §4: CR ignored
 
     if (s_mode == Mode::UNKNOWN) {
-      // drop leading framing/boot junk before a mode is locked
+      // drop leading framing/boot junk before a mode is locked. A '\n' is only
+      // meaningful once a request has started: buffering a leading one selects
+      // no mode (it is whitespace) yet leaves rx non-empty, which used to make
+      // busy() true forever and stall the caller's router. Clients terminate
+      // envelopes with '\n' (the openJII driver probes with
+      // '{"command":"INFO"}\n'), so this is the common path, not an edge case.
       unsigned char uc = (unsigned char)c;
       bool printable = (uc >= 0x20 && uc < 0x7F);
-      if (!printable && c != '\n') continue;
+      if (!printable && !(c == '\n' && s_rx.length() > 0)) continue;
+    } else if ((unsigned char)c > 0x7F) {
+      // Both dialects are 7-bit, so a high byte mid-frame means the binary host
+      // has taken the wire (an ambyte wake burst). Abandon the partial frame and
+      // hand the stream back instead of absorbing the burst: every absorbed byte
+      // refreshed the idle timer, so the companion's ~1.25 s retry window
+      // expired before the timeout could fire. Dropping this one byte is safe -
+      // the wake is sent in triplicate and retried.
+      reset_rx();
+      return;
     }
 
     s_rx += c;
@@ -282,9 +299,11 @@ void poll(Stream& io) {
     if (s_rx.length() > RX_MAX) { io.print("{\"error\":\"rx_overflow\"}\n"); reset_rx(); }
   }
 
-  // §4: incomplete JSON idle > 1 s
-  if (s_mode == Mode::JSON && s_rx.length() > 0 && (millis() - s_last_byte_ms) > JSON_IDLE_MS) {
-    io.print("{\"error\":\"json_timeout\"}\n");
+  // §4: incomplete request idle > 1 s. Applies to any locked mode, not just
+  // JSON: a stalled LINE frame would otherwise hold the stream indefinitely
+  // (there is no other LINE timeout).
+  if (s_mode != Mode::UNKNOWN && s_rx.length() > 0 && (millis() - s_last_byte_ms) > JSON_IDLE_MS) {
+    if (s_mode == Mode::JSON) io.print("{\"error\":\"json_timeout\"}\n");
     reset_rx();
   }
 }
