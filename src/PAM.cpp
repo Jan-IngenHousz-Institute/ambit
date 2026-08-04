@@ -217,8 +217,8 @@ void ambit_async_clear(void){
 uint8_t ambit_async_get_state(void){ return g_async.state; }
 
 
-#ifdef VARIANT_CLOUD
-// Cloud/openJII env channel: fw_new stores leaf temp as centi-degC in the low 16 bits.
+// openJII env channel: fw_new stores leaf temp as centi-degC in the low 16 bits.
+// Used only on the json_output path (arrun via the JSON envelope).
 static void send_env_json(dataclass* d){
   Serial.print("\"env\":[");
   if (d->available){
@@ -233,8 +233,8 @@ static void send_env_json(dataclass* d){
   Serial.print(']');
 }
 
-// Cloud/openJII derived channel: fluo = s_630 / r_630 (signal / reference), one float
-// per sample. Computed on-device only for the cloud build because the openJII sink
+// openJII derived channel: fluo = s_630 / r_630 (signal / reference), one float
+// per sample. Computed on-device only for the JSON path because the openJII sink
 // consumes the JSON verbatim and does no math. MUST run BEFORE d_fluor / d_fluoRef are
 // drained by send_json(): it reads arr[] directly and relies on read_ptr == 0 (nothing
 // popped yet). den == 0 -> 0 (calc_signal floors the reference at 0 when dark dominates).
@@ -253,11 +253,8 @@ static void send_fluo_json(dataclass* num, dataclass* den){
   }
   Serial.print(']');
 }
-#endif
 
 int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt, bool json_output, bool retain){
-  (void) json_output;
-
   if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
     conf_slow_FR_1();
     ESP_LOGW(TAG, "Run array was not configured!");
@@ -334,16 +331,14 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
       adpd.run_freq(freq);
       adpd.clear_fifo();
       light_sleep_time = (1000/freq);
-#ifdef VARIANT_CLOUD
-      // Cloud/app path: exactly ONE env temperature per array, sampled once at the start
+      // JSON path: exactly ONE env temperature per array, sampled once at the start
       // (the unconditional d_env->put() before this loop). No in-run 2 s resampling, so
-      // env is a single {"temp_c":..} for every array — fast or slow. The ambyte binary
-      // path keeps the original cadence below: that env stream is part of the FROZEN wire
-      // contract with the datalogger, so its bytes must not change.
-      measure_temperature = false;
-#else
-      measure_temperature = (light_sleep_time > 20) && measure_temp && actinic < 50;
-#endif
+      // env is a single {"temp_c":..} for every array — fast or slow. All other paths
+      // keep the original cadence: that env stream is part of the FROZEN wire contract
+      // with the datalogger, so its bytes must not change. Runtime branch on
+      // json_output (was compile-time VARIANT_CLOUD) — same semantics per caller.
+      if (json_output) measure_temperature = false;
+      else measure_temperature = (light_sleep_time > 20) && measure_temp && actinic < 50;
 
 
       if (_type == 1){ // use IR reflect
@@ -470,7 +465,6 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
   };
 
 
-#ifdef VARIANT_CLOUD
   if (json_output) {            // one JSON object: {"env":[..],"fluo":[..],"s_630":[..],...}
     Serial.print('{');
     send_env_json(d_env);
@@ -483,9 +477,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
     if (d_730->available)    { Serial.print(','); d_730->send_json("s_730"); }
     if (d_730Ref->available) { Serial.print(','); d_730Ref->send_json("r_730"); }
     Serial.print('}');
-  } else
-#endif
-  {
+  } else {
     d_timing->put((uint32_t) run_tick_begin);          // Change 3: run start tick (us)
     d_timing->put((uint32_t) esp_timer_get_time());    //           run end tick (us)
     if (retain){

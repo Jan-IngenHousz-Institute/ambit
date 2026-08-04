@@ -13,8 +13,11 @@ static void get_FW_info(void){
     ambit_FW_info.MAC = ESP.getEfuseMac();
     ambit_FW_info.Size = ESP.getSketchSize();
     strncpy(ambit_FW_info.FW_date, __DATE__, 12);
+    preferences.begin("config", true);
+    ambit_FW_info.hw_rev = preferences.getUChar("hw_rev", 0);
+    preferences.end();
     ambit_FW_info.Checksum = 0xFF & ((MAJOR_VERSION << 4) | (MINOR_VERSION << 2) | (BATCH_VERSION << 0));
-    
+
     return;
 }
 

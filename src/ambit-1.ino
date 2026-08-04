@@ -11,6 +11,9 @@
 #include <Preferences.h>
 #include "Esp.h"
 #include "nvs1.h"
+#include "openjii_proto.h"
+
+void frontend_json_register();   // src/frontend_json.cpp
 
 static const char* TAG = "INO";
 ADPD6 adpd;
@@ -59,11 +62,6 @@ void ambit_light_sleep(){
 int serial_read_until(uint8_t target1, uint8_t target2 = 0, uint8_t target3 = 0, uint16_t timeout = 20, bool remove = false);
 uint16_t flush_serial(uint8_t timeout);
 void setup(){
-#ifdef VARIANT_CLOUD
-    extern void cloud_setup();
-    cloud_setup();
-    return;
-#endif
     esp_timer_early_init();
     pinMode(STF_FLASH_PIN, OUTPUT);
     pinMode(BOOT_PIN, INPUT_PULLUP);
@@ -108,7 +106,8 @@ void setup(){
 
     load_info_from_nvs(true);
 
-    
+    frontend_json_register();
+
     Serial.write(AMBIT_BOOT_IDLE);
 
     esp_sleep_enable_timer_wakeup(10000000);
@@ -123,16 +122,30 @@ int do_esp_cmd();
 int c = -1;
 char choose[50];
 
+/* Sticky host latch: the first routed traffic decides the idle policy.
+ * BINARY/UNKNOWN keep the light-sleep idle (the ambyte re-sends its 0xAA wake
+ * until it gets the 0x80 ack, so bytes lost to sleep-wake are harmless).
+ * TEXT disables sleep entirely: the openJII app / Calibratron / a JSON host do
+ * NOT retry, and the UART sleep-wake (threshold 3 edges) eats the in-flight
+ * bytes, so a sleeping device would truncate `hello\n`. The latch releases
+ * after a long idle so a bench/phone device later installed on an ambyte
+ * regains light sleep without a reboot. */
+enum HostLatch : uint8_t { HOST_UNKNOWN = 0, HOST_BINARY, HOST_TEXT };
+static HostLatch host_latch = HOST_UNKNOWN;
+static const unsigned int TEXT_LATCH_RELEASE_MS = 120000;
+
 void loop(){
-#ifdef VARIANT_CLOUD
-    extern void cloud_loop();
-    cloud_loop();
-    return;
-#endif
+    // An in-flight JSON envelope owns the stream until it completes or times
+    // out; poll() is what fires its 1 s idle timeout, so keep calling it.
+    if (ojii::busy()){
+        ojii::poll(Serial);
+        if (ojii::busy()){ delay(1); return; }
+    }
+
     c = -1;
     int b;
     unsigned int sleep_timer = millis();
-    
+
     for (;;) {
         c = Serial.available();
         if (c > 0){
@@ -141,7 +154,12 @@ void loop(){
             if (c == 255) Serial.read();
             if (c < 255) break;
         }else{
-            if (millis() - sleep_timer > sleep_threshod_ms){
+            if (host_latch == HOST_TEXT){
+                if (millis() - sleep_timer > TEXT_LATCH_RELEASE_MS){
+                    host_latch = HOST_UNKNOWN;
+                }
+                delay(10);
+            }else if (millis() - sleep_timer > sleep_threshod_ms){
 
 
                 Serial.flush();
@@ -153,8 +171,8 @@ void loop(){
                     sleep_threshod_ms = 1000;
                 }else{
                     sleep_threshod_ms = 200;
-                }               
-                
+                }
+
                 Serial.write(AMBIT_BOOT_IDLE);
                 Serial.flush();
 
@@ -169,9 +187,16 @@ void loop(){
         }
 
     }
-    
+
+    /* First-byte router. Every frozen binary framing byte (0x80 0x85 0xA0 0xA1
+     * 0xAA 0xB4 0xD2-0xD4 0xDE 0xF0) is >127; both text dialects are printable
+     * ASCII, and only the JSON envelope starts with '{' or '['. ojii::poll()
+     * must never see binary traffic (it consumes bytes and silently drops >127
+     * junk while unlocked), hence peek-then-route. */
     c = Serial.peek();
-    if (c > 127) { // not from computer
+    if (c > 127) { // binary FSM to the ambyte (frozen wire)
+        host_latch = HOST_BINARY;
+        ojii::reset();   // a stale partial line must not prepend to later text
         while (Serial.available() > 0){
 
             b = serial_read_until(170, 160, 222, 50, false);
@@ -193,12 +218,18 @@ void loop(){
                 break;
             }
         }
-        
+
+    }else if (c == '{' || c == '['){ // openJII JSON envelope
+        host_latch = HOST_TEXT;
+        ojii::poll(Serial);
     }else{
-        sleep_threshod_ms = 30000;
+        // Text console: what the openJII app driver and the Calibratron speak.
+        // The old `sleep_threshod_ms = 30000` stay-awake heuristic is
+        // superseded by the TEXT latch.
+        host_latch = HOST_TEXT;
         Serial_Input_Chars(choose, ":,", 200, sizeof(choose) - 1);
         do_command(choose);
-        
+
     }
 
 
