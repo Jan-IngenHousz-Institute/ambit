@@ -6,3 +6,4 @@ package-lock.json
 .vscode/launch.json
 .vscode/ipch
 .plans/
+graphify-out/

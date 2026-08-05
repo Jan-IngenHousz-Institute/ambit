@@ -1,25 +1,25 @@
 /*!
- * @brief     ADPD6000 configuration header
+ * @brief       AMBIT ADPD6000/6100 optical configuration wrapper
  * @copyright MSU-PRL Kramer Lab
- * @author      Jingcheng Huang
- * @date        20230224
+ * @author      Jingcheng Huang; Jan IngenHousz Institute
+ * @date        20230224; clean-room driver migration 20260805
  */
 
 #ifndef __U_ADPD6000_H__
 #define __U_ADPD6000_H__
  
 #include <Arduino.h>
-#include "lib/ADPD6000/adi_adpd6000.h"
 #include "driver/spi_common.h"
 #include "driver/spi_master.h"
 #include "../pin_config.h"
+#include "ADPD_platform_ops.h"
+#include "jii_adpd6000.h"
 #include "u_adpd6100_typedef.h"
 class ADPD6;
 
 class ADPD6{
     public:
 
-    adi_adpd6000_device_t handle;
     ADPD6();
     ~ADPD6();
     bool begin();
@@ -42,11 +42,11 @@ class ADPD6{
     struct GPIO0_config gpio_config;
 
 
-    int32_t ts_setup(adi_adpd6000_slot_e timeslot_no,struct ts_led *init);
-    int32_t ts_setup(adi_adpd6000_slot_e timeslot_no, struct ts_SNR *init);
-    int32_t ts_setup(adi_adpd6000_slot_e timeslot_no, struct ts_signal *init);
-    int32_t ts_setup(adi_adpd6000_slot_e timeslot_no, struct ts_DI_timing *init);
-    int32_t ts_setup(adi_adpd6000_slot_e timeslot_no, struct ts_AI_timing *init);
+    int32_t ts_setup(jii::adpd6000::Slot timeslot_no, struct ts_led *init);
+    int32_t ts_setup(jii::adpd6000::Slot timeslot_no, struct ts_SNR *init);
+    int32_t ts_setup(jii::adpd6000::Slot timeslot_no, struct ts_signal *init);
+    int32_t ts_setup(jii::adpd6000::Slot timeslot_no, struct ts_DI_timing *init);
+    int32_t ts_setup(jii::adpd6000::Slot timeslot_no, struct ts_AI_timing *init);
     
     int32_t gpio_setup(struct GPIO0_config *init);
     int32_t global_setup(struct system_config *init);
@@ -82,6 +82,7 @@ class ADPD6{
     bool _spi_device_attached = false;
     spi_device_interface_config_t adpd_spi_dev;
     spi_device_handle_t adpd1_spi_handle = NULL;
+    jii::adpd6000::Driver driver;
 
 
     void load_default(struct ts_led *ts);
