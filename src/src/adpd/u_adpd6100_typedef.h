@@ -126,7 +126,7 @@ struct ts_SNR{
 
 
 struct ts_signal{
-    // 0x0121 REG_TS_PATH_A_ADDR
+    // Time Slot A path register (0x0121).
 
     /** Precondition duration for this time slot. This value is in 2 μs
      * increments. A value of 0 skips the precondition state. 4 = 8us
@@ -606,5 +606,4 @@ struct GPIO0_config{
     uint8_t SYNC_GPIO;
 
 };
-
 
