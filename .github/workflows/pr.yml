@@ -1,0 +1,172 @@
+name: Firmware PR
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate-pr:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Build firmware
+    needs: validate-pr
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install release tooling
+        run: npm install --ignore-scripts --package-lock=false
+
+      - name: Compute release preview
+        id: preview
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Present semantic-release with the PR tree as one squash commit whose
+          # message is the already validated PR title.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B main "${PR_HEAD_SHA}"
+          git reset --soft "${PR_BASE_SHA}"
+          git commit --allow-empty -m "${PR_TITLE}"
+
+          export GITHUB_REF="refs/heads/main"
+          export GITHUB_EVENT_NAME="push"
+          set +e
+          npx semantic-release --dry-run --no-ci 2>&1 | tee release-preview.log
+          RELEASE_STATUS=${PIPESTATUS[0]}
+          set -e
+          if [[ ${RELEASE_STATUS} -ne 0 ]]; then
+            exit "${RELEASE_STATUS}"
+          fi
+
+          VERSION=$(grep -Eo 'The next release version is [0-9]+\.[0-9]+\.[0-9]+' release-preview.log | tail -n 1 | awk '{print $6}' || true)
+          if [[ -n "${VERSION}" ]]; then
+            BUILD_VERSION="${VERSION}"
+            WILL_RELEASE=true
+          else
+            BUILD_VERSION="pr-${PR_NUMBER}-${PR_HEAD_SHA:0:12}"
+            WILL_RELEASE=false
+          fi
+
+          echo "version=${BUILD_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "will-release=${WILL_RELEASE}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "## Firmware release preview"
+            echo
+            if [[ "${WILL_RELEASE}" == "true" ]]; then
+              echo "Merging this PR will publish **v${VERSION}**."
+            else
+              echo "Merging this PR will not create a firmware release."
+            fi
+            echo
+            echo "- Title: \`${PR_TITLE}\`"
+            echo "- Build version: \`${BUILD_VERSION}\`"
+          } | tee release-preview.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: |
+          python -m venv "${RUNNER_TEMP}/platformio"
+          "${RUNNER_TEMP}/platformio/bin/pip" install --disable-pip-version-check platformio==6.1.19
+
+      - name: Build firmware
+        env:
+          AMBIT_RELEASE_VERSION: ${{ steps.preview.outputs.version }}
+          # platformio.ini redirects build_dir under LOCALAPPDATA (a Windows
+          # OneDrive workaround); give it a sane root on the runner.
+          LOCALAPPDATA: ${{ runner.temp }}/pio_build_root
+        run: "${RUNNER_TEMP}/platformio/bin/pio run -e ambit"
+
+      - name: Verify version and assemble release assets
+        env:
+          FIRMWARE_VERSION: ${{ steps.preview.outputs.version }}
+          LOCALAPPDATA: ${{ runner.temp }}/pio_build_root
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_DIR="${LOCALAPPDATA}/pio_build/ambit_fw_new/ambit"
+          for FILE in firmware.bin bootloader.bin partitions.bin; do
+            test -f "${BUILD_DIR}/${FILE}"
+          done
+
+          # The build-injected AMBIT_FW_VERSION must be embedded verbatim: it is
+          # what cmd 33/2, `hello` and the JSON identity report after flashing.
+          strings "${BUILD_DIR}/firmware.bin" | grep -qx "${FIRMWARE_VERSION}"
+
+          # boot_app0.bin is not a build product: it ships with the Arduino-ESP32
+          # core, but the Calibratron's 4-region flash layout needs it at 0xe000.
+          BOOT_APP0=$(find "${HOME}/.platformio/packages" -path "*framework-arduinoespressif32*" -name boot_app0.bin | head -n 1)
+          test -n "${BOOT_APP0}"
+
+          mkdir -p dist
+          APP_NAME="ambit-fw-v${FIRMWARE_VERSION}.bin"
+          cp "${BUILD_DIR}/firmware.bin"   "dist/${APP_NAME}"
+          cp "${BUILD_DIR}/bootloader.bin" dist/bootloader.bin
+          cp "${BUILD_DIR}/partitions.bin" dist/partitions.bin
+          cp "${BOOT_APP0}"                dist/boot_app0.bin
+          cp release-preview.md            dist/release-preview.md
+
+          # Manifest: downstream flashers (Calibratron) read names, offsets and
+          # hashes from here instead of hardcoding them.
+          python3 - "$FIRMWARE_VERSION" "$APP_NAME" <<'EOF'
+          import hashlib, json, sys
+          version, app_name = sys.argv[1], sys.argv[2]
+          def entry(file, offset):
+              data = open(f"dist/{file}", "rb").read()
+              return {"file": file, "offset": offset,
+                      "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+          manifest = {
+              "name": "ambit-iot",
+              "version": version,
+              "chip": "esp32c3",
+              "flash": [
+                  entry("bootloader.bin", "0x0"),
+                  entry("partitions.bin", "0x8000"),
+                  entry("boot_app0.bin", "0xe000"),
+                  entry(app_name, "0x10000"),
+              ],
+              "ota": {"file": app_name},
+          }
+          json.dump(manifest, open("dist/manifest.json", "w"), indent=2)
+          EOF
+
+      - name: Upload firmware candidate
+        uses: actions/upload-artifact@v6
+        with:
+          name: firmware-${{ github.event.pull_request.head.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
