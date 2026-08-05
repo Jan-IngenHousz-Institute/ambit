@@ -108,8 +108,6 @@ void setup(){
 
     frontend_json_register();
 
-    Serial.write(AMBIT_BOOT_IDLE);
-
     esp_sleep_enable_timer_wakeup(10000000);
     
 
@@ -122,51 +120,54 @@ int do_esp_cmd();
 int c = -1;
 char choose[50];
 
-/* Sticky host latch: the first routed traffic decides the idle policy.
- * BINARY/UNKNOWN keep the light-sleep idle (the ambyte re-sends its 0xAA wake
- * until it gets the 0x80 ack, so bytes lost to sleep-wake are harmless).
- * TEXT disables sleep entirely: the openJII app / Calibratron / a JSON host do
- * NOT retry, and the UART sleep-wake (threshold 3 edges) eats the in-flight
- * bytes, so a sleeping device would truncate `hello\n`. The latch releases
- * after a long idle so a bench/phone device later installed on an ambyte
- * regains light sleep without a reboot. */
+/* Sticky host latch: UNKNOWN is the app-discovery default, so it stays awake
+ * and quiet until traffic identifies a host. Only the ambyte's 0xAA wake
+ * preamble positively latches BINARY and opts into the frozen light-sleep /
+ * 0x85 idle-heartbeat contract; an arbitrary high byte must not do that.
+ * TEXT also stays awake because the openJII app / Calibratron / a JSON host do
+ * not retry and UART sleep-wake (threshold 3 edges) eats in-flight bytes. Its
+ * persistent last-activity timestamp releases the latch after a long idle so
+ * a device can later be installed on an ambyte without a reboot. */
 enum HostLatch : uint8_t { HOST_UNKNOWN = 0, HOST_BINARY, HOST_TEXT };
 static HostLatch host_latch = HOST_UNKNOWN;
-static const unsigned int TEXT_LATCH_RELEASE_MS = 120000;
+static uint32_t host_last_activity_ms = 0;
+static const uint32_t TEXT_LATCH_RELEASE_MS = 120000;
 
 void loop(){
     // An in-flight JSON envelope owns the stream until it completes or times
     // out; poll() is what fires its 1 s idle timeout, so keep calling it.
     if (ojii::busy()){
+        if (Serial.available() > 0) host_last_activity_ms = millis();
         ojii::poll(Serial);
         if (ojii::busy()){ delay(1); return; }
+        host_last_activity_ms = millis();
     }
 
     c = -1;
     int b;
-    unsigned int sleep_timer = millis();
 
     for (;;) {
         c = Serial.available();
         if (c > 0){
-            sleep_timer = millis();
+            host_last_activity_ms = millis();
             c = Serial.peek();
             if (c == 255) Serial.read();
             if (c < 255) break;
         }else{
             if (host_latch == HOST_TEXT){
-                if (millis() - sleep_timer > TEXT_LATCH_RELEASE_MS){
+                if (millis() - host_last_activity_ms > TEXT_LATCH_RELEASE_MS){
                     host_latch = HOST_UNKNOWN;
                 }
                 delay(10);
-            }else if (millis() - sleep_timer > sleep_threshod_ms){
+            }else if (host_latch == HOST_BINARY &&
+                      millis() - host_last_activity_ms > sleep_threshod_ms){
 
 
                 Serial.flush();
                 flush_serial(20);
                 ambit_light_sleep();
                 c = esp_sleep_get_wakeup_cause();
-                sleep_timer = millis();
+                host_last_activity_ms = millis();
                 if (c == 8){
                     sleep_threshod_ms = 1000;
                 }else{
@@ -195,12 +196,12 @@ void loop(){
      * junk while unlocked), hence peek-then-route. */
     c = Serial.peek();
     if (c > 127) { // binary FSM to the ambyte (frozen wire)
-        host_latch = HOST_BINARY;
         ojii::reset();   // a stale partial line must not prepend to later text
         while (Serial.available() > 0){
 
             b = serial_read_until(170, 160, 222, 50, false);
             if (b == 1){ // wake up signal
+                host_latch = HOST_BINARY;
                 flush_serial(5);
                 Serial.write(128);
                 sleep_threshod_ms = 500;
@@ -218,17 +219,27 @@ void loop(){
                 break;
             }
         }
+        host_last_activity_ms = millis();
 
     }else if (c == '{' || c == '['){ // openJII JSON envelope
         host_latch = HOST_TEXT;
         ojii::poll(Serial);
+        host_last_activity_ms = millis();
     }else{
         // Text console: what the openJII app driver and the Calibratron speak.
         // The old `sleep_threshod_ms = 30000` stay-awake heuristic is
         // superseded by the TEXT latch.
         host_latch = HOST_TEXT;
+        /* Claim the sink for this host before dispatching. do_esp_cmd() latches
+         * CONNECTION_TYPE=AMBYTE on every binary command and nothing used to
+         * clear it, so a text command that does not set its own sink (plain
+         * `arrun`; arrun1/arrun2/q/r/w all do) would run with the ambyte sink
+         * still selected and emit FSM wake traffic at a text host. Verbs that
+         * set their own sink still override this. */
+        CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
         Serial_Input_Chars(choose, ":,", 200, sizeof(choose) - 1);
         do_command(choose);
+        host_last_activity_ms = millis();
 
     }
 
