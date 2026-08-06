@@ -12,9 +12,13 @@ struct metadata_t metadata_epprom, metadata_incoming;
 static const char *const ADPD_BASELINE_KEYS[ambit_calibration::CHANNEL_COUNT] = {
     "adpd_dark", "adpd_lit", "adpd_sun", "adpd_leaf", "adpd_730", "adpd_730r"
 };
+static bool adpd_baseline_present[ambit_calibration::CHANNEL_COUNT] = {false};
 
 uint32_t apply_adpd_calibration(uint8_t channel, uint32_t sample){
-    return ambit_calibration::apply_adpd_offset(channel, sample, ambit_calibration_local.adpd);
+    const bool present = channel < ambit_calibration::CHANNEL_COUNT
+        ? adpd_baseline_present[channel] : false;
+    return ambit_calibration::apply_adpd_offset(
+        channel, sample, ambit_calibration_local.adpd, present);
 }
 
 esp_err_t save_adpd_baseline(const uint32_t values[ambit_calibration::CHANNEL_COUNT]){
@@ -52,6 +56,9 @@ esp_err_t save_adpd_baseline(const uint32_t values[ambit_calibration::CHANNEL_CO
     nvs_close(handle);
     memcpy(ambit_calibration_local.adpd, readback, sizeof(readback));
     memcpy(ambit_calibration_income.adpd, readback, sizeof(readback));
+    for (uint8_t i = 0; i < ambit_calibration::CHANNEL_COUNT; ++i){
+        adpd_baseline_present[i] = true;
+    }
     return ESP_OK;
 }
 
@@ -111,6 +118,9 @@ void save_metadata(void){
 
 static void load_calibration_info(){
     preferences.begin("config", true);
+    for (uint8_t i = 0; i < ambit_calibration::CHANNEL_COUNT; ++i){
+        adpd_baseline_present[i] = preferences.isKey(ADPD_BASELINE_KEYS[i]);
+    }
     if (preferences.isKey("actinic")){
         const float value = preferences.getFloat("actinic", 0.1);
         if (std::isfinite(value) && value > 0.01f && value <= 1.0f) ambit_calibration_local.actinic_coef = value;

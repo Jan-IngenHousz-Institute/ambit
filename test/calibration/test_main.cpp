@@ -33,6 +33,16 @@ void test_legacy_defaults() {
         "legacy 730 signal stays unchanged");
 }
 
+void test_explicit_zero_offsets_are_not_legacy_defaults() {
+  const uint32_t offsets[ambit_calibration::CHANNEL_COUNT] = {0, 0, 0, 0, 0, 0};
+  check(ambit_calibration::apply_adpd_offset(
+            ambit_calibration::SUN, 123, offsets, true) == 123,
+        "an explicitly stored zero sun baseline must be honored");
+  check(ambit_calibration::apply_adpd_offset(
+            ambit_calibration::LEAF, 456, offsets, true) == 456,
+        "an explicitly stored zero leaf baseline must be honored");
+}
+
 void test_saved_six_channel_baseline() {
   const uint32_t offsets[ambit_calibration::CHANNEL_COUNT] = {10, 20, 30, 40, 50, 60};
   check(ambit_calibration::apply_adpd_offset(ambit_calibration::S630, 110, offsets) == 100,
@@ -63,6 +73,7 @@ void test_saturation_and_invalid_channel() {
 
 int main() {
   test_legacy_defaults();
+  test_explicit_zero_offsets_are_not_legacy_defaults();
   test_saved_six_channel_baseline();
   test_saturation_and_invalid_channel();
   if (failures != 0) return 1;
