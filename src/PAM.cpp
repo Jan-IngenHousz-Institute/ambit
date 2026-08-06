@@ -1,4 +1,5 @@
 #include "PAM.h"
+#include "nvs1.h"
 
 static const char* TAG = "PAM";
 static bool measure_temp = true;
@@ -381,24 +382,34 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
           fifo_c -= expected_readout_bytes;
           if (counter == num_ptx) break;
           // 0: sun-vis; 1: leaf-ir; 2: fluoS_dark; 3: fluoS_lit; 4: fluoR_dark; 5: fluoR_lit; 6: Reflect_signal; 7: reflect_ref
-          // save fluor signal and ref
-          d_fluor->put(calc_signal(ret[2], ret[3], num_integration));       
-          d_fluoRef->put(calc_signal(ret[4], ret[5], num_integration));
+          // Apply each stored baseline exactly once at the result boundary.
+          const uint32_t calibrated_fluor = apply_adpd_calibration(
+              ambit_calibration::S630, calc_signal(ret[2], ret[3], num_integration));
+          const uint32_t calibrated_fluo_ref = apply_adpd_calibration(
+              ambit_calibration::R630, calc_signal(ret[4], ret[5], num_integration));
+          const uint32_t calibrated_sun = apply_adpd_calibration(ambit_calibration::SUN, ret[0]);
+          const uint32_t calibrated_leaf = apply_adpd_calibration(ambit_calibration::LEAF, ret[1]);
+          const uint32_t calibrated_730 = _type == 1
+              ? apply_adpd_calibration(ambit_calibration::S730, ret[6]) : 0;
+          const uint32_t calibrated_730_ref = _type == 1
+              ? apply_adpd_calibration(ambit_calibration::R730, ret[7]) : 0;
+          d_fluor->put(calibrated_fluor);
+          d_fluoRef->put(calibrated_fluo_ref);
 
 
           // save option data
           if (subsampling > 0){
             if (subsampling == 1){ // every point
-              d_sun->put(ret[0] > 65000 ? ret[0] - 65000 : 0);
-              d_leaf->put(ret[1] > 65000 ? ret[1] - 65000 : 0);
-              if (_type == 1){d_730->put(ret[6]);d_730Ref->put(ret[7]);} // ir enabled
+              d_sun->put(calibrated_sun);
+              d_leaf->put(calibrated_leaf);
+              if (_type == 1){d_730->put(calibrated_730);d_730Ref->put(calibrated_730_ref);} // ir enabled
 
             }else if (subsampling == 2){
-              buf_opt[0] += (ret[0] > 65000 ? ret[0] - 65000 : 0);
-              buf_opt[1] += (ret[1] > 65000 ? ret[1] - 65000 : 0);
+              buf_opt[0] += calibrated_sun;
+              buf_opt[1] += calibrated_leaf;
               if (_type == 1){
-                buf_opt[2] += ret[6];
-                buf_opt[3] += ret[7];
+                buf_opt[2] += calibrated_730;
+                buf_opt[3] += calibrated_730_ref;
               }
 
               if (counter % 8 == 7){
@@ -411,16 +422,16 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
           }
 
           if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
-            ploter1 = calc_signal(ret[2], ret[3], num_integration);
-            ploter2 = calc_signal(ret[4], ret[5], num_integration);
+            ploter1 = calibrated_fluor;
+            ploter2 = calibrated_fluo_ref;
             if (ploter2 == 0){
               ploter2 = 1;
               ploter1 = 0;
             }
             if (_type == 1) {
-              Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, ret[6], ret[7], ret[0]-65000, ret[1]-65000);
+              Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, calibrated_730, calibrated_730_ref, calibrated_sun, calibrated_leaf);
             }else if (_type == 2){
-              Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, ret[0]-65000, ret[1]-65000);            }
+              Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, calibrated_sun, calibrated_leaf);            }
             Serial.flush();
           }
           counter++;
@@ -649,16 +660,16 @@ int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8
       ESP_LOGE(TAG, "Extra %d byte in FIFO", fifo_c - expected_readout_bytes);
     }
 
-    read_fluor = calc_signal(ret[2], ret[3], num_integration); d_fluor->put(read_fluor);
-    read_fluoRef = calc_signal(ret[4], ret[5], num_integration); d_fluoRef->put(read_fluoRef);
-    read_sun = ret[0]; d_sun->put(read_sun > 65000 ? read_sun - 65000 : 0);
-    read_leaf = ret[1]; d_leaf->put(read_leaf > 65000 ? read_leaf - 65000 : 0);
-    read_7 = ret[6]; d_730->put(read_7);
-    read_7Ref = ret[7]; d_730Ref->put(read_7Ref);
+    read_fluor = apply_adpd_calibration(ambit_calibration::S630, calc_signal(ret[2], ret[3], num_integration)); d_fluor->put(read_fluor);
+    read_fluoRef = apply_adpd_calibration(ambit_calibration::R630, calc_signal(ret[4], ret[5], num_integration)); d_fluoRef->put(read_fluoRef);
+    read_sun = apply_adpd_calibration(ambit_calibration::SUN, ret[0]); d_sun->put(read_sun);
+    read_leaf = apply_adpd_calibration(ambit_calibration::LEAF, ret[1]); d_leaf->put(read_leaf);
+    read_7 = apply_adpd_calibration(ambit_calibration::S730, ret[6]); d_730->put(read_7);
+    read_7Ref = apply_adpd_calibration(ambit_calibration::R730, ret[7]); d_730Ref->put(read_7Ref);
 
 
     if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
-      Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)read_fluor/(float)read_fluoRef, read_fluor, read_fluoRef, read_7, read_7Ref, read_sun-65000, read_leaf-65000);    
+      Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)read_fluor/(float)read_fluoRef, read_fluor, read_fluoRef, read_7, read_7Ref, read_sun, read_leaf);
       Serial.flush();
     }
 
@@ -844,14 +855,14 @@ int external_trigger_run(void){
       Serial.printf("Extra %d byte in FIFO", fifo_c - expected_readout_bytes);
     }
 
-    read_fluor = calc_signal(ret[2], ret[3], num_integration); 
-    read_fluoRef = calc_signal(ret[4], ret[5], num_integration); 
-    read_sun = ret[0]; 
-    read_leaf = ret[1]; 
+    read_fluor = apply_adpd_calibration(ambit_calibration::S630, calc_signal(ret[2], ret[3], num_integration));
+    read_fluoRef = apply_adpd_calibration(ambit_calibration::R630, calc_signal(ret[4], ret[5], num_integration));
+    read_sun = apply_adpd_calibration(ambit_calibration::SUN, ret[0]);
+    read_leaf = apply_adpd_calibration(ambit_calibration::LEAF, ret[1]);
 
 
 
-    Serial.printf("T:%d,S:%d,R:%d,F:%d,B:%d\n", millis() - start_timer, read_fluor, read_fluoRef, read_sun-65000, read_leaf-65000);    
+    Serial.printf("T:%d,S:%d,R:%d,F:%d,B:%d\n", millis() - start_timer, read_fluor, read_fluoRef, read_sun, read_leaf);
     Serial.flush();    
   } /// End of Loop
 
@@ -971,8 +982,10 @@ int external_trigger_run_Flash(unsigned int gate_time, unsigned int dt, const ui
     
     if (_counter <= 20){
       for (uint8_t r = 0; r < _NUM_TS; r++){
-        d_fluor->put(calc_signal(ret[0 + r * 4], ret[1 + r * 4], num_integration));
-        d_fluoRef->put(calc_signal(ret[2 + r * 4], ret[3 + r * 4], num_integration));
+        d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+            calc_signal(ret[0 + r * 4], ret[1 + r * 4], num_integration)));
+        d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+            calc_signal(ret[2 + r * 4], ret[3 + r * 4], num_integration)));
       }
     }else{
       read_fluor = 0; read_fluoRef = 0;
@@ -980,8 +993,8 @@ int external_trigger_run_Flash(unsigned int gate_time, unsigned int dt, const ui
         read_fluor += calc_signal(ret[0 + r * 4], ret[1 + r * 4], num_integration);
         read_fluoRef += calc_signal(ret[2 + r * 4], ret[3 + r * 4], num_integration);
       }
-      d_fluor->put(read_fluor / _NUM_TS);
-      d_fluoRef->put(read_fluoRef / _NUM_TS);
+      d_fluor->put(apply_adpd_calibration(ambit_calibration::S630, read_fluor / _NUM_TS));
+      d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630, read_fluoRef / _NUM_TS));
       if (_counter == 100) flash_duration = 4;
       if (_counter == 300) flash_duration = 2;
       if (_counter == 500) flash_duration = 1;
@@ -1113,8 +1126,10 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
       for (uint8_t m = 0; m < 4; m++){    // sign-dark, sign-lit, ref-dark, ref lit
         avg_buf[m] = ret[m];
       }
-      d_fluor->put(calc_signal(avg_buf[0], avg_buf[1], num_integration));
-      d_fluoRef->put(calc_signal(avg_buf[2], avg_buf[3], num_integration));
+      d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+          calc_signal(avg_buf[0], avg_buf[1], num_integration)));
+      d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+          calc_signal(avg_buf[2], avg_buf[3], num_integration)));
       delay(500);
     }
     ESP_LOGV(TAG, "Phase-0 Completed");
@@ -1146,8 +1161,10 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
     adpd.readfifo(expected_readout, 3, ret); 
     for (uint8_t j = 0; j < 12; j++){
 
-      d_fluor->put(calc_signal(ret[0 + j * 4], ret[1 + j * 4], num_integration));
-      d_fluoRef->put(calc_signal(ret[2 + j * 4], ret[3 + j * 4], num_integration));
+      d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+          calc_signal(ret[0 + j * 4], ret[1 + j * 4], num_integration)));
+      d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+          calc_signal(ret[2 + j * 4], ret[3 + j * 4], num_integration)));
     }
     delayMicroseconds(500);
   }
@@ -1172,9 +1189,11 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
     // Serial.printf("P2, %d, %d, %d\n", avg_buf[2], avg_buf[3], calc_signal(avg_buf[2], avg_buf[3], num_integration));
 
    
-    d_fluor->put(calc_signal(avg_buf[0], avg_buf[1], num_integration));
+    d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+        calc_signal(avg_buf[0], avg_buf[1], num_integration)));
     // Serial.println(d_fluor->arr[d_fluor->write_ptr - 1]);
-    d_fluoRef->put(calc_signal(avg_buf[2], avg_buf[3], num_integration));
+    d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+        calc_signal(avg_buf[2], avg_buf[3], num_integration)));
     // Serial.println(d_fluoRef->arr[d_fluoRef->write_ptr - 1]);
     delayMicroseconds(500);
   }
@@ -1201,8 +1220,10 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
       }
 
       if (i % 2 == 1){
-        d_fluor->put(calc_signal(avg_buf[0] / 2, avg_buf[1] / 2, num_integration));
-        d_fluoRef->put(calc_signal(avg_buf[2] / 2, avg_buf[3] / 2, num_integration));
+        d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+            calc_signal(avg_buf[0] / 2, avg_buf[1] / 2, num_integration)));
+        d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+            calc_signal(avg_buf[2] / 2, avg_buf[3] / 2, num_integration)));
         memset(avg_buf, 0, sizeof(avg_buf));
       }   
       delayMicroseconds(500);
@@ -1236,9 +1257,11 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
       // Serial.printf("P4, %d, %d, %d\n", avg_buf[2]/4, avg_buf[3]/4, calc_signal(avg_buf[2]/4, avg_buf[3]/4, num_integration));
 
 
-      d_fluor->put(calc_signal(avg_buf[0] / 4, avg_buf[1] / 4, num_integration));
+      d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+          calc_signal(avg_buf[0] / 4, avg_buf[1] / 4, num_integration)));
       // Serial.println(d_fluor->arr[d_fluor->write_ptr - 1]);
-      d_fluoRef->put(calc_signal(avg_buf[2] / 4, avg_buf[3] / 4, num_integration));
+      d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+          calc_signal(avg_buf[2] / 4, avg_buf[3] / 4, num_integration)));
       // Serial.println(d_fluoRef->arr[d_fluoRef->write_ptr - 1]);
       memset(avg_buf, 0, sizeof(avg_buf));
     }
@@ -1262,8 +1285,10 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
         avg_buf[m] += ret[m];
       }
       if (i % 4 == 3){
-        d_fluor->put(calc_signal(avg_buf[0] / 4, avg_buf[1] / 4, num_integration));
-        d_fluoRef->put(calc_signal(avg_buf[2] / 4, avg_buf[3] / 4, num_integration));
+        d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+            calc_signal(avg_buf[0] / 4, avg_buf[1] / 4, num_integration)));
+        d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+            calc_signal(avg_buf[2] / 4, avg_buf[3] / 4, num_integration)));
         memset(avg_buf, 0, sizeof(avg_buf));
         decay_interval += 5;
       }

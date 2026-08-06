@@ -169,11 +169,29 @@ void do_command(char *choose){
           Serial.println("Baseline too high");
           break;
         }
-        preferences.begin("config", false);
-        preferences.putUInt("adpd_dark", ret[0]);
-        preferences.end();
-        Serial.println("Baseline saved");
+        esp_err_t baseline_err = save_adpd_baseline(ret);
+        if (baseline_err == ESP_OK) Serial.println("Baseline saved and verified");
+        else Serial.printf("Baseline save failed: %s\n", esp_err_to_name(baseline_err));
       }
+    }
+    break;
+
+    case hash("set_baseline"):
+    {
+      uint32_t values[ambit_calibration::CHANNEL_COUNT] = {0};
+      bool valid = true;
+      for (uint8_t i = 0; i < ambit_calibration::CHANNEL_COUNT; ++i){
+        long value = Serial_Input_Long(",", 10);
+        if (value < 0 || value > 0xFFFFFFL) valid = false;
+        else values[i] = static_cast<uint32_t>(value);
+      }
+      if (!valid){
+        Serial.println("Baseline rejected");
+        break;
+      }
+      esp_err_t baseline_err = save_adpd_baseline(values);
+      if (baseline_err == ESP_OK) Serial.println("Baseline saved and verified");
+      else Serial.printf("Baseline save failed: %s\n", esp_err_to_name(baseline_err));
     }
     break;
 
@@ -363,9 +381,14 @@ void do_command(char *choose){
       case hash("set_act"):
       {
         float_t a = (float_t) Serial_Input_Double(",", 10);
-        preferences.begin("config", false);
-        preferences.putFloat("actinic", a);
-        preferences.end();
+        if (isfinite(a) && a > 0.01f && a <= 1.0f){
+          preferences.begin("config", false);
+          preferences.putFloat("actinic", a);
+          preferences.end();
+          ambit_calibration_local.actinic_coef = a;
+        }else{
+          Serial.println("Actinic coefficient rejected");
+        }
       }                                                                   
       break;
 
@@ -392,9 +415,14 @@ void do_command(char *choose){
       case hash("set_spec"):
       {
           float_t f = (float_t) Serial_Input_Double(",", 10);
-          preferences.begin("config", false);
-          preferences.putFloat("spec", f);
-          preferences.end();
+          if (isfinite(f) && f >= 0.05f && f <= 100.0f){
+            preferences.begin("config", false);
+            preferences.putFloat("spec", f);
+            preferences.end();
+            ambit_calibration_local.spec_coef = f;
+          }else{
+            Serial.println("PAR coefficient rejected");
+          }
       }
       break;
 

@@ -203,7 +203,7 @@ int do_esp_cmd(){
     case 31: // get spec
     {
         uint16_t spec[12] = {0};
-        float par = get_PAR(spec);
+        float par = get_PAR(spec) * ambit_calibration_local.spec_coef;
         memcpy(spec + 10, &par, 4);
         Serial.write(ESP_CMD_DONE);
         Serial.write((uint8_t*) spec, 24);
@@ -338,15 +338,9 @@ int do_esp_cmd(){
         Serial.write(ESP_CMD_DONE);
         uint32_t ret[6] = {0};
         fluor_offset(ret);
-        preferences.begin("config", false);
-        preferences.putUInt("adpd_lit", ret[1]);
-        preferences.putUInt("adpd_sun", ret[2]);
-        preferences.putUInt("adpd_leaf", ret[3]);
-        preferences.putUInt("adpd_730", ret[4]);
-        preferences.putUInt("adpd_730r", ret[5]);
-        preferences.end();
+        esp_err_t baseline_err = save_adpd_baseline(ret);
+        if (baseline_err != ESP_OK) ESP_LOGE(TAG, "ADPD baseline save failed: %s", esp_err_to_name(baseline_err));
         Serial.write(ESP_CMD_END);
-        load_info_from_nvs(false);
 
     }
     break;
@@ -486,4 +480,3 @@ int do_esp_cmd(){
 
     return 0;
 }
-
