@@ -74,6 +74,8 @@ class ReleaseGuardTests(unittest.TestCase):
         labels = dict(release_guard.EXPECTED_LABELS)
         labels[self.app] = "Application image (OTA / 0x10000)"
         assets = []
+        published = phase == "published"
+        release_slug = self.tag if published else "untagged-114-draft"
         for index, name in enumerate(release_guard.expected_assets(self.version), 10):
             expected = self.candidate[name]
             assets.append({
@@ -86,12 +88,11 @@ class ReleaseGuardTests(unittest.TestCase):
                 "created_at": "2026-08-07T10:00:00Z",
                 "updated_at": "2026-08-07T10:00:01Z",
                 "browser_download_url": "https://github.com/{}/releases/download/{}/{}".format(
-                    self.repository, self.tag, name),
+                    self.repository, release_slug, name),
             })
-        published = phase == "published"
         html_url = ("https://github.com/{}/releases/tag/{}".format(
                     self.repository, self.tag) if published else
-                    "https://github.com/{}/releases/untagged/114-draft".format(
+                    "https://github.com/{}/releases/tag/untagged-114-draft".format(
                         self.repository))
         return {
             "id": 114,
@@ -187,6 +188,38 @@ class ReleaseGuardTests(unittest.TestCase):
         with self.assertRaises(release_guard.GuardError):
             release_guard.verify_release_metadata(
                 published, self.repository, self.tag, "main", "published")
+
+    def test_draft_asset_urls_must_match_temporary_release_namespace(self):
+        draft = self.release("draft")
+        release_guard.release_assets(
+            draft, self.repository, self.tag, self.candidate, "draft")
+        draft["assets"][0]["browser_download_url"] = (
+            "https://github.com/{}/releases/download/untagged-other/{}".format(
+                self.repository, draft["assets"][0]["name"]))
+        with self.assertRaises(release_guard.GuardError):
+            release_guard.release_assets(
+                draft, self.repository, self.tag, self.candidate, "draft")
+
+    def test_anonymous_asset_lines_use_canonical_published_urls(self):
+        proof = {
+            "repository": self.repository,
+            "tag": self.tag,
+            "assets": {name: {"id": index, "browser_download_url": "draft-url"}
+                       for index, name in enumerate(
+                           release_guard.expected_assets(self.version), 10)},
+        }
+        proof_path = self.write_json("asset-lines-proof.json", proof)
+        output = []
+        original_stdout = release_guard.sys.stdout
+        release_guard.sys.stdout = types.SimpleNamespace(write=output.append)
+        try:
+            release_guard.asset_lines(types.SimpleNamespace(
+                proof=str(proof_path), mode="browser"))
+        finally:
+            release_guard.sys.stdout = original_stdout
+        text = "".join(output)
+        self.assertNotIn("draft-url", text)
+        self.assertIn("/releases/download/{}/{}".format(self.tag, self.app), text)
 
     def test_artifact_selection_is_by_exact_id_response_not_timestamp(self):
         artifact = {
