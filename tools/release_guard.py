@@ -171,7 +171,26 @@ def verify_release_metadata(release, repository, tag, branch, phase):
         raise GuardError("unknown release phase")
 
 
-def release_assets(release, repository, tag, candidate):
+def expected_asset_browser_url(release, repository, tag, name, phase):
+    if phase == "published":
+        return "https://github.com/{}/releases/download/{}/{}".format(
+            repository, tag, name)
+    if phase != "draft":
+        raise GuardError("unknown release phase")
+
+    html = urlparse(release.get("html_url", ""))
+    expected_prefix = "/{}/releases/tag/".format(repository)
+    require(html.scheme == "https" and html.netloc == "github.com"
+            and html.path.startswith(expected_prefix),
+            "draft release URL cannot identify its temporary asset namespace")
+    draft_slug = html.path[len(expected_prefix):]
+    require(draft_slug.startswith("untagged-") and "/" not in draft_slug,
+            "draft release URL has an invalid temporary asset namespace")
+    return "https://github.com/{}/releases/download/{}/{}".format(
+        repository, draft_slug, name)
+
+
+def release_assets(release, repository, tag, candidate, phase):
     assets = release.get("assets")
     require(isinstance(assets, list), "release assets are missing")
     expected_names = set(candidate)
@@ -201,8 +220,8 @@ def release_assets(release, repository, tag, candidate):
                 "asset {} is missing created_at".format(name))
         require(isinstance(asset.get("updated_at"), str) and asset["updated_at"],
                 "asset {} is missing updated_at".format(name))
-        expected_url = "https://github.com/{}/releases/download/{}/{}".format(
-            repository, tag, name)
+        expected_url = expected_asset_browser_url(
+            release, repository, tag, name, phase)
         require(asset.get("browser_download_url") == expected_url,
                 "asset browser URL mismatch for {}".format(name))
         by_name[name] = {
@@ -237,7 +256,7 @@ def make_proof(args):
     ref_json = load(args.ref_json)
     exact_ref(ref_json, args.tag, args.target_sha)
     verify_release_metadata(release, args.repository, args.tag, args.branch, "draft")
-    assets = release_assets(release, args.repository, args.tag, candidate)
+    assets = release_assets(release, args.repository, args.tag, candidate, "draft")
     verify_downloads(args.downloads_dir, assets)
     proof = {
         "schema": 1,
@@ -294,8 +313,22 @@ def verify_proof(args):
 
     candidate = {name: {"size": asset["size"], "sha256": asset["sha256"]}
                  for name, asset in proof["assets"].items()}
-    current_assets = release_assets(release, proof["repository"], proof["tag"], candidate)
-    require(current_assets == proof["assets"], "release asset REST proof changed")
+    current_assets = release_assets(
+        release, proof["repository"], proof["tag"], candidate, args.phase)
+    if args.phase == "draft":
+        require(current_assets == proof["assets"], "release asset REST proof changed")
+    else:
+        # GitHub moves the same immutable asset records from a temporary
+        # untagged draft namespace to the canonical tag URL when publishing.
+        # Every identity, timestamp, size and digest must remain byte-for-byte
+        # stable; only browser_download_url may make that documented move.
+        for name, current in current_assets.items():
+            recorded = proof["assets"].get(name, {})
+            for key, value in current.items():
+                if key == "browser_download_url":
+                    continue
+                require(recorded.get(key) == value,
+                        "release asset REST proof changed at {}:{}".format(name, key))
     if args.downloads_dir:
         verify_downloads(args.downloads_dir, proof["assets"])
     if args.phase == "published":
@@ -351,7 +384,11 @@ def asset_lines(args):
     proof = load(args.proof)
     for name in sorted(proof["assets"]):
         asset = proof["assets"][name]
-        locator = str(asset["id"]) if args.mode == "api" else asset["browser_download_url"]
+        if args.mode == "api":
+            locator = str(asset["id"])
+        else:
+            locator = "https://github.com/{}/releases/download/{}/{}".format(
+                proof["repository"], proof["tag"], name)
         sys.stdout.write("{}\t{}\n".format(locator, name))
 
 

@@ -62,6 +62,13 @@ and server SHA-256 digests), manifest agreement, and authenticated asset
 downloads. It uploads only a proof record for the protected finalizer; it does
 not publish the draft.
 
+GitHub places draft asset browser URLs in the draft's repository-scoped
+`untagged-*` namespace. The staging proof binds that temporary namespace to the
+draft release and records it. Publishing moves only those browser URLs to the
+canonical `releases/download/v1.1.4/*` namespace; IDs, timestamps, sizes, and
+digests are not allowed to change. Anonymous verification always constructs
+and downloads the canonical published URLs instead of reusing a draft URL.
+
 ## Protected finalizer
 
 After environment approval, the finalizer downloads the staging proof and
