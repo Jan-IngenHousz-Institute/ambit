@@ -5,7 +5,7 @@
   "description": "Minimal semantic-release tooling for Ambit firmware",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Jan-IngenHousz-Institute/ambit-iot.git"
+    "url": "https://github.com/Jan-IngenHousz-Institute/ambit.git"
   },
   "devDependencies": {
     "@semantic-release/github": "11.0.6",

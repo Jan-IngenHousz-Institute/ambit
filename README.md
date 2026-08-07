@@ -227,20 +227,37 @@ from the `config` NVS namespace. Site and measurement metadata use a separate
 `metadata` namespace. MLX90632 coefficients are read from the sensor and
 included in the calibration record.
 
-Storage does not imply that every field is applied by the current measurement
-path. On current `main`:
+The field-facing paths apply the stored calibration consistently:
 
-- the text `PAR` command and JSON-envelope `PAR` handler multiply `get_PAR()` by
-  the stored `spec_coef`;
-- text/JSON `get_par` and binary command 31 report the unscaled `get_PAR()`
-  result (binary command 31 does **not** apply `spec_coef`); and
-- stored ADPD baseline values are loaded, reported, and transferred in the
-  calibration record, but are not applied to measurement arrays by the current
-  firmware.
+- text `PAR`, JSON-envelope `PAR`, and binary command 31 multiply `get_PAR()` by
+  `spec_coef`; text/JSON `get_par` deliberately remain raw diagnostic endpoints;
+- the six ADPD baselines map to `s_630`, `r_630`, `sun`, `leaf`, `s_730`, and
+  `r_730`, and are subtracted with saturation at zero exactly once before data
+  enters a result buffer;
+- older devices with no stored sun/leaf offsets retain the historical 65,000
+  correction until a complete baseline vector is calibrated; and
+- both text and binary baseline operations save all six values in one NVS
+  commit, verify readback, and update runtime state only after success.
 
-Treat the remaining stored fields as calibration provenance and protocol state
-unless their use is visible in the current source. A future calibration release
-may define additional application behavior; do not assume it in an integrator.
+Calibration acquisition and the raw PAR endpoints remain uncorrected on
+purpose: the Calibratron needs those raw observations to derive coefficients.
+
+Binary command 6 retains its deployed silent acknowledgement contract: it
+always returns `ESP_CMD_DONE` followed by `ESP_CMD_END`, with no payload or
+success/failure status byte. Acquisition, sensor, timeout, validation, or NVS
+failures therefore cannot be diagnosed from that reply. In particular, an
+acquired `s_630` baseline above 400 is rejected and not persisted. The
+authoritative calibration workflow is the Calibratron's text-console
+`baseline` capture, which prints the six acquired values and explicitly reports
+acquisition, range, and save failures.
+
+The deployed scalar/vector calibration setters are also silent on validation
+failure: binary command 4 types 2 and 4, command 17, and command 18 preserve
+their existing acknowledgement framing and add no status byte. Invalid
+actinic/spec coefficients, or an invalid command-18 vector, are rejected
+without persistence, but the acknowledgement alone does not prove that a new
+value was saved. Use the text-console setters/readback during calibration when
+operator-visible success or failure is required.
 
 Binary commands and selected text-console operations can update this state.
 Metadata is persisted only when its frozen end marker is valid and its
@@ -264,11 +281,15 @@ The minimum software gate is a clean PlatformIO build:
 pio run
 ```
 
-There is host-side driver test code under
-[`test/adpd6000/`](test/adpd6000/), but it is not wired to a PlatformIO test
-environment. The repository does not currently define a comprehensive
-automated firmware test suite. Hardware remains the release-quality regression
-gate for transport and measurement changes.
+Host-side unit tests under [`test/adpd6000/`](test/adpd6000/) and
+[`test/calibration/`](test/calibration/) verify the transport boundary and
+baseline math, including legacy defaults and saturating subtraction. Run them
+before approving a release candidate; PR CI compiles both with C++11 and treats
+all warnings as errors. Release automation policy is covered by
+[`test/release_process/`](test/release_process/) and the staged-draft procedure
+is documented in [`plans/RELEASE_PROCESS.md`](plans/RELEASE_PROCESS.md).
+Hardware remains the release-quality regression gate for transport and
+measurement changes.
 
 Any change touching the binary adapter, FSM framing, or first-byte router must
 run the real-device procedure in

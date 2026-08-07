@@ -158,22 +158,43 @@ void do_command(char *choose){
 
     case hash("baseline"):
     {
-      conf_slow_FR_1(100, 20, 0, 1, 5, 5, 1, 5, 5);
       uint8_t c = Serial_Input_Long(",", 10);
-      adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
+      int acquisition_err = conf_slow_FR_1(100, 20, 0, 1, 5, 5, 1, 5, 5);
       uint32_t ret[6] = {0};
-      fluor_offset(ret);
+      if (acquisition_err == 0) acquisition_err = fluor_offset(ret);
+      if (acquisition_err != 0){
+        Serial.printf("Baseline acquisition failed: %d\n", acquisition_err);
+        break;
+      }
       Serial.printf("%d,%d,%d,%d,%d,%d\n", ret[0], ret[1], ret[2], ret[3], ret[4], ret[5]);
       if (c == 1){
-        if (ret[0] > 400){
+        if (ret[0] > ambit_calibration::MAX_S630_BASELINE){
           Serial.println("Baseline too high");
           break;
         }
-        preferences.begin("config", false);
-        preferences.putUInt("adpd_dark", ret[0]);
-        preferences.end();
-        Serial.println("Baseline saved");
+        esp_err_t baseline_err = save_adpd_baseline(ret);
+        if (baseline_err == ESP_OK) Serial.println("Baseline saved and verified");
+        else Serial.printf("Baseline save failed: %s\n", esp_err_to_name(baseline_err));
       }
+    }
+    break;
+
+    case hash("set_baseline"):
+    {
+      uint32_t values[ambit_calibration::CHANNEL_COUNT] = {0};
+      bool valid = true;
+      for (uint8_t i = 0; i < ambit_calibration::CHANNEL_COUNT; ++i){
+        char token[25] = {0};
+        Serial_Input_Chars(token, ",", 10, sizeof(token) - 1);
+        if (!ambit_calibration::parse_adpd_baseline_value(token, &values[i])) valid = false;
+      }
+      if (!valid || !ambit_calibration::valid_adpd_baseline(values)){
+        Serial.println("Baseline rejected");
+        break;
+      }
+      esp_err_t baseline_err = save_adpd_baseline(values);
+      if (baseline_err == ESP_OK) Serial.println("Baseline saved and verified");
+      else Serial.printf("Baseline save failed: %s\n", esp_err_to_name(baseline_err));
     }
     break;
 
@@ -363,9 +384,12 @@ void do_command(char *choose){
       case hash("set_act"):
       {
         float_t a = (float_t) Serial_Input_Double(",", 10);
-        preferences.begin("config", false);
-        preferences.putFloat("actinic", a);
-        preferences.end();
+        if (ambit_calibration::valid_actinic_coefficient(a)){
+          const esp_err_t err = save_actinic_coefficient(a);
+          if (err != ESP_OK) Serial.printf("Actinic coefficient save failed: %s\n", esp_err_to_name(err));
+        }else{
+          Serial.println("Actinic coefficient rejected");
+        }
       }                                                                   
       break;
 
@@ -392,9 +416,12 @@ void do_command(char *choose){
       case hash("set_spec"):
       {
           float_t f = (float_t) Serial_Input_Double(",", 10);
-          preferences.begin("config", false);
-          preferences.putFloat("spec", f);
-          preferences.end();
+          if (ambit_calibration::valid_spec_coefficient(f)){
+            const esp_err_t err = save_spec_coefficient(f);
+            if (err != ESP_OK) Serial.printf("PAR coefficient save failed: %s\n", esp_err_to_name(err));
+          }else{
+            Serial.println("PAR coefficient rejected");
+          }
       }
       break;
 

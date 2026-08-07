@@ -17,6 +17,34 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  host-tests:
+    name: Host unit and release-boundary tests
+    needs: validate-pr
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Compile and run calibration suite
+        run: |
+          mkdir -p "${RUNNER_TEMP}/ambit-host-tests"
+          c++ -std=c++11 -Wall -Wextra -Werror \
+            test/calibration/test_main.cpp \
+            -o "${RUNNER_TEMP}/ambit-host-tests/calibration"
+          "${RUNNER_TEMP}/ambit-host-tests/calibration"
+
+      - name: Compile and run ADPD fake-transport suite
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror \
+            test/adpd6000/test_main.cpp src/src/adpd/jii_adpd6000.cpp \
+            -o "${RUNNER_TEMP}/ambit-host-tests/adpd6000"
+          "${RUNNER_TEMP}/ambit-host-tests/adpd6000"
+
+      - name: Run release-boundary tests
+        run: python3 -m unittest discover -s test/release_process -p 'test_*.py' -v
+
   build:
     name: Build firmware
     needs: validate-pr
@@ -37,7 +65,10 @@ jobs:
           node-version: "24"
 
       - name: Install release tooling
-        run: npm install --ignore-scripts --package-lock=false
+        run: bash tools/install_release_tooling.sh
+
+      - name: Prove pinned GitHub plugin remains draft-only
+        run: node test/release_process/semantic_release_github_draft.mjs
 
       - name: Compute release preview
         id: preview
@@ -137,8 +168,6 @@ jobs:
           cp "${BUILD_DIR}/bootloader.bin" dist/bootloader.bin
           cp "${BUILD_DIR}/partitions.bin" dist/partitions.bin
           cp "${BOOT_APP0}"                dist/boot_app0.bin
-          cp release-preview.md            dist/release-preview.md
-
           # Manifest: downstream flashers (Calibratron) read names, offsets and
           # hashes from here instead of hardcoding them.
           python3 - "$FIRMWARE_VERSION" "$APP_NAME" <<'EOF'

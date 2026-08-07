@@ -5,52 +5,126 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  actions: read
-  pull-requests: read
+permissions: {}
 
 concurrency:
   group: firmware-release
   cancel-in-progress: false
 
+env:
+  # This workflow is intentionally pinned to ticket 21's qualified candidate.
+  # Change this only in a reviewed release-process PR for the next firmware.
+  EXPECTED_VERSION: 1.1.4
+  EXPECTED_TAG: v1.1.4
+  RELEASE_BRANCH: main
+  QUALIFIED_PR_NUMBER: 4
+  QUALIFIED_PR_HEAD_SHA: ${{ vars.AMBIT_V114_PR_HEAD_SHA }}
+  QUALIFIED_PR_RUN_ID: ${{ vars.AMBIT_V114_PR_RUN_ID }}
+  QUALIFIED_ARTIFACT_ID: ${{ vars.AMBIT_V114_ARTIFACT_ID }}
+  QUALIFIED_APP_SHA256: ${{ vars.AMBIT_V114_APP_SHA256 }}
+
 jobs:
-  release:
-    name: Release firmware
+  stage-draft:
+    name: Stage and prove immutable release draft
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+    outputs:
+      staged: ${{ steps.stage-status.outputs.staged }}
+      proof-artifact-id: ${{ steps.proof-upload.outputs.artifact-id }}
+      target-sha: ${{ steps.target.outputs.sha }}
     steps:
-      - name: Checkout main
+      - name: Checkout exact main target
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Assert release target
+        id: target
+        env:
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${TARGET_SHA}"
+          test "${GITHUB_REF}" = "refs/heads/${RELEASE_BRANCH}"
+          echo "sha=${TARGET_SHA}" >> "${GITHUB_OUTPUT}"
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: "24"
 
-      - name: Install release tooling
-        run: npm install --ignore-scripts --package-lock=false
+      - name: Install pinned release tooling
+        run: bash tools/install_release_tooling.sh
 
-      - name: Determine next release
+      - name: Determine exact release
         id: preview
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
+          set +e
           npx semantic-release --dry-run --no-ci 2>&1 | tee release-preview.log
+          RELEASE_STATUS=${PIPESTATUS[0]}
+          set -e
+          test "${RELEASE_STATUS}" -eq 0
           VERSION=$(grep -Eo 'The next release version is [0-9]+\.[0-9]+\.[0-9]+' release-preview.log | tail -n 1 | awk '{print $6}' || true)
-          if [[ -n "${VERSION}" ]]; then
-            echo "will-release=true" >> "${GITHUB_OUTPUT}"
-            echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
-          else
+          if [[ -z "${VERSION}" ]]; then
             echo "will-release=false" >> "${GITHUB_OUTPUT}"
             echo "No firmware release is required." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
           fi
+          test "${VERSION}" = "${EXPECTED_VERSION}"
+          test "v${VERSION}" = "${EXPECTED_TAG}"
+          echo "will-release=true" >> "${GITHUB_OUTPUT}"
 
-      - name: Locate PR firmware artifact
+      - name: Fail closed if tag or release already exists
+        if: steps.preview.outputs.will-release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${REPO}/releases?per_page=100" --slurp > preflight-releases.json
+          gh api "repos/${REPO}/git/matching-refs/tags/${EXPECTED_TAG}" > preflight-refs.json
+          python3 tools/release_guard.py preflight \
+            --releases-json preflight-releases.json \
+            --refs-json preflight-refs.json \
+            --tag "${EXPECTED_TAG}"
+
+      - name: Require pinned qualification evidence
+        if: steps.preview.outputs.will-release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${QUALIFIED_PR_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${QUALIFIED_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${QUALIFIED_PR_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${QUALIFIED_APP_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+
+      - name: Verify the pinned qualified PR
+        if: steps.preview.outputs.will-release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/pulls/${QUALIFIED_PR_NUMBER}" > qualified-pr.json
+          python3 tools/release_guard.py verify-qualified-pr \
+            --pr-json qualified-pr.json \
+            --number "${QUALIFIED_PR_NUMBER}" \
+            --head-sha "${QUALIFIED_PR_HEAD_SHA}" \
+            --branch "${RELEASE_BRANCH}"
+
+      - name: Verify the pinned PR run and artifact
         id: artifact
         if: steps.preview.outputs.will-release == 'true'
         env:
@@ -59,66 +133,212 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Find the PR whose build produced the artifact we republish. Parsing the
-          # commit subject is NOT reliable: a squash merge writes "(#N)", a merge
-          # commit writes "Merge pull request #N", and a direct push writes neither
-          # (v1.1.0's first attempt failed exactly here, on a merge commit). Ask the
-          # API which merged PR contains each recent commit instead, newest first,
-          # so a follow-up direct push to main still finds the last released PR.
-          PR_NUMBER=""
-          for SHA in $(git log -n 20 --pretty=%H); do
-            PR_NUMBER=$(gh api "repos/${REPO}/commits/${SHA}/pulls" \
-              --jq '[.[] | select(.merged_at != null) | .number] | first // empty' 2>/dev/null || true)
-            if [[ -n "${PR_NUMBER}" ]]; then
-              echo "release commit traced to PR #${PR_NUMBER} (via ${SHA})"
-              break
-            fi
-          done
-          if [[ -z "${PR_NUMBER}" ]]; then
-            echo "::error::No merged PR found in the last 20 commits; cannot locate a reviewed firmware artifact"
-            exit 1
-          fi
-          HEAD_SHA=$(gh pr view "${PR_NUMBER}" --repo "${REPO}" --json headRefOid -q .headRefOid)
-          ARTIFACT_NAME="firmware-${HEAD_SHA}"
-          RUN_ID=$(gh api "repos/${REPO}/actions/artifacts?name=${ARTIFACT_NAME}&per_page=100" \
-            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .workflow_run.id // empty')
-          if [[ -z "${RUN_ID}" ]]; then
-            echo "::error::No live PR artifact named ${ARTIFACT_NAME}"
-            exit 1
-          fi
-          echo "name=${ARTIFACT_NAME}" >> "${GITHUB_OUTPUT}"
-          echo "run-id=${RUN_ID}" >> "${GITHUB_OUTPUT}"
+          ARTIFACT_NAME="firmware-${QUALIFIED_PR_HEAD_SHA}"
+          gh api "repos/${REPO}/actions/artifacts/${QUALIFIED_ARTIFACT_ID}" > artifact.json
+          python3 tools/release_guard.py select-artifact \
+            --artifacts-json artifact.json \
+            --name "${ARTIFACT_NAME}" > selected-artifact.json
+          ARTIFACT_ID=$(jq -r .artifact_id selected-artifact.json)
+          RUN_ID=$(jq -r .run_id selected-artifact.json)
+          test "${ARTIFACT_ID}" = "${QUALIFIED_ARTIFACT_ID}"
+          test "${RUN_ID}" = "${QUALIFIED_PR_RUN_ID}"
+          gh api "repos/${REPO}/actions/runs/${RUN_ID}" > artifact-run.json
+          python3 tools/release_guard.py verify-run \
+            --run-json artifact-run.json \
+            --run-id "${RUN_ID}" \
+            --head-sha "${QUALIFIED_PR_HEAD_SHA}"
+          echo "artifact-id=${ARTIFACT_ID}" >> "${GITHUB_OUTPUT}"
 
-      - name: Download PR firmware artifact
+      - name: Download exact PR firmware artifact
         if: steps.preview.outputs.will-release == 'true'
         uses: actions/download-artifact@v6
         with:
-          name: ${{ steps.artifact.outputs.name }}
+          artifact-ids: ${{ steps.artifact.outputs.artifact-id }}
           path: release-assets
+          merge-multiple: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          run-id: ${{ steps.artifact.outputs.run-id }}
+          run-id: ${{ env.QUALIFIED_PR_RUN_ID }}
 
-      - name: Verify release assets
+      - name: Verify candidate bytes and manifest
         if: steps.preview.outputs.will-release == 'true'
-        env:
-          VERSION: ${{ steps.preview.outputs.version }}
-        shell: bash
         run: |
-          set -euo pipefail
-          test -f "release-assets/ambit-fw-v${VERSION}.bin"
-          test -f release-assets/bootloader.bin
-          test -f release-assets/partitions.bin
-          test -f release-assets/boot_app0.bin
-          test -f release-assets/manifest.json
-          python3 -c "import json,sys; m=json.load(open('release-assets/manifest.json')); sys.exit(0 if m['version']=='${VERSION}' else 1)"
+          python3 tools/release_guard.py candidate \
+            --assets-dir release-assets \
+            --version "${EXPECTED_VERSION}" \
+            --expected-app-sha256 "${QUALIFIED_APP_SHA256}" > candidate-proof.json
 
-      - name: Publish GitHub release
+      - name: Create draft and upload assets
         if: steps.preview.outputs.will-release == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
 
-      - name: Release summary
+      - name: Assert draft metadata and download authenticated assets
         if: steps.preview.outputs.will-release == 'true'
-        run: echo "Published firmware v${{ steps.preview.outputs.version }} from the PR-built artifact." >> "${GITHUB_STEP_SUMMARY}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${REPO}/releases?per_page=100" --slurp > staged-releases.json
+          gh api "repos/${REPO}/git/ref/tags/${EXPECTED_TAG}" > staged-ref.json
+          mkdir authenticated-release-assets
+          while IFS=$'\t' read -r ASSET_ID ASSET_NAME; do
+            gh api -H "Accept: application/octet-stream" \
+              "repos/${REPO}/releases/assets/${ASSET_ID}" \
+              > "authenticated-release-assets/${ASSET_NAME}"
+          done < <(python3 tools/release_guard.py release-asset-lines \
+            --releases-json staged-releases.json \
+            --tag "${EXPECTED_TAG}" \
+            --version "${EXPECTED_VERSION}")
+          python3 tools/release_guard.py make-proof \
+            --assets-dir release-assets \
+            --downloads-dir authenticated-release-assets \
+            --releases-json staged-releases.json \
+            --ref-json staged-ref.json \
+            --repository "${REPO}" \
+            --version "${EXPECTED_VERSION}" \
+            --tag "${EXPECTED_TAG}" \
+            --target-sha "${TARGET_SHA}" \
+            --branch "${RELEASE_BRANCH}" \
+            --pr-number "${QUALIFIED_PR_NUMBER}" \
+            --pr-head-sha "${QUALIFIED_PR_HEAD_SHA}" \
+            --run-id "${QUALIFIED_PR_RUN_ID}" \
+            --artifact-id "${QUALIFIED_ARTIFACT_ID}" \
+            --app-sha256 "${QUALIFIED_APP_SHA256}" \
+            --output release-proof.json
+
+      - name: Upload release proof for protected finalizer
+        id: proof-upload
+        if: steps.preview.outputs.will-release == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-proof-${{ github.run_id }}
+          path: release-proof.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Mark draft staged
+        id: stage-status
+        shell: bash
+        run: |
+          if [[ "${{ steps.preview.outputs.will-release }}" == "true" ]]; then
+            echo "staged=true" >> "${GITHUB_OUTPUT}"
+            echo "Staged and proved ${EXPECTED_TAG}; publication awaits the firmware-release environment." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "staged=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  publish-finalizer:
+    name: Publish proved immutable release
+    needs: stage-draft
+    if: needs.stage-draft.outputs.staged == 'true'
+    runs-on: ubuntu-latest
+    environment: firmware-release
+    permissions:
+      contents: write
+      actions: read
+      attestations: read
+    steps:
+      - name: Checkout proved release target
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.stage-draft.outputs.target-sha }}
+          persist-credentials: false
+
+      - name: Download staging proof
+        uses: actions/download-artifact@v6
+        with:
+          artifact-ids: ${{ needs.stage-draft.outputs.proof-artifact-id }}
+          path: finalizer-proof
+          merge-multiple: true
+
+      - name: Revalidate draft and authenticated bytes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${REPO}/releases?per_page=100" --slurp > finalizer-pre-releases.json
+          gh api "repos/${REPO}/git/ref/tags/${EXPECTED_TAG}" > finalizer-pre-ref.json
+          mkdir finalizer-authenticated-assets
+          while IFS=$'\t' read -r ASSET_ID ASSET_NAME; do
+            gh api -H "Accept: application/octet-stream" \
+              "repos/${REPO}/releases/assets/${ASSET_ID}" \
+              > "finalizer-authenticated-assets/${ASSET_NAME}"
+          done < <(python3 tools/release_guard.py asset-lines \
+            --proof finalizer-proof/release-proof.json --mode api)
+          python3 tools/release_guard.py verify-proof \
+            --proof finalizer-proof/release-proof.json \
+            --releases-json finalizer-pre-releases.json \
+            --ref-json finalizer-pre-ref.json \
+            --phase draft \
+            --downloads-dir finalizer-authenticated-assets
+
+      - name: Publish draft exactly once
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_ID=$(jq -r .release.id finalizer-proof/release-proof.json)
+          gh api --method PATCH "repos/${REPO}/releases/${RELEASE_ID}" \
+            -F draft=false -f make_latest=true > publish-response.json
+          test "$(jq -r .draft publish-response.json)" = "false"
+
+      - name: Require immutable stable release and anonymous byte identity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_ID=$(jq -r .release.id finalizer-proof/release-proof.json)
+          for ATTEMPT in {1..12}; do
+            gh api "repos/${REPO}/releases/${RELEASE_ID}" > published-release.json
+            if jq -e '.draft == false and .prerelease == false and .immutable == true' published-release.json > /dev/null; then
+              break
+            fi
+            if [[ "${ATTEMPT}" -eq 12 ]]; then
+              echo "::error::Published release did not become immutable"
+              exit 1
+            fi
+            sleep 5
+          done
+          gh api --paginate "repos/${REPO}/releases?per_page=100" --slurp > finalizer-post-releases.json
+          gh api "repos/${REPO}/git/ref/tags/${EXPECTED_TAG}" > finalizer-post-ref.json
+          gh api "repos/${REPO}/releases/latest" > latest-release.json
+          mkdir finalizer-anonymous-assets
+          while IFS=$'\t' read -r ASSET_URL ASSET_NAME; do
+            curl --fail --location --silent --show-error \
+              --output "finalizer-anonymous-assets/${ASSET_NAME}" "${ASSET_URL}"
+          done < <(python3 tools/release_guard.py asset-lines \
+            --proof finalizer-proof/release-proof.json --mode browser)
+          python3 tools/release_guard.py verify-proof \
+            --proof finalizer-proof/release-proof.json \
+            --releases-json finalizer-post-releases.json \
+            --ref-json finalizer-post-ref.json \
+            --phase published \
+            --latest-json latest-release.json \
+            --downloads-dir finalizer-anonymous-assets
+
+      - name: Verify GitHub release attestations
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh --version
+          gh release verify "${EXPECTED_TAG}" --repo "${REPO}"
+          while IFS=$'\t' read -r _ ASSET_NAME; do
+            gh release verify-asset "${EXPECTED_TAG}" \
+              "finalizer-anonymous-assets/${ASSET_NAME}" --repo "${REPO}"
+          done < <(python3 tools/release_guard.py asset-lines \
+            --proof finalizer-proof/release-proof.json --mode browser)
+          echo "Published ${EXPECTED_TAG} exactly once; assets are immutable, latest, and byte-identical." >> "${GITHUB_STEP_SUMMARY}"

@@ -1,4 +1,5 @@
 #include "PAM.h"
+#include "nvs1.h"
 
 static const char* TAG = "PAM";
 static bool measure_temp = true;
@@ -32,12 +33,15 @@ int conf_slow_FR_1(void){
 // @param G_FRref IR reflection reference gain (0 - 5)
 int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, uint8_t G_FluorRef, uint8_t G_Sun, uint8_t G_IR, uint8_t G_FR, uint8_t G_FRref){
 
+  int32_t config_result = 0;
+
   // Setup timeslot 1: two ambient light channels, 2 x 3 bytes
   adpd.led_config.driver1_current = 0;
   adpd.led_config.driver2_current = 0;
   adpd.SNR_config.TIA_gain_CH2 = G_IR;       // channel 2: leaf IR reflection
   adpd.SNR_config.TIA_gain_CH1 = G_Sun;      // channel 1: sun vis
-  adpd.preset_config_1(0, 4);
+  config_result = adpd.preset_config_1(0, 4);
+  if (config_result != jii::adpd6000::kOk) return config_result;
 
 
 
@@ -50,7 +54,8 @@ int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, ui
   adpd.led_config.led2_channel = LED_A;
   adpd.SNR_config.TIA_gain_CH1 = G_Fluor;
   adpd.SNR_config.TIA_gain_CH2 = G_FluorRef;
-  adpd.preset_config_2(1, 1);
+  config_result = adpd.preset_config_2(1, 1);
+  if (config_result != jii::adpd6000::kOk) return config_result;
 
 
   // Setup timeslot 3:  IR leave reflection, 2 x 3 bytes
@@ -63,7 +68,8 @@ int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, ui
   adpd.SNR_config.TIA_gain_CH1 = G_FR;
   adpd.SNR_config.TIA_gain_CH2 = G_FRref;
 
-  adpd.preset_config_3(2, 4);
+  config_result = adpd.preset_config_3(2, 4);
+  if (config_result != jii::adpd6000::kOk) return config_result;
 
   // Setup timeslot 4-5-6:  Far-red illumination, 0 data
     // LED 1A = 620nm
@@ -74,12 +80,10 @@ int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, ui
   adpd.led_config.led2_channel = LED_A;
 
   //make 6 time slots, ~ 2 ms without repeats, can get 200 repeats ~ 400ms
-  adpd.preset_config_4(3);
-  adpd.preset_config_4(4);
-  adpd.preset_config_4(5);
-  adpd.preset_config_4(6);
-  adpd.preset_config_4(7);
-  adpd.preset_config_4(8);
+  for (uint8_t slot = 3; slot <= 8; ++slot){
+    config_result = adpd.preset_config_4(slot);
+    if (config_result != jii::adpd6000::kOk) return config_result;
+  }
 
   adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
 
@@ -381,24 +385,34 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
           fifo_c -= expected_readout_bytes;
           if (counter == num_ptx) break;
           // 0: sun-vis; 1: leaf-ir; 2: fluoS_dark; 3: fluoS_lit; 4: fluoR_dark; 5: fluoR_lit; 6: Reflect_signal; 7: reflect_ref
-          // save fluor signal and ref
-          d_fluor->put(calc_signal(ret[2], ret[3], num_integration));       
-          d_fluoRef->put(calc_signal(ret[4], ret[5], num_integration));
+          // Apply each stored baseline exactly once at the result boundary.
+          const uint32_t calibrated_fluor = apply_adpd_calibration(
+              ambit_calibration::S630, calc_signal(ret[2], ret[3], num_integration));
+          const uint32_t calibrated_fluo_ref = apply_adpd_calibration(
+              ambit_calibration::R630, calc_signal(ret[4], ret[5], num_integration));
+          const uint32_t calibrated_sun = apply_adpd_calibration(ambit_calibration::SUN, ret[0]);
+          const uint32_t calibrated_leaf = apply_adpd_calibration(ambit_calibration::LEAF, ret[1]);
+          const uint32_t calibrated_730 = _type == 1
+              ? apply_adpd_calibration(ambit_calibration::S730, ret[6]) : 0;
+          const uint32_t calibrated_730_ref = _type == 1
+              ? apply_adpd_calibration(ambit_calibration::R730, ret[7]) : 0;
+          d_fluor->put(calibrated_fluor);
+          d_fluoRef->put(calibrated_fluo_ref);
 
 
           // save option data
           if (subsampling > 0){
             if (subsampling == 1){ // every point
-              d_sun->put(ret[0] > 65000 ? ret[0] - 65000 : 0);
-              d_leaf->put(ret[1] > 65000 ? ret[1] - 65000 : 0);
-              if (_type == 1){d_730->put(ret[6]);d_730Ref->put(ret[7]);} // ir enabled
+              d_sun->put(calibrated_sun);
+              d_leaf->put(calibrated_leaf);
+              if (_type == 1){d_730->put(calibrated_730);d_730Ref->put(calibrated_730_ref);} // ir enabled
 
             }else if (subsampling == 2){
-              buf_opt[0] += (ret[0] > 65000 ? ret[0] - 65000 : 0);
-              buf_opt[1] += (ret[1] > 65000 ? ret[1] - 65000 : 0);
+              buf_opt[0] += calibrated_sun;
+              buf_opt[1] += calibrated_leaf;
               if (_type == 1){
-                buf_opt[2] += ret[6];
-                buf_opt[3] += ret[7];
+                buf_opt[2] += calibrated_730;
+                buf_opt[3] += calibrated_730_ref;
               }
 
               if (counter % 8 == 7){
@@ -411,16 +425,16 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
           }
 
           if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
-            ploter1 = calc_signal(ret[2], ret[3], num_integration);
-            ploter2 = calc_signal(ret[4], ret[5], num_integration);
+            ploter1 = calibrated_fluor;
+            ploter2 = calibrated_fluo_ref;
             if (ploter2 == 0){
               ploter2 = 1;
               ploter1 = 0;
             }
             if (_type == 1) {
-              Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, ret[6], ret[7], ret[0]-65000, ret[1]-65000);
+              Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, calibrated_730, calibrated_730_ref, calibrated_sun, calibrated_leaf);
             }else if (_type == 2){
-              Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, ret[0]-65000, ret[1]-65000);            }
+              Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, calibrated_sun, calibrated_leaf);            }
             Serial.flush();
           }
           counter++;
@@ -649,16 +663,16 @@ int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8
       ESP_LOGE(TAG, "Extra %d byte in FIFO", fifo_c - expected_readout_bytes);
     }
 
-    read_fluor = calc_signal(ret[2], ret[3], num_integration); d_fluor->put(read_fluor);
-    read_fluoRef = calc_signal(ret[4], ret[5], num_integration); d_fluoRef->put(read_fluoRef);
-    read_sun = ret[0]; d_sun->put(read_sun > 65000 ? read_sun - 65000 : 0);
-    read_leaf = ret[1]; d_leaf->put(read_leaf > 65000 ? read_leaf - 65000 : 0);
-    read_7 = ret[6]; d_730->put(read_7);
-    read_7Ref = ret[7]; d_730Ref->put(read_7Ref);
+    read_fluor = apply_adpd_calibration(ambit_calibration::S630, calc_signal(ret[2], ret[3], num_integration)); d_fluor->put(read_fluor);
+    read_fluoRef = apply_adpd_calibration(ambit_calibration::R630, calc_signal(ret[4], ret[5], num_integration)); d_fluoRef->put(read_fluoRef);
+    read_sun = apply_adpd_calibration(ambit_calibration::SUN, ret[0]); d_sun->put(read_sun);
+    read_leaf = apply_adpd_calibration(ambit_calibration::LEAF, ret[1]); d_leaf->put(read_leaf);
+    read_7 = apply_adpd_calibration(ambit_calibration::S730, ret[6]); d_730->put(read_7);
+    read_7Ref = apply_adpd_calibration(ambit_calibration::R730, ret[7]); d_730Ref->put(read_7Ref);
 
 
     if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
-      Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)read_fluor/(float)read_fluoRef, read_fluor, read_fluoRef, read_7, read_7Ref, read_sun-65000, read_leaf-65000);    
+      Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)read_fluor/(float)read_fluoRef, read_fluor, read_fluoRef, read_7, read_7Ref, read_sun, read_leaf);
       Serial.flush();
     }
 
@@ -844,14 +858,14 @@ int external_trigger_run(void){
       Serial.printf("Extra %d byte in FIFO", fifo_c - expected_readout_bytes);
     }
 
-    read_fluor = calc_signal(ret[2], ret[3], num_integration); 
-    read_fluoRef = calc_signal(ret[4], ret[5], num_integration); 
-    read_sun = ret[0]; 
-    read_leaf = ret[1]; 
+    read_fluor = apply_adpd_calibration(ambit_calibration::S630, calc_signal(ret[2], ret[3], num_integration));
+    read_fluoRef = apply_adpd_calibration(ambit_calibration::R630, calc_signal(ret[4], ret[5], num_integration));
+    read_sun = apply_adpd_calibration(ambit_calibration::SUN, ret[0]);
+    read_leaf = apply_adpd_calibration(ambit_calibration::LEAF, ret[1]);
 
 
 
-    Serial.printf("T:%d,S:%d,R:%d,F:%d,B:%d\n", millis() - start_timer, read_fluor, read_fluoRef, read_sun-65000, read_leaf-65000);    
+    Serial.printf("T:%d,S:%d,R:%d,F:%d,B:%d\n", millis() - start_timer, read_fluor, read_fluoRef, read_sun, read_leaf);
     Serial.flush();    
   } /// End of Loop
 
@@ -971,8 +985,10 @@ int external_trigger_run_Flash(unsigned int gate_time, unsigned int dt, const ui
     
     if (_counter <= 20){
       for (uint8_t r = 0; r < _NUM_TS; r++){
-        d_fluor->put(calc_signal(ret[0 + r * 4], ret[1 + r * 4], num_integration));
-        d_fluoRef->put(calc_signal(ret[2 + r * 4], ret[3 + r * 4], num_integration));
+        d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+            calc_signal(ret[0 + r * 4], ret[1 + r * 4], num_integration)));
+        d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+            calc_signal(ret[2 + r * 4], ret[3 + r * 4], num_integration)));
       }
     }else{
       read_fluor = 0; read_fluoRef = 0;
@@ -980,8 +996,8 @@ int external_trigger_run_Flash(unsigned int gate_time, unsigned int dt, const ui
         read_fluor += calc_signal(ret[0 + r * 4], ret[1 + r * 4], num_integration);
         read_fluoRef += calc_signal(ret[2 + r * 4], ret[3 + r * 4], num_integration);
       }
-      d_fluor->put(read_fluor / _NUM_TS);
-      d_fluoRef->put(read_fluoRef / _NUM_TS);
+      d_fluor->put(apply_adpd_calibration(ambit_calibration::S630, read_fluor / _NUM_TS));
+      d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630, read_fluoRef / _NUM_TS));
       if (_counter == 100) flash_duration = 4;
       if (_counter == 300) flash_duration = 2;
       if (_counter == 500) flash_duration = 1;
@@ -1113,8 +1129,10 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
       for (uint8_t m = 0; m < 4; m++){    // sign-dark, sign-lit, ref-dark, ref lit
         avg_buf[m] = ret[m];
       }
-      d_fluor->put(calc_signal(avg_buf[0], avg_buf[1], num_integration));
-      d_fluoRef->put(calc_signal(avg_buf[2], avg_buf[3], num_integration));
+      d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+          calc_signal(avg_buf[0], avg_buf[1], num_integration)));
+      d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+          calc_signal(avg_buf[2], avg_buf[3], num_integration)));
       delay(500);
     }
     ESP_LOGV(TAG, "Phase-0 Completed");
@@ -1146,8 +1164,10 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
     adpd.readfifo(expected_readout, 3, ret); 
     for (uint8_t j = 0; j < 12; j++){
 
-      d_fluor->put(calc_signal(ret[0 + j * 4], ret[1 + j * 4], num_integration));
-      d_fluoRef->put(calc_signal(ret[2 + j * 4], ret[3 + j * 4], num_integration));
+      d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+          calc_signal(ret[0 + j * 4], ret[1 + j * 4], num_integration)));
+      d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+          calc_signal(ret[2 + j * 4], ret[3 + j * 4], num_integration)));
     }
     delayMicroseconds(500);
   }
@@ -1172,9 +1192,11 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
     // Serial.printf("P2, %d, %d, %d\n", avg_buf[2], avg_buf[3], calc_signal(avg_buf[2], avg_buf[3], num_integration));
 
    
-    d_fluor->put(calc_signal(avg_buf[0], avg_buf[1], num_integration));
+    d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+        calc_signal(avg_buf[0], avg_buf[1], num_integration)));
     // Serial.println(d_fluor->arr[d_fluor->write_ptr - 1]);
-    d_fluoRef->put(calc_signal(avg_buf[2], avg_buf[3], num_integration));
+    d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+        calc_signal(avg_buf[2], avg_buf[3], num_integration)));
     // Serial.println(d_fluoRef->arr[d_fluoRef->write_ptr - 1]);
     delayMicroseconds(500);
   }
@@ -1201,8 +1223,10 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
       }
 
       if (i % 2 == 1){
-        d_fluor->put(calc_signal(avg_buf[0] / 2, avg_buf[1] / 2, num_integration));
-        d_fluoRef->put(calc_signal(avg_buf[2] / 2, avg_buf[3] / 2, num_integration));
+        d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+            calc_signal(avg_buf[0] / 2, avg_buf[1] / 2, num_integration)));
+        d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+            calc_signal(avg_buf[2] / 2, avg_buf[3] / 2, num_integration)));
         memset(avg_buf, 0, sizeof(avg_buf));
       }   
       delayMicroseconds(500);
@@ -1236,9 +1260,11 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
       // Serial.printf("P4, %d, %d, %d\n", avg_buf[2]/4, avg_buf[3]/4, calc_signal(avg_buf[2]/4, avg_buf[3]/4, num_integration));
 
 
-      d_fluor->put(calc_signal(avg_buf[0] / 4, avg_buf[1] / 4, num_integration));
+      d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+          calc_signal(avg_buf[0] / 4, avg_buf[1] / 4, num_integration)));
       // Serial.println(d_fluor->arr[d_fluor->write_ptr - 1]);
-      d_fluoRef->put(calc_signal(avg_buf[2] / 4, avg_buf[3] / 4, num_integration));
+      d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+          calc_signal(avg_buf[2] / 4, avg_buf[3] / 4, num_integration)));
       // Serial.println(d_fluoRef->arr[d_fluoRef->write_ptr - 1]);
       memset(avg_buf, 0, sizeof(avg_buf));
     }
@@ -1262,8 +1288,10 @@ int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain,
         avg_buf[m] += ret[m];
       }
       if (i % 4 == 3){
-        d_fluor->put(calc_signal(avg_buf[0] / 4, avg_buf[1] / 4, num_integration));
-        d_fluoRef->put(calc_signal(avg_buf[2] / 4, avg_buf[3] / 4, num_integration));
+        d_fluor->put(apply_adpd_calibration(ambit_calibration::S630,
+            calc_signal(avg_buf[0] / 4, avg_buf[1] / 4, num_integration)));
+        d_fluoRef->put(apply_adpd_calibration(ambit_calibration::R630,
+            calc_signal(avg_buf[2] / 4, avg_buf[3] / 4, num_integration)));
         memset(avg_buf, 0, sizeof(avg_buf));
         decay_interval += 5;
       }
@@ -1465,94 +1493,105 @@ int fluor_offset_test(uint8_t current, uint8_t num_integ, uint8_t lit_offset, ui
 
 
 int fluor_offset(uint32_t* fret){
+  if (fret == nullptr) return FLUOR_OFFSET_INVALID_ARGUMENT;
 
   if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
-    conf_slow_FR_1();
+    const int config_result = conf_slow_FR_1();
+    if (config_result != jii::adpd6000::kOk) return FLUOR_OFFSET_CONFIG_ERROR;
     ESP_LOGW(TAG, "Run array was not configured!");
   }
-  // set to max possible bytes
-  uint8_t expected_readout = 8;
-  uint8_t expected_readout_bytes = expected_readout * 3;
-  const uint8_t num_integration = 1;
-  const unsigned int start_t0 = millis();
- 
 
-  // variables for each trace
-  uint8_t pc = 0;
-  uint8_t _type = 0;
-  uint8_t farred = 0, actinic = 0, subsampling = 0;
-  uint16_t num_ptx = 0;
+  constexpr uint8_t expected_readout = 8;
+  constexpr uint16_t expected_readout_bytes = expected_readout * 3;
+  constexpr uint8_t num_integration = 1;
+  constexpr uint16_t num_points = 64;
+  constexpr uint8_t repeat_count = 4;
+  // Four 64-point blocks at 100 Hz normally take about 2.6 seconds. Five
+  // seconds tolerates scheduling/FIFO jitter but bounds a missing or failed
+  // sensor. wrap_safe_timeout_elapsed() remains correct across millis() wrap.
+  constexpr uint32_t acquisition_timeout_ms = 5000U;
+  const uint32_t acquisition_start = millis();
 
-  // data counter and buffer
-  // [sun-amb, leaf-ir, lit_leaf-ir, dark_leaf-ir, lit_leaf-ref, dark_leaf-ref]
-  uint32_t ret[expected_readout] = {0};
-  uint32_t counter = 0;
-  uint16_t fifo_c = 0;
-  uint8_t watch_dog_timer = 0;
-  int32_t tmp_var = 0;
-  uint32_t buf_opt[4] = {0};
-  uint32_t _tmparr = 0;
-  uint8_t _repeats = 1;
+  auto fail_after_stop = [](int result) {
+    adpd.STOP();
+    return result;
+  };
 
-
-
-  adpd.STOP();
-  adpd.run_freq(100);
-  adpd.clear_fifo();
-  adpd.num_ts(3);
-  expected_readout = 8;
-  expected_readout_bytes = expected_readout * 3;
+  if (adpd.STOP() != jii::adpd6000::kOk) return FLUOR_OFFSET_ADPD_ERROR;
+  if (adpd.run_freq(100) != jii::adpd6000::kOk ||
+      adpd.num_ts(3) != jii::adpd6000::kOk){
+    return fail_after_stop(FLUOR_OFFSET_ADPD_ERROR);
+  }
   AS_LED_OFF();
   AS_LED_Current(0);
 
- 
-  num_ptx = 64;
+  uint32_t ret_fluor = 0, ret_fluoRef = 0, ret_sun = 0;
+  uint32_t ret_leaf = 0, ret_r730 = 0, ret_r730Ref = 0;
 
-  uint32_t fluor, fluoRef, sun, leaf, r730, r730Ref;
-  uint32_t ret_fluor = 0, ret_fluoRef = 0, ret_sun = 0, ret_leaf = 0, ret_r730 = 0, ret_r730Ref = 0;
-
-  for (uint8_t n = 0; n < 4; n++){
-    adpd.RUN();
+  for (uint8_t repeat = 0; repeat < repeat_count; ++repeat){
+    // STOP does not guarantee the FIFO is empty. Clear it for every block so
+    // a queued frame from the prior block cannot bias the next average.
+    if (adpd.clear_fifo() != jii::adpd6000::kOk ||
+        adpd.RUN() != jii::adpd6000::kOk){
+      return fail_after_stop(FLUOR_OFFSET_ADPD_ERROR);
+    }
     delay(1);
-    fluor = 0; fluoRef = 0; sun = 0; leaf = 0; r730 = 0; r730Ref = 0;
-    counter = 0;
 
-    while (counter < num_ptx){
-      fifo_c = adpd.fifo_count();
-      while (fifo_c >= expected_readout_bytes){ // read all bytes from FIFO
-        adpd.readfifo(expected_readout, 3, ret);
-        fifo_c -= expected_readout_bytes;
-        if (counter == num_ptx) break;
-        // 0: sun-vis; 1: leaf-ir; 2: fluoS_dark; 3: fluoS_lit; 4: fluoR_dark; 5: fluoR_lit; 6: Reflect_signal; 7: reflect_ref
-        // save fluor signal and ref
-        fluor += calc_signal(ret[2], ret[3], num_integration);       
-        fluoRef += calc_signal(ret[4], ret[5], num_integration);
-        r730 += ret[6];
-        r730Ref += ret[7];
-        sun += ret[0];
-        leaf += ret[1];
-        counter += 1;
+    uint32_t fluor = 0, fluoRef = 0, sun = 0;
+    uint32_t leaf = 0, r730 = 0, r730Ref = 0;
+    uint16_t counter = 0;
+
+    while (counter < num_points){
+      if (ambit_calibration::wrap_safe_timeout_elapsed(
+              acquisition_start, millis(), acquisition_timeout_ms)){
+        return fail_after_stop(FLUOR_OFFSET_TIMEOUT);
       }
-      
-    }
-    adpd.STOP();
 
-    if (counter > 10){
-      ret_fluor += fluor / counter;
-      ret_fluoRef += fluoRef / counter;
-      ret_sun += sun / counter;
-      ret_leaf += leaf / counter;
-      ret_r730 += r730 / counter;
-      ret_r730Ref += r730Ref / counter;
+      uint16_t fifo_count = 0;
+      if (adpd.fifo_count(&fifo_count) != jii::adpd6000::kOk){
+        return fail_after_stop(FLUOR_OFFSET_ADPD_ERROR);
+      }
+      if (fifo_count < expected_readout_bytes){
+        delay(1);
+        continue;
+      }
+
+      while (fifo_count >= expected_readout_bytes && counter < num_points){
+        uint32_t samples[expected_readout] = {0};
+        if (adpd.readfifo(expected_readout, 3, samples) != jii::adpd6000::kOk){
+          return fail_after_stop(FLUOR_OFFSET_ADPD_ERROR);
+        }
+        fifo_count -= expected_readout_bytes;
+
+        // 0: sun-vis; 1: leaf-ir; 2/3: fluo signal dark/lit;
+        // 4/5: fluo reference dark/lit; 6/7: 730 signal/reference.
+        fluor += calc_signal(samples[2], samples[3], num_integration);
+        fluoRef += calc_signal(samples[4], samples[5], num_integration);
+        r730 += samples[6];
+        r730Ref += samples[7];
+        sun += samples[0];
+        leaf += samples[1];
+        ++counter;
+      }
     }
-    
+
+    if (adpd.STOP() != jii::adpd6000::kOk) return FLUOR_OFFSET_ADPD_ERROR;
+    ret_fluor += fluor / counter;
+    ret_fluoRef += fluoRef / counter;
+    ret_sun += sun / counter;
+    ret_leaf += leaf / counter;
+    ret_r730 += r730 / counter;
+    ret_r730Ref += r730Ref / counter;
   }
-  fret[0] = ret_fluor / 4;
-  fret[1] = ret_fluoRef / 4;
-  fret[2] = ret_sun / 4;
-  fret[3] = ret_leaf / 4;
-  fret[4] = ret_r730 / 4;
-  fret[5] = ret_r730Ref / 4;
-  return 0;
+
+  // Leave the caller-provided vector untouched unless the full acquisition
+  // succeeded. Callers can therefore safely gate NVS writes on this result.
+  fret[0] = ret_fluor / repeat_count;
+  fret[1] = ret_fluoRef / repeat_count;
+  fret[2] = ret_sun / repeat_count;
+  fret[3] = ret_leaf / repeat_count;
+  fret[4] = ret_r730 / repeat_count;
+  fret[5] = ret_r730Ref / repeat_count;
+  return FLUOR_OFFSET_OK;
 
 }

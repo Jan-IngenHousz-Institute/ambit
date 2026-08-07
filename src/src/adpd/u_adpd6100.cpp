@@ -99,11 +99,21 @@ int32_t ADPD6::STOP(){
   return ADPD6::driver.set_running(false);
 }
 
+int32_t ADPD6::fifo_count(uint16_t *count){
+  if (count == nullptr) return jii::adpd6000::kInvalidArgument;
+  *count = 0;
+  const int32_t result = ADPD6::driver.fifo_byte_count(count);
+  if (result != jii::adpd6000::kOk) return result;
+  if (*count > jii::adpd6000::kFifoCapacityBytes){
+    *count = 0;
+    return jii::adpd6000::kOutOfRange;
+  }
+  return jii::adpd6000::kOk;
+}
+
 uint16_t ADPD6::fifo_count(){
-  uint16_t ret = 0;
-  if (ADPD6::driver.fifo_byte_count(&ret) != jii::adpd6000::kOk) return 0;
-  if (ret <= jii::adpd6000::kFifoCapacityBytes) return ret;
-  return 0;
+  uint16_t count = 0;
+  return fifo_count(&count) == jii::adpd6000::kOk ? count : 0;
 }
 int32_t ADPD6::readfifo(uint16_t num_samples, uint8_t width, uint32_t* data){
   return ADPD6::driver.read_fifo_samples(num_samples, width, data);

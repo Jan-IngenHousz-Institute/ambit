@@ -58,6 +58,13 @@ int     ambit_async_fetch(void);       // stream retained arrays (AMBYTE FSM), t
 void    ambit_async_clear(void);       // free any retained buffers, state -> IDLE
 uint32_t PAM_get_env(uint8_t mode, unsigned int t0);
 uint32_t PAM_retrieve_env(uint32_t r, uint8_t* mode, float_t* data_f = NULL, int16_t* data_i = NULL);
+enum FluorOffsetResult {
+    FLUOR_OFFSET_OK = 0,
+    FLUOR_OFFSET_INVALID_ARGUMENT = -1,
+    FLUOR_OFFSET_CONFIG_ERROR = -2,
+    FLUOR_OFFSET_ADPD_ERROR = -3,
+    FLUOR_OFFSET_TIMEOUT = -4,
+};
 int fluor_offset(uint32_t* ret);
 enum ADPD_CONFIG_MODE {
     MPF_MODE,

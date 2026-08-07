@@ -1,11 +1,102 @@
 #include "nvs1.h"
 #include "src/mlx90632/u_mlx.h"
 #include <Preferences.h>
+#include "nvs.h"
+#include <cmath>
 
 extern Preferences preferences;
 struct ambit_calibration_info_t ambit_calibration_local, ambit_calibration_income;
 struct ambit_FW_info_t ambit_FW_info;
 struct metadata_t metadata_epprom, metadata_incoming;
+
+static const char *const ADPD_BASELINE_KEYS[ambit_calibration::CHANNEL_COUNT] = {
+    "adpd_dark", "adpd_lit", "adpd_sun", "adpd_leaf", "adpd_730", "adpd_730r"
+};
+static bool adpd_baseline_present[ambit_calibration::CHANNEL_COUNT] = {false};
+
+uint32_t apply_adpd_calibration(uint8_t channel, uint32_t sample){
+    const bool present = channel < ambit_calibration::CHANNEL_COUNT
+        ? adpd_baseline_present[channel] : false;
+    return ambit_calibration::apply_adpd_offset(
+        channel, sample, ambit_calibration_local.adpd, present);
+}
+
+esp_err_t save_adpd_baseline(const uint32_t values[ambit_calibration::CHANNEL_COUNT]){
+    if (!ambit_calibration::valid_adpd_baseline(values)) return ESP_ERR_INVALID_ARG;
+
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("config", NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+
+    for (uint8_t i = 0; i < ambit_calibration::CHANNEL_COUNT; ++i){
+        err = nvs_set_u32(handle, ADPD_BASELINE_KEYS[i], values[i]);
+        if (err != ESP_OK){
+            nvs_close(handle);  // uncommitted writes are discarded
+            return err;
+        }
+    }
+    err = nvs_commit(handle);  // one atomic NVS commit for the complete vector
+    if (err != ESP_OK){
+        nvs_close(handle);
+        return err;
+    }
+
+    uint32_t readback[ambit_calibration::CHANNEL_COUNT] = {0};
+    for (uint8_t i = 0; i < ambit_calibration::CHANNEL_COUNT; ++i){
+        err = nvs_get_u32(handle, ADPD_BASELINE_KEYS[i], &readback[i]);
+        if (err != ESP_OK || readback[i] != values[i]){
+            nvs_close(handle);
+            return err != ESP_OK ? err : ESP_ERR_INVALID_STATE;
+        }
+    }
+    nvs_close(handle);
+    memcpy(ambit_calibration_local.adpd, readback, sizeof(readback));
+    memcpy(ambit_calibration_income.adpd, readback, sizeof(readback));
+    for (uint8_t i = 0; i < ambit_calibration::CHANNEL_COUNT; ++i){
+        adpd_baseline_present[i] = true;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t save_calibration_float(const char *key, float value){
+    if (key == nullptr) return ESP_ERR_INVALID_ARG;
+
+    // Preferences::putFloat stores a four-byte NVS blob. Use the same type so
+    // existing installations remain readable, while making the commit and
+    // readback checks explicit before any runtime calibration is changed.
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("config", NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+
+    err = nvs_set_blob(handle, key, &value, sizeof(value));
+    if (err == ESP_OK) err = nvs_commit(handle);
+
+    float readback = 0.0f;
+    size_t readback_size = sizeof(readback);
+    if (err == ESP_OK){
+        err = nvs_get_blob(handle, key, &readback, &readback_size);
+        if (err == ESP_OK &&
+            (readback_size != sizeof(readback) || memcmp(&readback, &value, sizeof(value)) != 0)){
+            err = ESP_ERR_INVALID_STATE;
+        }
+    }
+    nvs_close(handle);
+    return err;
+}
+
+esp_err_t save_actinic_coefficient(float value){
+    if (!ambit_calibration::valid_actinic_coefficient(value)) return ESP_ERR_INVALID_ARG;
+    const esp_err_t err = save_calibration_float("actinic", value);
+    if (err == ESP_OK) ambit_calibration_local.actinic_coef = value;
+    return err;
+}
+
+esp_err_t save_spec_coefficient(float value){
+    if (!ambit_calibration::valid_spec_coefficient(value)) return ESP_ERR_INVALID_ARG;
+    const esp_err_t err = save_calibration_float("spec", value);
+    if (err == ESP_OK) ambit_calibration_local.spec_coef = value;
+    return err;
+}
 
 
 
@@ -63,8 +154,17 @@ void save_metadata(void){
 
 static void load_calibration_info(){
     preferences.begin("config", true);
-    if (preferences.isKey("actinic")) ambit_calibration_local.actinic_coef = preferences.getFloat("actinic", 0.1);
-    if (preferences.isKey("spec")) ambit_calibration_local.spec_coef = preferences.getFloat("spec", 1.0);
+    for (uint8_t i = 0; i < ambit_calibration::CHANNEL_COUNT; ++i){
+        adpd_baseline_present[i] = preferences.isKey(ADPD_BASELINE_KEYS[i]);
+    }
+    if (preferences.isKey("actinic")){
+        const float value = preferences.getFloat("actinic", 0.1);
+        if (ambit_calibration::valid_actinic_coefficient(value)) ambit_calibration_local.actinic_coef = value;
+    }
+    if (preferences.isKey("spec")){
+        const float value = preferences.getFloat("spec", 1.0);
+        if (ambit_calibration::valid_spec_coefficient(value)) ambit_calibration_local.spec_coef = value;
+    }
     if (preferences.isKey("emit")) ambit_calibration_local.mlx_emissivity = preferences.getDouble("emit", 1.0);
     if (preferences.isKey("sun")) ambit_calibration_local.sun_coef = preferences.getFloat("sun", 1.0);
     if (preferences.isKey("name")) preferences.getString("name", ambit_calibration_local.ambit_name, 20);
@@ -117,4 +217,3 @@ void load_info_from_nvs(bool print){
     }
     return;
 }
-
