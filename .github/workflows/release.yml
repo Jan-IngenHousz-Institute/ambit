@@ -54,20 +54,6 @@ jobs:
           test "${GITHUB_REF}" = "refs/heads/${RELEASE_BRANCH}"
           echo "sha=${TARGET_SHA}" >> "${GITHUB_OUTPUT}"
 
-      - name: Fail closed if tag or release already exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh api --paginate "repos/${REPO}/releases?per_page=100" --slurp > preflight-releases.json
-          gh api "repos/${REPO}/git/matching-refs/tags/${EXPECTED_TAG}" > preflight-refs.json
-          python3 tools/release_guard.py preflight \
-            --releases-json preflight-releases.json \
-            --refs-json preflight-refs.json \
-            --tag "${EXPECTED_TAG}"
-
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -97,6 +83,21 @@ jobs:
           test "${VERSION}" = "${EXPECTED_VERSION}"
           test "v${VERSION}" = "${EXPECTED_TAG}"
           echo "will-release=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Fail closed if tag or release already exists
+        if: steps.preview.outputs.will-release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${REPO}/releases?per_page=100" --slurp > preflight-releases.json
+          gh api "repos/${REPO}/git/matching-refs/tags/${EXPECTED_TAG}" > preflight-refs.json
+          python3 tools/release_guard.py preflight \
+            --releases-json preflight-releases.json \
+            --refs-json preflight-refs.json \
+            --tag "${EXPECTED_TAG}"
 
       - name: Require pinned qualification evidence
         if: steps.preview.outputs.will-release == 'true'
@@ -240,6 +241,7 @@ jobs:
     permissions:
       contents: write
       actions: read
+      attestations: read
     steps:
       - name: Checkout proved release target
         uses: actions/checkout@v6
@@ -332,6 +334,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          gh --version
           gh release verify "${EXPECTED_TAG}" --repo "${REPO}"
           while IFS=$'\t' read -r _ ASSET_NAME; do
             gh release verify-asset "${EXPECTED_TAG}" \

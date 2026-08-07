@@ -37,7 +37,9 @@
         ],
         "successComment": false,
         "failComment": false,
+        "failTitle": false,
         "releasedLabels": false,
+        "addReleases": false,
         "draftRelease": true
       }
     ]

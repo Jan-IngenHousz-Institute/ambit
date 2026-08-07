@@ -223,8 +223,15 @@ class WorkflowBoundaryTests(unittest.TestCase):
         self.assertIn("QUALIFIED_PR_HEAD_SHA: ${{ vars.AMBIT_V114_PR_HEAD_SHA }}", workflow)
         self.assertNotIn("actions/artifacts?name=", workflow)
         self.assertIn("-F draft=false -f make_latest=true", finalizer)
-        self.assertLess(stage.index("release_guard.py preflight"),
-                        stage.index("npx semantic-release --dry-run"))
+        preview = stage.index("npx semantic-release --dry-run")
+        preflight = stage.index("release_guard.py preflight")
+        publish = stage.index("run: npx semantic-release\n")
+        self.assertLess(preview, preflight)
+        self.assertLess(preflight, publish)
+        preflight_step = stage[stage.rfind("      - name:", 0, preflight):preflight]
+        self.assertIn("if: steps.preview.outputs.will-release == 'true'", preflight_step)
+        self.assertIn("attestations: read", finalizer)
+        self.assertIn("gh --version", finalizer)
 
     def test_plugin_and_host_compile_flags_are_pinned(self):
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
@@ -233,10 +240,14 @@ class WorkflowBoundaryTests(unittest.TestCase):
         github_plugin = next(item for item in config["plugins"]
                              if isinstance(item, list) and item[0] == "@semantic-release/github")
         self.assertIs(github_plugin[1]["draftRelease"], True)
+        self.assertIs(github_plugin[1]["addReleases"], False)
         pr_workflow = (ROOT / ".github/workflows/pr.yml").read_text(encoding="utf-8")
         self.assertGreaterEqual(pr_workflow.count("-std=c++11 -Wall -Wextra -Werror"), 2)
         self.assertIn("semantic_release_github_draft.mjs", pr_workflow)
         self.assertIn("install_release_tooling.sh", pr_workflow)
+        proof = (ROOT / "test/release_process/semantic_release_github_draft.mjs").read_text(
+            encoding="utf-8")
+        self.assertIn('readFile(".releaserc.json", "utf8")', proof)
         installer = (ROOT / "tools/install_release_tooling.sh").read_text(encoding="utf-8")
         self.assertIn("4bd998c6530867151587e99ca8abb7ede0d1e51904195f8945caf2d1eed22554",
                       installer)

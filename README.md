@@ -251,6 +251,14 @@ authoritative calibration workflow is the Calibratron's text-console
 `baseline` capture, which prints the six acquired values and explicitly reports
 acquisition, range, and save failures.
 
+The deployed scalar/vector calibration setters are also silent on validation
+failure: binary command 4 types 2 and 4, command 17, and command 18 preserve
+their existing acknowledgement framing and add no status byte. Invalid
+actinic/spec coefficients, or an invalid command-18 vector, are rejected
+without persistence, but the acknowledgement alone does not prove that a new
+value was saved. Use the text-console setters/readback during calibration when
+operator-visible success or failure is required.
+
 Binary commands and selected text-console operations can update this state.
 Metadata is persisted only when its frozen end marker is valid and its
 longitude, latitude, and altitude pass the source's range checks. The binary

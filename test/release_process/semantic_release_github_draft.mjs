@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Jan IngenHousz Institute
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,6 +11,14 @@ const packageJson = JSON.parse(
   await (await import("node:fs/promises")).readFile(
     "node_modules/@semantic-release/github/package.json", "utf8"));
 assert.equal(packageJson.version, "11.0.6", "the tested plugin must be exactly 11.0.6");
+
+const releaseConfig = JSON.parse(await readFile(".releaserc.json", "utf8"));
+const githubPlugin = releaseConfig.plugins.find(
+  entry => Array.isArray(entry) && entry[0] === "@semantic-release/github");
+assert.ok(githubPlugin, "the production GitHub plugin config must exist");
+const githubConfig = githubPlugin[1];
+assert.equal(githubConfig.draftRelease, true,
+  "the production config must keep releases in draft");
 
 const packageRoot = path.resolve("node_modules/@semantic-release/github");
 const publishGitHub = (await import(pathToFileURL(
@@ -60,7 +68,7 @@ try {
   };
 
   await publishGitHub(
-    { draftRelease: true, assets: [{ path: "asset.bin", label: "qualified" }] },
+    { ...githubConfig, assets: [{ path: "asset.bin", label: "qualified" }] },
     context,
     { Octokit: MockOctokit });
 
@@ -75,13 +83,7 @@ try {
 
   calls.length = 0;
   await successGitHub(
-    {
-      successComment: false,
-      failComment: false,
-      failTitle: false,
-      releasedLabels: false,
-      addReleases: false,
-    },
+    githubConfig,
     { ...context, commits: [], releases: [] },
     { Octokit: MockOctokit });
   assert.deepEqual(calls.map(call => call.route), ["GET /repos/{owner}/{repo}"],
