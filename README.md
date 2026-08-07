@@ -276,8 +276,12 @@ pio run
 Host-side unit tests under [`test/adpd6000/`](test/adpd6000/) and
 [`test/calibration/`](test/calibration/) verify the transport boundary and
 baseline math, including legacy defaults and saturating subtraction. Run them
-before approving a release candidate. Hardware remains the release-quality
-regression gate for transport and measurement changes.
+before approving a release candidate; PR CI compiles both with C++11 and treats
+all warnings as errors. Release automation policy is covered by
+[`test/release_process/`](test/release_process/) and the staged-draft procedure
+is documented in [`plans/RELEASE_PROCESS.md`](plans/RELEASE_PROCESS.md).
+Hardware remains the release-quality regression gate for transport and
+measurement changes.
 
 Any change touching the binary adapter, FSM framing, or first-byte router must
 run the real-device procedure in

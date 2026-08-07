@@ -1,5 +1,31 @@
 
-This directory is intended for PlatformIO Test Runner and project tests.
+This directory contains the firmware's host-side regression suites and release
+boundary checks. They are deliberately compiled outside PlatformIO so a pull
+request fails on ordinary C++ warnings as well as test failures:
+
+```sh
+mkdir -p /tmp/ambit-host-tests
+c++ -std=c++11 -Wall -Wextra -Werror test/calibration/test_main.cpp \
+  -o /tmp/ambit-host-tests/calibration
+/tmp/ambit-host-tests/calibration
+c++ -std=c++11 -Wall -Wextra -Werror \
+  test/adpd6000/test_main.cpp src/src/adpd/jii_adpd6000.cpp \
+  -o /tmp/ambit-host-tests/adpd6000
+/tmp/ambit-host-tests/adpd6000
+python3 -m unittest discover -s test/release_process -p 'test_*.py' -v
+```
+
+Install the archive-hash-pinned release tooling, then run the exact installed
+GitHub release-plugin proof too:
+
+```sh
+bash tools/install_release_tooling.sh
+node test/release_process/semantic_release_github_draft.mjs
+```
+
+That mock-Octokit test proves `@semantic-release/github@11.0.6` creates a
+draft, uploads its configured assets, returns without a publication PATCH, and
+does not publish in its later success phase.
 
 Unit Testing is a software testing method by which individual units of
 source code, sets of one or more MCU program modules together with associated
