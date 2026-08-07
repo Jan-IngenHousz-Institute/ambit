@@ -33,12 +33,15 @@ int conf_slow_FR_1(void){
 // @param G_FRref IR reflection reference gain (0 - 5)
 int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, uint8_t G_FluorRef, uint8_t G_Sun, uint8_t G_IR, uint8_t G_FR, uint8_t G_FRref){
 
+  int32_t config_result = 0;
+
   // Setup timeslot 1: two ambient light channels, 2 x 3 bytes
   adpd.led_config.driver1_current = 0;
   adpd.led_config.driver2_current = 0;
   adpd.SNR_config.TIA_gain_CH2 = G_IR;       // channel 2: leaf IR reflection
   adpd.SNR_config.TIA_gain_CH1 = G_Sun;      // channel 1: sun vis
-  adpd.preset_config_1(0, 4);
+  config_result = adpd.preset_config_1(0, 4);
+  if (config_result != jii::adpd6000::kOk) return config_result;
 
 
 
@@ -51,7 +54,8 @@ int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, ui
   adpd.led_config.led2_channel = LED_A;
   adpd.SNR_config.TIA_gain_CH1 = G_Fluor;
   adpd.SNR_config.TIA_gain_CH2 = G_FluorRef;
-  adpd.preset_config_2(1, 1);
+  config_result = adpd.preset_config_2(1, 1);
+  if (config_result != jii::adpd6000::kOk) return config_result;
 
 
   // Setup timeslot 3:  IR leave reflection, 2 x 3 bytes
@@ -64,7 +68,8 @@ int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, ui
   adpd.SNR_config.TIA_gain_CH1 = G_FR;
   adpd.SNR_config.TIA_gain_CH2 = G_FRref;
 
-  adpd.preset_config_3(2, 4);
+  config_result = adpd.preset_config_3(2, 4);
+  if (config_result != jii::adpd6000::kOk) return config_result;
 
   // Setup timeslot 4-5-6:  Far-red illumination, 0 data
     // LED 1A = 620nm
@@ -75,12 +80,10 @@ int conf_slow_FR_1(uint8_t I620, uint8_t I730, uint8_t I_FR, uint8_t G_Fluor, ui
   adpd.led_config.led2_channel = LED_A;
 
   //make 6 time slots, ~ 2 ms without repeats, can get 200 repeats ~ 400ms
-  adpd.preset_config_4(3);
-  adpd.preset_config_4(4);
-  adpd.preset_config_4(5);
-  adpd.preset_config_4(6);
-  adpd.preset_config_4(7);
-  adpd.preset_config_4(8);
+  for (uint8_t slot = 3; slot <= 8; ++slot){
+    config_result = adpd.preset_config_4(slot);
+    if (config_result != jii::adpd6000::kOk) return config_result;
+  }
 
   adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
 
@@ -1490,94 +1493,105 @@ int fluor_offset_test(uint8_t current, uint8_t num_integ, uint8_t lit_offset, ui
 
 
 int fluor_offset(uint32_t* fret){
+  if (fret == nullptr) return FLUOR_OFFSET_INVALID_ARGUMENT;
 
   if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
-    conf_slow_FR_1();
+    const int config_result = conf_slow_FR_1();
+    if (config_result != jii::adpd6000::kOk) return FLUOR_OFFSET_CONFIG_ERROR;
     ESP_LOGW(TAG, "Run array was not configured!");
   }
-  // set to max possible bytes
-  uint8_t expected_readout = 8;
-  uint8_t expected_readout_bytes = expected_readout * 3;
-  const uint8_t num_integration = 1;
-  const unsigned int start_t0 = millis();
- 
 
-  // variables for each trace
-  uint8_t pc = 0;
-  uint8_t _type = 0;
-  uint8_t farred = 0, actinic = 0, subsampling = 0;
-  uint16_t num_ptx = 0;
+  constexpr uint8_t expected_readout = 8;
+  constexpr uint16_t expected_readout_bytes = expected_readout * 3;
+  constexpr uint8_t num_integration = 1;
+  constexpr uint16_t num_points = 64;
+  constexpr uint8_t repeat_count = 4;
+  // Four 64-point blocks at 100 Hz normally take about 2.6 seconds. Five
+  // seconds tolerates scheduling/FIFO jitter but bounds a missing or failed
+  // sensor. wrap_safe_timeout_elapsed() remains correct across millis() wrap.
+  constexpr uint32_t acquisition_timeout_ms = 5000U;
+  const uint32_t acquisition_start = millis();
 
-  // data counter and buffer
-  // [sun-amb, leaf-ir, lit_leaf-ir, dark_leaf-ir, lit_leaf-ref, dark_leaf-ref]
-  uint32_t ret[expected_readout] = {0};
-  uint32_t counter = 0;
-  uint16_t fifo_c = 0;
-  uint8_t watch_dog_timer = 0;
-  int32_t tmp_var = 0;
-  uint32_t buf_opt[4] = {0};
-  uint32_t _tmparr = 0;
-  uint8_t _repeats = 1;
+  auto fail_after_stop = [](int result) {
+    adpd.STOP();
+    return result;
+  };
 
-
-
-  adpd.STOP();
-  adpd.run_freq(100);
-  adpd.clear_fifo();
-  adpd.num_ts(3);
-  expected_readout = 8;
-  expected_readout_bytes = expected_readout * 3;
+  if (adpd.STOP() != jii::adpd6000::kOk) return FLUOR_OFFSET_ADPD_ERROR;
+  if (adpd.run_freq(100) != jii::adpd6000::kOk ||
+      adpd.num_ts(3) != jii::adpd6000::kOk){
+    return fail_after_stop(FLUOR_OFFSET_ADPD_ERROR);
+  }
   AS_LED_OFF();
   AS_LED_Current(0);
 
- 
-  num_ptx = 64;
+  uint32_t ret_fluor = 0, ret_fluoRef = 0, ret_sun = 0;
+  uint32_t ret_leaf = 0, ret_r730 = 0, ret_r730Ref = 0;
 
-  uint32_t fluor, fluoRef, sun, leaf, r730, r730Ref;
-  uint32_t ret_fluor = 0, ret_fluoRef = 0, ret_sun = 0, ret_leaf = 0, ret_r730 = 0, ret_r730Ref = 0;
-
-  for (uint8_t n = 0; n < 4; n++){
-    adpd.RUN();
+  for (uint8_t repeat = 0; repeat < repeat_count; ++repeat){
+    // STOP does not guarantee the FIFO is empty. Clear it for every block so
+    // a queued frame from the prior block cannot bias the next average.
+    if (adpd.clear_fifo() != jii::adpd6000::kOk ||
+        adpd.RUN() != jii::adpd6000::kOk){
+      return fail_after_stop(FLUOR_OFFSET_ADPD_ERROR);
+    }
     delay(1);
-    fluor = 0; fluoRef = 0; sun = 0; leaf = 0; r730 = 0; r730Ref = 0;
-    counter = 0;
 
-    while (counter < num_ptx){
-      fifo_c = adpd.fifo_count();
-      while (fifo_c >= expected_readout_bytes){ // read all bytes from FIFO
-        adpd.readfifo(expected_readout, 3, ret);
-        fifo_c -= expected_readout_bytes;
-        if (counter == num_ptx) break;
-        // 0: sun-vis; 1: leaf-ir; 2: fluoS_dark; 3: fluoS_lit; 4: fluoR_dark; 5: fluoR_lit; 6: Reflect_signal; 7: reflect_ref
-        // save fluor signal and ref
-        fluor += calc_signal(ret[2], ret[3], num_integration);       
-        fluoRef += calc_signal(ret[4], ret[5], num_integration);
-        r730 += ret[6];
-        r730Ref += ret[7];
-        sun += ret[0];
-        leaf += ret[1];
-        counter += 1;
+    uint32_t fluor = 0, fluoRef = 0, sun = 0;
+    uint32_t leaf = 0, r730 = 0, r730Ref = 0;
+    uint16_t counter = 0;
+
+    while (counter < num_points){
+      if (ambit_calibration::wrap_safe_timeout_elapsed(
+              acquisition_start, millis(), acquisition_timeout_ms)){
+        return fail_after_stop(FLUOR_OFFSET_TIMEOUT);
       }
-      
-    }
-    adpd.STOP();
 
-    if (counter > 10){
-      ret_fluor += fluor / counter;
-      ret_fluoRef += fluoRef / counter;
-      ret_sun += sun / counter;
-      ret_leaf += leaf / counter;
-      ret_r730 += r730 / counter;
-      ret_r730Ref += r730Ref / counter;
+      uint16_t fifo_count = 0;
+      if (adpd.fifo_count(&fifo_count) != jii::adpd6000::kOk){
+        return fail_after_stop(FLUOR_OFFSET_ADPD_ERROR);
+      }
+      if (fifo_count < expected_readout_bytes){
+        delay(1);
+        continue;
+      }
+
+      while (fifo_count >= expected_readout_bytes && counter < num_points){
+        uint32_t samples[expected_readout] = {0};
+        if (adpd.readfifo(expected_readout, 3, samples) != jii::adpd6000::kOk){
+          return fail_after_stop(FLUOR_OFFSET_ADPD_ERROR);
+        }
+        fifo_count -= expected_readout_bytes;
+
+        // 0: sun-vis; 1: leaf-ir; 2/3: fluo signal dark/lit;
+        // 4/5: fluo reference dark/lit; 6/7: 730 signal/reference.
+        fluor += calc_signal(samples[2], samples[3], num_integration);
+        fluoRef += calc_signal(samples[4], samples[5], num_integration);
+        r730 += samples[6];
+        r730Ref += samples[7];
+        sun += samples[0];
+        leaf += samples[1];
+        ++counter;
+      }
     }
-    
+
+    if (adpd.STOP() != jii::adpd6000::kOk) return FLUOR_OFFSET_ADPD_ERROR;
+    ret_fluor += fluor / counter;
+    ret_fluoRef += fluoRef / counter;
+    ret_sun += sun / counter;
+    ret_leaf += leaf / counter;
+    ret_r730 += r730 / counter;
+    ret_r730Ref += r730Ref / counter;
   }
-  fret[0] = ret_fluor / 4;
-  fret[1] = ret_fluoRef / 4;
-  fret[2] = ret_sun / 4;
-  fret[3] = ret_leaf / 4;
-  fret[4] = ret_r730 / 4;
-  fret[5] = ret_r730Ref / 4;
-  return 0;
+
+  // Leave the caller-provided vector untouched unless the full acquisition
+  // succeeded. Callers can therefore safely gate NVS writes on this result.
+  fret[0] = ret_fluor / repeat_count;
+  fret[1] = ret_fluoRef / repeat_count;
+  fret[2] = ret_sun / repeat_count;
+  fret[3] = ret_leaf / repeat_count;
+  fret[4] = ret_r730 / repeat_count;
+  fret[5] = ret_r730Ref / repeat_count;
+  return FLUOR_OFFSET_OK;
 
 }

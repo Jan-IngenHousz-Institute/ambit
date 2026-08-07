@@ -298,19 +298,17 @@ int do_esp_cmd(){
             AS_LED_Current(0);
         }else if (type == 2){ // set actinic offset
             _factor = *((float *) &(cmd_arr[3]));
-            if ((_factor > 0.01) && (_factor < 1.01)){
-                preferences.begin("config", false);
-                preferences.putFloat("actinic", _factor);
-                preferences.end();
-                ambit_calibration_local.actinic_coef = _factor;
+            if (ambit_calibration::valid_actinic_coefficient(_factor)){
+                const esp_err_t err = save_actinic_coefficient(_factor);
+                if (err != ESP_OK) ESP_LOGE(TAG, "Actinic coefficient save failed: %s", esp_err_to_name(err));
             }
-        }else if (type == 4){ // set actinic offset
+        }else if (type == 4){ // set spectral/PAR coefficient
             _factor = *((float *) &(cmd_arr[3]));
-            if ((_factor > 0.05) && (_factor < 100.01)){
-                //preferences.begin("config", false);
-                //preferences.putFloat("spec", _factor);
-                //preferences.end();
-                ambit_calibration_local.spec_coef = _factor;
+            if (ambit_calibration::valid_spec_coefficient(_factor)){
+                // Frozen cmd-4 framing carries no status byte. Persist and
+                // verify first; only a successful commit may alter runtime.
+                const esp_err_t err = save_spec_coefficient(_factor);
+                if (err != ESP_OK) ESP_LOGE(TAG, "PAR coefficient save failed: %s", esp_err_to_name(err));
             }
         }else if (type == 5){
             AS_LED_Current(var);
@@ -335,11 +333,18 @@ int do_esp_cmd(){
 
     case 6: // do adpd baseline flash
     {
+        // Frozen Ambyte semantics are deliberately silent: DONE then END with
+        // no result/status payload, even when acquisition or NVS persistence
+        // fails. Never add bytes here; the Calibratron text path is authoritative.
         Serial.write(ESP_CMD_DONE);
         uint32_t ret[6] = {0};
-        fluor_offset(ret);
-        esp_err_t baseline_err = save_adpd_baseline(ret);
-        if (baseline_err != ESP_OK) ESP_LOGE(TAG, "ADPD baseline save failed: %s", esp_err_to_name(baseline_err));
+        const int acquisition_err = fluor_offset(ret);
+        if (acquisition_err == 0){
+            const esp_err_t baseline_err = save_adpd_baseline(ret);
+            if (baseline_err != ESP_OK) ESP_LOGE(TAG, "ADPD baseline save failed: %s", esp_err_to_name(baseline_err));
+        }else{
+            ESP_LOGE(TAG, "ADPD baseline acquisition failed: %d", acquisition_err);
+        }
         Serial.write(ESP_CMD_END);
 
     }
@@ -352,12 +357,10 @@ int do_esp_cmd(){
         if ((type == 1) && (dtype == 1)){ // update actinic coef
             Serial.write(ESP_CMD_DONE);
             float_t _factor = *((float *) &(cmd_arr[3]));
-            if ((_factor > 0.01) && (_factor < 1.01)){
-                preferences.begin("config", false);
-                preferences.putFloat("actinic", _factor);
-                preferences.end();
-                ambit_calibration_local.actinic_coef = _factor;
-                load_info_from_nvs(false);
+            if (ambit_calibration::valid_actinic_coefficient(_factor)){
+                const esp_err_t err = save_actinic_coefficient(_factor);
+                if (err == ESP_OK) load_info_from_nvs(false);
+                else ESP_LOGE(TAG, "Actinic coefficient save failed: %s", esp_err_to_name(err));
             }
             Serial.write(ESP_CMD_END);
         }
@@ -378,7 +381,8 @@ int do_esp_cmd(){
             for (int i = 0; i < 5; i++){
                 checksum += _readingsf[i];
             }
-            if (checksum == _readingsf[5]){
+            if (checksum == _readingsf[5] &&
+                ambit_calibration::valid_actinic_coefficient(_factor)){
                 preferences.begin("config", false);
                 preferences.putUShort("act_50", _readingsf[0]);
                 preferences.putUShort("act_100", _readingsf[1]);

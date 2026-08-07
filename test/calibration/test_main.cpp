@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include <iostream>
+#include <limits>
 #include <string>
 
 #include "../../src/calibration_math.h"
@@ -69,6 +70,85 @@ void test_saturation_and_invalid_channel() {
         "unknown channels are not modified");
 }
 
+void test_coefficient_bounds() {
+  check(!ambit_calibration::valid_actinic_coefficient(0.01f),
+        "actinic lower bound is exclusive");
+  check(ambit_calibration::valid_actinic_coefficient(0.0101f),
+        "actinic value above the lower bound is accepted");
+  check(ambit_calibration::valid_actinic_coefficient(1.0f),
+        "actinic upper bound is inclusive");
+  check(!ambit_calibration::valid_actinic_coefficient(1.0001f),
+        "actinic value above the upper bound is rejected");
+  check(ambit_calibration::valid_spec_coefficient(0.05f),
+        "spectral lower bound is inclusive");
+  check(ambit_calibration::valid_spec_coefficient(100.0f),
+        "spectral upper bound is inclusive");
+  check(!ambit_calibration::valid_spec_coefficient(0.049f),
+        "spectral value below the lower bound is rejected");
+  check(!ambit_calibration::valid_spec_coefficient(100.01f),
+        "spectral value above the upper bound is rejected");
+  check(!ambit_calibration::valid_actinic_coefficient(
+            std::numeric_limits<float>::quiet_NaN()) &&
+            !ambit_calibration::valid_spec_coefficient(
+                std::numeric_limits<float>::infinity()),
+        "non-finite coefficients are rejected");
+}
+
+void test_strict_baseline_parsing() {
+  uint32_t value = 777;
+  check(ambit_calibration::parse_adpd_baseline_value("0", &value) && value == 0,
+        "an explicit zero baseline parses successfully");
+  check(ambit_calibration::parse_adpd_baseline_value(" 16777215 ", &value) &&
+            value == ambit_calibration::MAX_ADPD_BASELINE,
+        "the maximum baseline and surrounding whitespace are accepted");
+
+  const char *invalid[] = {
+      "", " ", "not-a-number", "nan", "inf", "-1", "1.5",
+      "16777216", "12tail",
+  };
+  for (const char *text : invalid) {
+    value = 777;
+    check(!ambit_calibration::parse_adpd_baseline_value(text, &value),
+          std::string("invalid baseline token is rejected: '") + text + "'");
+    check(value == 777, "a rejected token does not mutate its output");
+  }
+  check(!ambit_calibration::parse_adpd_baseline_value(nullptr, &value),
+        "a missing baseline token is rejected");
+  check(!ambit_calibration::parse_adpd_baseline_value("1", nullptr),
+        "a missing baseline output is rejected");
+}
+
+void test_baseline_vector_validation() {
+  uint32_t values[ambit_calibration::CHANNEL_COUNT] = {
+      ambit_calibration::MAX_S630_BASELINE, 1, 2, 3, 4,
+      ambit_calibration::MAX_ADPD_BASELINE,
+  };
+  check(ambit_calibration::valid_adpd_baseline(values),
+        "baseline vector accepts both inclusive boundaries");
+  values[ambit_calibration::S630] = ambit_calibration::MAX_S630_BASELINE + 1U;
+  check(!ambit_calibration::valid_adpd_baseline(values),
+        "baseline vector rejects fluorescence baseline above 400");
+  values[ambit_calibration::S630] = 0;
+  values[ambit_calibration::R730] = ambit_calibration::MAX_ADPD_BASELINE + 1U;
+  check(!ambit_calibration::valid_adpd_baseline(values),
+        "baseline vector rejects any channel above 24 bits");
+  check(!ambit_calibration::valid_adpd_baseline(nullptr),
+        "missing baseline vector is rejected");
+}
+
+void test_wrap_safe_timeout() {
+  check(!ambit_calibration::wrap_safe_timeout_elapsed(100U, 149U, 50U),
+        "timeout remains pending one millisecond before its boundary");
+  check(ambit_calibration::wrap_safe_timeout_elapsed(100U, 150U, 50U),
+        "timeout expires at its boundary");
+  check(!ambit_calibration::wrap_safe_timeout_elapsed(
+            0xFFFFFFF0U, 0x0000000FU, 32U),
+        "timeout remains pending across millis wrap");
+  check(ambit_calibration::wrap_safe_timeout_elapsed(
+            0xFFFFFFF0U, 0x00000010U, 32U),
+        "timeout expires correctly across millis wrap");
+}
+
 }  // namespace
 
 int main() {
@@ -76,6 +156,10 @@ int main() {
   test_explicit_zero_offsets_are_not_legacy_defaults();
   test_saved_six_channel_baseline();
   test_saturation_and_invalid_channel();
+  test_coefficient_bounds();
+  test_strict_baseline_parsing();
+  test_baseline_vector_validation();
+  test_wrap_safe_timeout();
   if (failures != 0) return 1;
   std::cout << "calibration tests passed\n";
   return 0;

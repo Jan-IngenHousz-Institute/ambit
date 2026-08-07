@@ -242,6 +242,15 @@ The field-facing paths apply the stored calibration consistently:
 Calibration acquisition and the raw PAR endpoints remain uncorrected on
 purpose: the Calibratron needs those raw observations to derive coefficients.
 
+Binary command 6 retains its deployed silent acknowledgement contract: it
+always returns `ESP_CMD_DONE` followed by `ESP_CMD_END`, with no payload or
+success/failure status byte. Acquisition, sensor, timeout, validation, or NVS
+failures therefore cannot be diagnosed from that reply. In particular, an
+acquired `s_630` baseline above 400 is rejected and not persisted. The
+authoritative calibration workflow is the Calibratron's text-console
+`baseline` capture, which prints the six acquired values and explicitly reports
+acquisition, range, and save failures.
+
 Binary commands and selected text-console operations can update this state.
 Metadata is persisted only when its frozen end marker is valid and its
 longitude, latitude, and altitude pass the source's range checks. The binary

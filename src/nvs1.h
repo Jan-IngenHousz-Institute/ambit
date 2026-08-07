@@ -84,6 +84,8 @@ extern struct metadata_t metadata_epprom, metadata_incoming;
 void load_info_from_nvs(bool print);
 void save_metadata(void);
 esp_err_t save_adpd_baseline(const uint32_t values[ambit_calibration::CHANNEL_COUNT]);
+esp_err_t save_actinic_coefficient(float value);
+esp_err_t save_spec_coefficient(float value);
 uint32_t apply_adpd_calibration(uint8_t channel, uint32_t sample);
 
 #endif // _NVS1_H_

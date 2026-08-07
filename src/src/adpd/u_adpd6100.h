@@ -30,6 +30,7 @@ class ADPD6{
     int32_t num_ts(uint8_t);
     int32_t RUN();
     int32_t STOP();
+    int32_t fifo_count(uint16_t *count);
     uint16_t fifo_count();
     int32_t readfifo(uint16_t num_samples, uint8_t width, uint32_t* data);
     bool chip_check = false;
