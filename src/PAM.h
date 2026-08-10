@@ -41,9 +41,9 @@ int fluor_offset_test(uint8_t current, uint8_t num_integ, uint8_t lit_offset, ui
 int MPF(uint16_t mode, uint16_t current, uint16_t dc_current, uint8_t sign_gain, uint8_t ref_gain);
 int MPF(uint16_t mode, uint16_t dc_current);
 int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist);
-// retain=true: keep the result buffers alive in the async holder (no FSM/serial
-// send, no delete) so a later FETCH can stream them — used by the parallel
-// trigger/poll/fetch protocol. Default false = legacy synchronous send+free.
+// retain=true: keep all result buffers (including the v3 env-offset array) alive
+// in the async holder so a later FETCH can stream them. Default false preserves
+// the legacy synchronous send+free lifecycle.
 int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt, bool json_output = false, bool retain = false);
 int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8_t act, bool interrrupt);
 
