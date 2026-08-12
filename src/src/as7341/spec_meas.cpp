@@ -136,8 +136,8 @@ void dual_exposure(as7341_gain_t gain1,as7341_gain_t gain2, uint16_t readings_bu
     }
     
 
-    as7341.setATIME(99);
-    as7341.setASTEP(499);
+    as7341.setATIME(SPEC_ATIME);
+    as7341.setASTEP(SPEC_ASTEP);
     as7341.setGain(gain1);
 
     as7341.setSMUXLowChannels(true);        // Configure SMUX to read low channels
@@ -186,33 +186,71 @@ void cali_PAR(){
     return;
 }
 
-double get_PAR(uint16_t *calc_spec){
+/* dual_exposure() returns the two SMUX banks back to back: the low bank lands in
+ * spec[0..5] (F1-F4, Clear, NIR) and the high bank in spec[6..11] (F5-F8, Clear,
+ * NIR). Every frontend reports the ten channels in wavelength order, so map once
+ * here instead of restating the index arithmetic at each call site. */
+static const uint8_t SPEC_RAW_INDEX[10] = {0, 1, 2, 3, 6, 7, 8, 9, 11, 10};
+
+/* Per-channel response weights. calc_spec[9] (Clear) has always been reported
+ * unweighted; it is spelled 1 here rather than left implicit. */
+static const uint8_t SPEC_WEIGHT[10] = {
+    Spec_COE1, Spec_COE2, Spec_COE3, Spec_COE4, Spec_COE5,
+    Spec_COE6, Spec_COE7, Spec_COE8, Spec_COE9, 1};
+
+/* Unscaled acquisition. This is where PAR is actually computed, deliberately
+ * from the raw counts in a uint32 accumulator: the weighted sum peaks at
+ * 50000 * 73 = 3.65e6, which the old float accumulator handled fine but the
+ * uint16 calc_spec[] it summed did not — a wrapped channel used to drag PAR
+ * down with it. Sum, coefficients and operation order are otherwise unchanged,
+ * so PAR is bit-identical to the pre-fix value whenever nothing overflowed. */
+double get_PAR_raw(spec_raw_t *out){
     if (!as7341_setup){
         check_AS7341();
     }
     uint16_t spec[12];
     float calc_par = 0;
 
-    //uint16_t calc_spec[10];
-
     dual_exposure(AS7341_GAIN_2X, AS7341_GAIN_2X, spec);
 
-    calc_spec[0] = spec[0] * Spec_COE1;
-    calc_spec[1] = spec[1] * Spec_COE2;
-    calc_spec[2] = spec[2] * Spec_COE3;
-    calc_spec[3] = spec[3] * Spec_COE4;
-    calc_spec[4] = spec[6] * Spec_COE5;
-    calc_spec[5] = spec[7] * Spec_COE6;
-    calc_spec[6] = spec[8] * Spec_COE7;
-    calc_spec[7] = spec[9] * Spec_COE8;
-    calc_spec[8] = spec[11] * Spec_COE9;
-    calc_spec[9] = spec[10];
+    out->atime = SPEC_ATIME;
+    out->astep = SPEC_ASTEP;
+    out->gain_low = AS7341_GAIN_2X;
+    out->gain_high = AS7341_GAIN_2X;
+    out->saturated = false;
 
-    for (uint8_t n = 0; n < 8; n++){
-        calc_par +=  calc_spec[n];
+    uint32_t weighted_sum = 0;
+    uint32_t nir_weighted = 0;
+
+    for (uint8_t n = 0; n < 10; n++){
+        const uint16_t counts = spec[SPEC_RAW_INDEX[n]];
+        out->raw[n] = counts;
+        if (counts >= SPEC_FULL_SCALE) out->saturated = true;
+        if (n < 8) weighted_sum += (uint32_t) counts * SPEC_WEIGHT[n];
+        else if (n == 8) nir_weighted = (uint32_t) counts * SPEC_WEIGHT[n];
     }
-    calc_par = calc_par * 0.006 - calc_spec[8] * 0.0075;
+
+    calc_par = weighted_sum;
+    calc_par = calc_par * 0.006 - nir_weighted * 0.0075;
     return calc_par * PAR_OFFSET;
+}
+
+/* Scaled view for the frozen 16-bit channel words (binary cmd 31, text PAR /
+ * get_par, JSON par / par_raw). counts * Spec_COE* exceeds 16 bits from ~11% of
+ * ADC full scale, and the old assignment let it wrap silently to near zero — a
+ * bright-light reading looked like a dark one. Saturate instead: a pegged 65535
+ * is monotonic and visibly at the rail, and it cannot be mistaken for darkness.
+ * The returned PAR comes from the unclamped counts, so it stays correct past the
+ * point where these words peg. Hosts wanting unclamped data use cmd 35. */
+double get_PAR(uint16_t *calc_spec){
+    spec_raw_t raw;
+    const double par = get_PAR_raw(&raw);
+
+    for (uint8_t n = 0; n < 10; n++){
+        const uint32_t scaled = (uint32_t) raw.raw[n] * SPEC_WEIGHT[n];
+        calc_spec[n] = (scaled > 0xFFFFU) ? 0xFFFFU : (uint16_t) scaled;
+    }
+    return par;
 }
 
 

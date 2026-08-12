@@ -267,7 +267,52 @@ int do_esp_cmd(){
     }
     break;
 
-    
+    case 35: // get_spec_raw: unscaled counts + the parameters they were taken under
+    {
+        /* Additive: cmd 31 keeps its exact 24-byte payload for deployed ambytes,
+         * which have no way to negotiate. A host gates on cmd 33/2 (fw >= 1.2.0)
+         * to decide whether to ask for 35 — probing is not an option, since an
+         * older image drops an unknown opcode into `default:` and answers
+         * nothing at all, costing the host its full read timeout.
+         *
+         * Layout is byte-explicit and naturally aligned (u16 on even offsets,
+         * the float on 28) so it is padding-free without __attribute__((packed))
+         * and without inheriting the ESP32-default-alignment coupling that
+         * froze the cmd 33 structs at 140/48/248. All fields little-endian:
+         *
+         *    0  u8   format = 1     bump only for a layout change
+         *    1  u8   atime
+         *    2  u8   gain_low       as7341_gain_t, F1-F4/Clear/NIR bank
+         *    3  u8   gain_high      as7341_gain_t, F5-F8 bank
+         *    4  u16  astep
+         *    6  u16  flags          bit0 = a channel hit ADC full scale
+         *    8  u16  raw[10]        unscaled counts: F1..F8, NIR, Clear
+         *   28  f32  par            spec_coef applied, as in cmd 31
+         *
+         * Full scale is (atime+1)*(astep+1), so raw[] cannot overflow its u16 —
+         * the whole point of the command. Normalise host-side with
+         * raw / (gain * (atime+1) * (astep+1)). */
+        spec_raw_t raw;
+        const float par = get_PAR_raw(&raw) * ambit_calibration_local.spec_coef;
+        const uint16_t flags = raw.saturated ? 1 : 0;
+
+        uint8_t payload[32] = {0};
+        payload[0] = 1;
+        payload[1] = raw.atime;
+        payload[2] = raw.gain_low;
+        payload[3] = raw.gain_high;
+        memcpy(payload + 4, &raw.astep, 2);
+        memcpy(payload + 6, &flags, 2);
+        memcpy(payload + 8, raw.raw, sizeof(raw.raw));
+        memcpy(payload + 28, &par, 4);
+
+        Serial.write(ESP_CMD_DONE);
+        Serial.write(payload, sizeof(payload));
+        Serial.write(ESP_CMD_END);
+    }
+    break;
+
+
     case 37:    // set metadata
     {        
         Serial.write(ESP_CMD_DONE);

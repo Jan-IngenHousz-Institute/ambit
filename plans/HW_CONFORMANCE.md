@@ -67,6 +67,7 @@ deterministic; do not expect data bytes to match.)
 | set_currents (2) | frame → `0xA1` |
 | config (10) | frame → `0xA1` |
 | get_spec (31) | `0xA1` + **24 B** + `0xF0` |
+| get_spec_raw (35) | `0xA1` + **32 B** + `0xF0`. Additive command — absent from any pre-v1.2.0 reference build, so it has no `pre.bin` counterpart; verify the length and layout against §6 instead of diffing. |
 | get_temp (32) | `0xA1` + **4 B** + `0xF0` |
 | get_info (33,2) | `0xA1` + **`sizeof(ambit_fw_info_t)` B** + `0xF0` |
 | get_temp_raw (34) | `0xA1` + **14 B** + `0xF0` |
@@ -75,6 +76,16 @@ deterministic; do not expect data bytes to match.)
 **Pass:** all framing/handshake/length/checksum bytes identical; only measurement payload
 values differ. **Fail:** any framing byte, length field, command-ID echo, or checksum
 *scheme* differs → a contract break; do not ship, diff the offending command.
+
+> **Expected value delta from the spectral clamp (v1.2.0).** cmd 31's ten channel words
+> are `counts × Spec_COE*` in a `uint16`, which used to wrap; they now saturate at 65535,
+> and its PAR float is computed from the unclamped counts. Under bright illumination the
+> post image therefore reports *different values* for cmd 31 — larger words and a much
+> larger PAR (a wrapped F1 at 5462 counts read 8 and PAR 0.19; it now reads 65535 and PAR
+> 1573). This is the intended fix, not a regression. **Framing, length and byte count for
+> cmd 31 are unchanged and must still diff clean.** To compare values, take the reference
+> and post traces under illumination dim enough that no channel exceeds its wrap threshold
+> (F1 ≤ 5461 counts is the tightest); there the two images agree bit-for-bit.
 
 > If no sniffer is available, Test A reduces to "the ambyte completes every command in §3
 > with no timeout / no `checksum mismatch` / no `CMD_DONE not received` log" — a weaker but
@@ -97,6 +108,24 @@ sane. Minimum sequence:
       exercise the base-128 split, e.g. 200 → `cmd[1]=1, cmd[2]=72`).
 - [ ] **get_spec (cmd 31)** / **get_temp (cmd 32)** / **get_temp_raw (cmd 34)** — correct
       byte counts (24 / 4 / 14), values sane (temp ≈ ambient °C).
+- [ ] **get_spec_raw (cmd 35)** — 32 B, layout per §6. Check, under both dim and bright
+      illumination:
+      - `format == 1`; `atime == 99`, `astep == 499`, `gain_low == gain_high == 2`
+        (`AS7341_GAIN_2X`) — these echo what the firmware programs, so a mismatch means
+        `dual_exposure()` and the reported metadata have drifted apart.
+      - **every `raw[i] ≤ (atime+1) × (astep+1)` = 50000.** A count above full scale means
+        the channel remap or the read length is wrong. `raw[i]` must never wrap — that is
+        the entire purpose of the command.
+      - `flags` bit0 set only when some `raw[i]` reaches 50000; clear in shade.
+      - cmd 35's `par` equals cmd 31's `par` (same calibration, same acquisition) in dim
+        light. In bright light both are still equal — cmd 31's PAR is now also computed
+        from unclamped counts — but cmd 31's *channel words* peg at 65535 while cmd 35's
+        keep resolving. That divergence is the expected behaviour.
+      - Sanity: `raw[i] × Spec_COE_i` reproduces cmd 31's word wherever that word is
+        below 65535 (weights 12,10,11,10,10,9,7,4,1,1 for F1..F8,NIR,Clear).
+- [ ] **cmd 35 against a pre-v1.2.0 image** — an older AMBIT must simply not answer
+      (unknown opcodes fall into `default:` and write nothing), so the host takes its full
+      read timeout. Confirms why hosts gate on cmd 33/2 rather than probing.
 - [ ] **get_info (cmd 33)** subtypes 1/2/3 — struct sizes match `ambit_protocol.h`
       (calibration ~136 B, fw_info ~48 B, metadata ~248 B).
 - [ ] **baseline (cmd 6)**, **blink (cmd 5)**, **actinic (cmd 4)** — complete without error.
@@ -133,12 +162,48 @@ behaviour, at the cost of re-diverging from the text path.
   bytes and fix the adapter so the wire matches.
 - **Test C unwanted** → remove the dirty-mark as noted in §4.
 
+---
+
+## 6. Reference — `get_spec_raw` (cmd 35) payload layout
+
+Added in v1.2.0. Request is the standard `0xA0` + 8-byte frame with `cmd_arr[0] = 35`;
+the remaining seven bytes are unused. Response is `0xA1` + **32 B** + `0xF0`.
+
+Unlike the cmd 33 structs — which are frozen at 140/48/248 bytes because they are
+`memcpy`'d straight out of ESP32-default-aligned C structs — this payload is assembled
+byte-explicitly. Every field sits at a naturally aligned offset, so it is padding-free on
+both sides without `__attribute__((packed))`. All multi-byte fields are little-endian.
+
+| Off | Size | Field | Notes |
+|---|---|---|---|
+| 0 | 1 | `format` | `= 1`. Bump only on a layout change; a host must reject unknown values rather than guess. |
+| 1 | 1 | `atime` | As programmed (99). |
+| 2 | 1 | `gain_low` | `as7341_gain_t` 0-10 for the F1-F4/Clear/NIR SMUX bank. `2` = `AS7341_GAIN_2X`. |
+| 3 | 1 | `gain_high` | Same enum, F5-F8 bank. Equal to `gain_low` today; the two diverge if autoranging is added. |
+| 4 | 2 | `astep` | u16, as programmed (499). |
+| 6 | 2 | `flags` | bit0 = at least one channel reached ADC full scale. Other bits reserved, sent as 0. |
+| 8 | 20 | `raw[10]` | u16 × 10, **unscaled** counts in wavelength order: F1, F2, F3, F4, F5, F6, F7, F8, NIR, Clear. |
+| 28 | 4 | `par` | f32, `spec_coef` applied — the same value cmd 31 reports. |
+
+**Normalisation.** Full scale is `(atime + 1) × (astep + 1)` = 50000, which is why `raw[]`
+cannot overflow its `uint16` — that is the whole point of the command versus cmd 31.
+Compare exposures with `raw / (gain × (atime + 1) × (astep + 1))`.
+
+**Relation to cmd 31.** cmd 31 reports `raw[i] × Spec_COE_i` saturated into a `uint16`
+(weights 12, 10, 11, 10, 10, 9, 7, 4, 1, 1). It remains byte-frozen at 24 B and is the only
+spectral command a pre-v1.2.0 image answers.
+
+**Capability gating.** There is no negotiation on this link, and an unknown opcode gets no
+reply at all (`default:` in `do_esp_cmd()` writes nothing), so a host that probes pays a
+full read timeout. Gate on the firmware version from cmd 33/2 instead: `major.minor >=
+1.2` → cmd 35, otherwise cmd 31.
+
 This same harness (Tests A/B) is the reusable conformance gate for any future change that
 touches `run_esp.cpp` or `data_utils.cpp`'s FSM (Step 5 onward).
 
 ---
 
-## 6. Re-verification log (changes that require re-running this gate)
+## 7. Re-verification log (changes that require re-running this gate)
 
 | Date | Change | Re-run | Status |
 |------|--------|--------|--------|
@@ -149,6 +214,7 @@ touches `run_esp.cpp` or `data_utils.cpp`'s FSM (Step 5 onward).
 | 2026-06-05 | Cheap correctness sweep — **#10** init the comma-decl locals in `run_arr_type1`/`run_trigger_spacer`/`fluor_offset` (defensive; each was already assigned before use); **#8** `w`-length `uint8_t`→`uint16_t` + drop pointless `(uint16_t)` casts; **#9** delete 2 uncalled FSM fns (`fsm_wake_up_calls(void)`, `fsm_send_waitesp` — the latter had missing-return UB). | #10 → A+B (measurement path, behavior-neutral, very low risk). #8 text path (`w` over USB), #9 dead-code → no ambyte HW. | ☐ #10 prudent Lua re-run; #8/#9 done |
 | 2026-06-08 | **Wire v2 (ambyte variant)** — (1) self-describing length header: the 2 spare bytes now carry `elem_width` (2\|4) + `dtype` (0 unsigned\|1 signed); csum formula unchanged (sum of bytes [0..6], now covers the new bytes); host defaults 4/0 when a byte is 0, so v1 still decodes. (2) ADC channels (Fluo/Fluoref/Sun/Leaf/730/730ref) sent as **uint16** (elem_width 2, dtype 0, each clamped to 0xFFFF); ENV as **int16** centi-°C (elem_width 2, dtype 1). Data-trailer csum = byte-sum of exactly the bytes sent. (3) new **TIMING** block idx 7 = `uint32[tick_begin, tick_end]` (µs from `esp_timer_get_time()`), emitted in `pam_send_results`. (4) **one wake per run**: `data_utils.cpp` FSM split into free `ambyte_wake()` + `dataclass::fsm_send_array(idx,elem_width,dtype)`; `pam_send_results` wakes once then streams each array back-to-back; host loops on the 212 marker, stops at the run's trailing 240. `fsm_send_esp` kept as a legacy wake+one-array(4/0) wrapper (MPF path). Host (ambyte) side updated to match. Both `pio run -e ambyte` and `-e cloud` build clean. | A + B | ☐ pending HW — one wake yields ENV(int16×N), Fluo/Fluoref/Sun/Leaf/730/730ref(uint16×N), TIMING(uint32×2), then 240; every header csum + data byte-sum must verify and each block decodes per `elem_width`/`dtype` |
 | 2026-08-05 | **v1.1.1-rc4 host-discovery latch** (`30aaf6f`): UNKNOWN/TEXT remain awake and quiet; only a matched `0xAA` wake latches BINARY and enables light sleep/`0x85`. Binary parser/FSM code was unchanged. Exact rc4 app image (427,264 B, SHA-256 `a3c5e3f6bc9f8b55422db7f618b45e3ae1cfcef14b9512144e30f495f7c51e04`) OTA-flashed to recovered AB48. | Weak A + non-destructive B | ✅ PASSED — cold legacy/JSON first contact 10/10; cold binary wake 5/5; wake after 1.2 s idle 5/5; cmd 33/2 identity, temp/spec/temp-raw, run(21), and mpf(20) length 200 all completed with no timeout/framing/checksum error. MPF returned ENV + six 200-element arrays + TIMING. JSON arrun and malformed-extra-token rejection also passed, as did binary→JSON→binary→text→binary switching on one boot. Mutating baseline/set-metadata tests were deliberately omitted to preserve NVS calibration; no logic analyzer was available, so the strict pre/post byte trace remains unrun. |
+| 2026-08-12 | **Spectral overflow fix + `get_spec_raw` (v1.2.0, branch `fix/spec_overflow`).** (1) `get_PAR()`'s `calc_spec[n] = counts × Spec_COE_n` assignment into a `uint16` **wrapped** from ~11 % of ADC full scale (F1 ×12 wraps above 5461 of 50000 counts), so a bright reading looked like a dark one; the ten words now **saturate at 65535** instead. Affects cmd 31 and the text/JSON `PAR`/`get_par` verbs — framing and 24 B length unchanged, *values* change under bright light (see the note in §2). (2) PAR is now summed from the unclamped counts in a `uint32` accumulator, so it no longer collapses when a channel pegs; verified bit-identical to the old result across 100 000 non-overflowing vectors. (3) New additive **cmd 35 `get_spec_raw`** → `0xA1` + 32 B + `0xF0`: unscaled counts plus `format`/`atime`/`astep`/`gain_low`/`gain_high`/`flags` (§6). (4) `spec_meas.h` given an include guard (it now defines a type). Ambyte side deliberately **not** updated — cmd 31 is untouched, so deployed loggers are unaffected. | A + B — A must show cmd 31 framing byte-identical; B adds the cmd 35 rows | ☐ pending HW |
 
 **Focused check for sweep-#4 inc 1** (the send block is shared by both transports, so verify
 both halves):
