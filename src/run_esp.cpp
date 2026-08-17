@@ -238,6 +238,41 @@ int do_esp_cmd(){
             Serial.write(ESP_CMD_DONE);
             Serial.write((uint8_t*) &metadata_epprom, sizeof(metadata_t));
             Serial.write(ESP_CMD_END);
+        }else if (cmd_arr[1] == 4){ // send spectral/PAR calibration
+            /* Subtype 4 is what makes cmd 35's raw[] worth carrying: without the
+             * coefficients on the wire a host cannot recompute the chain, so it
+             * cannot tell a firmware bug from a bad NVS vector. Additive and safe
+             * against older images — they fall into the else below and answer a
+             * bare ESP_CMD_END rather than going silent.
+             *
+             * Byte-explicit and versioned rather than a struct blit, which is
+             * exactly why these fields do not live in ambit_calibration_info_t:
+             * subtypes 1/2/3 are frozen at 140/48/248 by their C layout and can
+             * never grow, this one can. All little-endian:
+             *
+             *     0  u8   format = 1
+             *     1  u8   reserved
+             *     2  u16  reserved
+             *     4  f32  spec_offset[10]
+             *    44  f32  spec_sens[10]
+             *    84  f32  par_weight[10]
+             *   124  f32  par_slope
+             *   128  f32  par_intercept
+             *
+             * Tier 1 normalises with tint in MILLISECONDS; spec_offset is in
+             * those basic-count units and the vectors mean nothing without it. */
+            const size_t vec = sizeof(float) * ambit_calibration::SPEC_CHANNEL_COUNT;
+            uint8_t payload[132] = {0};
+            payload[0] = 1;
+            memcpy(payload + 4, ambit_spec_calibration.spec_offset, vec);
+            memcpy(payload + 44, ambit_spec_calibration.spec_sens, vec);
+            memcpy(payload + 84, ambit_spec_calibration.par_weight, vec);
+            memcpy(payload + 124, &ambit_spec_calibration.par_slope, 4);
+            memcpy(payload + 128, &ambit_spec_calibration.par_intercept, 4);
+
+            Serial.write(ESP_CMD_DONE);
+            Serial.write(payload, sizeof(payload));
+            Serial.write(ESP_CMD_END);
         }else{
             Serial.write(ESP_CMD_END);
         }
@@ -267,44 +302,137 @@ int do_esp_cmd(){
     }
     break;
 
-    case 35: // get_spec_raw: unscaled counts + the parameters they were taken under
+    case 35: // get_spec_raw: unscaled counts, the parameters they were taken
+             // under, and the three-tier computed spectral/PAR values
     {
-        /* Additive: cmd 31 keeps its exact 24-byte payload for deployed ambytes,
-         * which have no way to negotiate. A host gates on cmd 33/2 (fw >= 1.2.0)
-         * to decide whether to ask for 35 — probing is not an option, since an
-         * older image drops an unknown opcode into `default:` and answers
-         * nothing at all, costing the host its full read timeout.
+        /* Additive with respect to cmd 31, which keeps its exact 24-byte payload
+         * for deployed ambytes that have no way to negotiate. This command's own
+         * payload was redefined before it ever shipped (no tag contains it, and
+         * the ambyte protocol header has no opcode 35), so `format` stays 1
+         * rather than burning a value on a layout no host ever observed.
          *
          * Layout is byte-explicit and naturally aligned (u16 on even offsets,
-         * the float on 28) so it is padding-free without __attribute__((packed))
-         * and without inheriting the ESP32-default-alignment coupling that
-         * froze the cmd 33 structs at 140/48/248. All fields little-endian:
+         * f32 on multiples of 4) so it is padding-free without
+         * __attribute__((packed)) and without inheriting the ESP32-default-
+         * alignment coupling that froze the cmd 33 structs at 140/48/248.
+         * All fields little-endian:
          *
          *    0  u8   format = 1     bump only for a layout change
          *    1  u8   atime
-         *    2  u8   gain_low       as7341_gain_t, F1-F4/Clear/NIR bank
-         *    3  u8   gain_high      as7341_gain_t, F5-F8 bank
+         *    2  u8   gain_low       as7341_gain_t ORDINAL, F1-F4 bank
+         *    3  u8   gain_high      as7341_gain_t ORDINAL, F5-F8 + NIR + Clear
          *    4  u16  astep
-         *    6  u16  flags          bit0 = a channel hit ADC full scale
-         *    8  u16  raw[10]        unscaled counts: F1..F8, NIR, Clear
-         *   28  f32  par            spec_coef applied, as in cmd 31
+         *    6  u16  flags          Two zones with OPPOSITE polarity, kept in
+         *                           separate bytes so neither can be read as the
+         *                           other. Both fail safe: an all-zero flags word
+         *                           means "no fault reported, nothing confirmed
+         *                           calibrated", which is the pessimistic reading
+         *                           a truncated or zeroed frame should produce.
          *
-         * Full scale is (atime+1)*(astep+1), so raw[] cannot overflow its u16 —
-         * the whole point of the command. Normalise host-side with
-         * raw / (gain * (atime+1) * (astep+1)). */
+         *                           low byte — conditions, 1 = needs attention:
+         *                           bit0 = a channel hit digital full scale
+         *                           bit1 = a channel clipped at its dark offset
+         *                           bit2 = AS7341 analog saturation (ASAT)
+         *                           bit3 = acquisition fault (I2C read failed)
+         *                           bits 4-7 reserved, sent as 0
+         *
+         *                           high byte — calibration, 1 = confirmed:
+         *                           bit8 = par_weight is an ambit fleet fit
+         *                                  (0 = borrowed seed, PAR provisional)
+         *                           bit9 = tier-3 slope/intercept stored for
+         *                                  this device (0 = never swept)
+         *                           bits 10-15 reserved, sent as 0
+         *
+         *                           A host that wants one "is this PAR
+         *                           trustworthy" test checks that BOTH high bits
+         *                           are set; treating an unset bit as trustworthy
+         *                           is the failure this zoning exists to prevent.
+         *    8  u16  sat_mask       bit i = channel i at digital full scale
+         *   10  u16  clip_mask      bit i = channel i clipped at its offset
+         *   12  u16  raw[10]        unscaled counts: F1..F8, NIR, Clear
+         *   32  f32  chan[10]       goal A: normalised, offset-corrected,
+         *                           spectrally scaled
+         *   72  f32  par            goal B: par_slope * t2 + par_intercept
+         *   76  f32  par_tier2      goal B: t2, before slope/intercept
+         *
+         * raw[] stays on the wire so a host can recompute the whole chain and
+         * *verify* the firmware rather than trust it; cmd 33 subtype 4 returns
+         * the coefficients that recomputation needs. Full scale is
+         * (atime+1)*(astep+1), so raw[] cannot overflow its u16 — the original
+         * point of the command.
+         *
+         * The gain bytes are enum ORDINALS (n means 0.5 * 2^n), not multipliers:
+         * see as7341_gain_multiplier(). NIR and Clear come from the high SMUX
+         * read and so divide by gain_high, whatever the bank names suggest.
+         *
+         * par is NOT cmd 31's par any more. spec_coef stays with cmd 31; here
+         * tier 3's par_slope/par_intercept replace it. */
         spec_raw_t raw;
-        const float par = get_PAR_raw(&raw) * ambit_calibration_local.spec_coef;
-        const uint16_t flags = raw.saturated ? 1 : 0;
+        (void) get_PAR_raw(&raw);  // legacy PAR belongs to cmd 31; not reported here
 
-        uint8_t payload[32] = {0};
+        const float tint_ms = spec_tint_ms(raw.atime, raw.astep);
+        const float gain_lo = as7341_gain_multiplier(raw.gain_low);
+        const float gain_hi = as7341_gain_multiplier(raw.gain_high);
+
+        float chan[ambit_calibration::SPEC_CHANNEL_COUNT] = {0.0f};
+        float par_tier2 = 0.0f;
+        uint16_t clip_mask = 0;
+
+        for (uint8_t i = 0; i < ambit_calibration::SPEC_CHANNEL_COUNT; i++){
+            /* Slots 0-3 are F1-F4 from the low read; 4-9 are F5-F8, NIR and
+             * Clear, all from the high read. Neither divisor can be zero: the
+             * gain multiplier bottoms out at 0.5x and tint at one tick. */
+            const float gain = (i < 4) ? gain_lo : gain_hi;
+            const float x = (float) raw.raw[i] / (gain * tint_ms);   // tier 1
+
+            float s = x - ambit_spec_calibration.spec_offset[i];
+            if (s < 0.0f){
+                /* The offset clip is the only nonlinearity in the chain, so
+                 * report where it bit rather than letting a floor pass for a
+                 * reading. */
+                s = 0.0f;
+                clip_mask |= (uint16_t) (1U << i);
+            }
+
+            chan[i] = s * ambit_spec_calibration.spec_sens[i];        // goal A
+            par_tier2 += ambit_spec_calibration.par_weight[i] * s;    // goal B t2
+        }
+
+        /* PAR comes from s, never from chan[]: folding spec_sens into PAR would
+         * mean a future goal-A recalibration silently shifts PAR on every
+         * deployed device with no PAR measurement having changed. */
+        const float par = ambit_spec_calibration.par_slope * par_tier2 +
+                          ambit_spec_calibration.par_intercept;       // goal B t3
+
+        uint16_t flags = 0;
+        if (raw.sat_mask != 0) flags |= 1U << 0;
+        if (clip_mask != 0) flags |= 1U << 1;
+        if (raw.analog_saturated) flags |= 1U << 2;
+        if (raw.fault) flags |= 1U << 3;
+
+        /* Asserted only when the tier-2 vector is genuinely an ambit fit AND it
+         * is not all-zero. The second test matters because a host can write a
+         * zero vector over the setter: that collapses par to par_intercept, and
+         * a build claiming an ambit fit must not vouch for it. */
+        if (AMBIT_PAR_WEIGHT_IS_AMBIT_FIT &&
+            !ambit_calibration::par_weight_is_unset(ambit_spec_calibration.par_weight)){
+            flags |= 1U << 8;
+        }
+        if (ambit_spec_tier3_stored) flags |= 1U << 9;
+
+        uint8_t payload[80] = {0};
         payload[0] = 1;
         payload[1] = raw.atime;
         payload[2] = raw.gain_low;
         payload[3] = raw.gain_high;
         memcpy(payload + 4, &raw.astep, 2);
         memcpy(payload + 6, &flags, 2);
-        memcpy(payload + 8, raw.raw, sizeof(raw.raw));
-        memcpy(payload + 28, &par, 4);
+        memcpy(payload + 8, &raw.sat_mask, 2);
+        memcpy(payload + 10, &clip_mask, 2);
+        memcpy(payload + 12, raw.raw, sizeof(raw.raw));
+        memcpy(payload + 32, chan, sizeof(chan));
+        memcpy(payload + 72, &par, 4);
+        memcpy(payload + 76, &par_tier2, 4);
 
         Serial.write(ESP_CMD_DONE);
         Serial.write(payload, sizeof(payload));

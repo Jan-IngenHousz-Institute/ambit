@@ -130,11 +130,32 @@ void AS_all_channel(uint16_t T1, uint16_t T2){
 //     return get_PAR(spec);    
 // }
 
-void dual_exposure(as7341_gain_t gain1,as7341_gain_t gain2, uint16_t readings_buffer[]){
+/* STATUS2 (0xA3) analog-saturation bit. The digital full-scale check downstream
+ * compares counts against (atime+1)*(astep+1); ASAT_ANALOG is the case that
+ * check cannot see — the front end pegs before the accumulator does, so the
+ * counts look plausible and are not. Read straight off the bus rather than
+ * adding a method to the vendored driver. */
+#define AS7341_STATUS2_ASAT_ANALOG 0x08
+
+static bool as7341_analog_saturated(){
+    Adafruit_BusIO_Register status2_reg =
+      Adafruit_BusIO_Register(as7341.i2c_dev, AS7341_STATUS2);
+    uint8_t status2 = 0;
+    if (!status2_reg.read(&status2)) return false;
+    return (status2 & AS7341_STATUS2_ASAT_ANALOG) != 0;
+}
+
+/* Returns false if either bank's I2C read failed. Both results used to be
+ * discarded — the second assignment overwrote the first and nothing was ever
+ * tested — which left a dead bus indistinguishable from a dark reading. That
+ * matters more now: cmd 35 divides by gain and integration time, so junk counts
+ * come out amplified rather than obviously zero. */
+bool dual_exposure(as7341_gain_t gain1,as7341_gain_t gain2, uint16_t readings_buffer[],
+                   bool *analog_saturated = nullptr){
     if (!as7341_setup){
         check_AS7341();
     }
-    
+
 
     as7341.setATIME(SPEC_ATIME);
     as7341.setASTEP(SPEC_ASTEP);
@@ -147,13 +168,19 @@ void dual_exposure(as7341_gain_t gain1,as7341_gain_t gain2, uint16_t readings_bu
     Adafruit_BusIO_Register channel_data_reg =
       Adafruit_BusIO_Register(as7341.i2c_dev, AS7341_CH0_DATA_L, 2);
     bool low_success = channel_data_reg.read((uint8_t *)readings_buffer, 12);
+    // Sampled per bank, while the flag still refers to the integration just read.
+    bool saturated = as7341_analog_saturated();
 
     as7341.setGain(gain2);
     as7341.setSMUXLowChannels(false);        // Configure SMUX to read low channels
     as7341.enableSpectralMeasurement(true); // Start integration
     as7341.delayForData(0);                 // I'll wait for you for all time
 
-     low_success = channel_data_reg.read((uint8_t *)&readings_buffer[6], 12);
+    const bool high_success = channel_data_reg.read((uint8_t *)&readings_buffer[6], 12);
+    saturated = saturated || as7341_analog_saturated();
+
+    if (analog_saturated != nullptr) *analog_saturated = saturated;
+    return low_success && high_success;
 }
 
 void cali_PAR(){
@@ -208,16 +235,23 @@ double get_PAR_raw(spec_raw_t *out){
     if (!as7341_setup){
         check_AS7341();
     }
-    uint16_t spec[12];
+    uint16_t spec[12] = {0};
     float calc_par = 0;
+    bool analog_saturated = false;
 
-    dual_exposure(AS7341_GAIN_2X, AS7341_GAIN_2X, spec);
+    const bool ok = dual_exposure(AS7341_GAIN_2X, AS7341_GAIN_2X, spec, &analog_saturated);
 
     out->atime = SPEC_ATIME;
     out->astep = SPEC_ASTEP;
     out->gain_low = AS7341_GAIN_2X;
     out->gain_high = AS7341_GAIN_2X;
-    out->saturated = false;
+    out->sat_mask = 0;
+    out->analog_saturated = analog_saturated;
+    out->fault = !ok;
+
+    /* From the reported exposure, not SPEC_FULL_SCALE: the macro is only correct
+     * while ATIME/ASTEP stay pinned, and reporting them exists so they need not. */
+    const uint32_t full_scale = ((uint32_t) out->atime + 1U) * ((uint32_t) out->astep + 1U);
 
     uint32_t weighted_sum = 0;
     uint32_t nir_weighted = 0;
@@ -225,7 +259,7 @@ double get_PAR_raw(spec_raw_t *out){
     for (uint8_t n = 0; n < 10; n++){
         const uint16_t counts = spec[SPEC_RAW_INDEX[n]];
         out->raw[n] = counts;
-        if (counts >= SPEC_FULL_SCALE) out->saturated = true;
+        if (counts >= full_scale) out->sat_mask |= (uint16_t) (1U << n);
         if (n < 8) weighted_sum += (uint32_t) counts * SPEC_WEIGHT[n];
         else if (n == 8) nir_weighted = (uint32_t) counts * SPEC_WEIGHT[n];
     }

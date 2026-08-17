@@ -5,10 +5,16 @@ Intended reader: an agent or developer implementing this in the **ambit** repo
 everything about ambit was read directly from its source and verified against the commit on
 disk. Line references were re-checked on 2026-08-17 against `fix/spec_overflow` @ `a1ff230`.
 
-**The architecture ports. The numbers do not.** ambit has different optics, window and
-diffuser, so every coefficient vector must be re-measured on ambit hardware against an
-LR1-B (goal A) and a Li-Cor Li-250A (goal B). Do not copy miniPar's fitted vectors into
-ambit firmware.
+**The architecture ports. The numbers are seeds, not calibration.** ambit has different
+optics, window and diffuser, so every coefficient vector must eventually be re-measured on
+ambit hardware against an LR1-B (goal A) and a Li-Cor Li-250A (goal B). Earlier revisions of
+this plan therefore shipped `spec_sens` at 1.0 and `par_weight` at 0.0 — but an all-zero
+weight vector makes the computed PAR *identically zero*, which is a worse starting point than
+a vector fitted on a different unit of the same sensor. So miniPar's fitted vectors are now
+carried in as **defaults** (§7), under conditions spelled out there: they encode miniPar's
+optical stack, they are provisional, and they must not be mistaken for an ambit calibration.
+§11 tracks what replaces them, and `flags` bit2 exists to keep the distinction visible on
+the wire.
 
 **Status fact that shapes the whole plan: cmd 35 has never been released.** `git tag
 --contains a1ff230` is empty, the commit is not an ancestor of `origin/main`, `git show
@@ -55,10 +61,16 @@ calibration rows and testing on a different source family:
 | | R² | median \|err\| |
 |---|---|---|
 | 10 coefficients fitted per device | −31 … −7443 | 434 … 779% |
-| fleet `w` + 2 per-device params | 0.958 … 0.999 | 0.5 … 3.1% |
+| fleet `w` + 2 per-device params | 0.996 … 0.998 | 2.5 … 9.8% |
 
 The per-device 10-coefficient fit does not degrade gracefully; it produces arbitrary
 signs and detonates on any spectrum outside its calibration set.
+
+The second row was **re-measured on 2026-08-17** while porting the vectors (§7c), over all
+six devices in `miniPar/data/*.csv`: fleet `w` from the other devices, tier 3 from the
+held-out device's LED sweep only, scored on daylight rows it never saw. Median across
+devices **4.37 %**, worst device 9.82 %. Earlier revisions of this table quoted 0.5–3.1 %
+from a narrower run; the wider figure is the one to plan against.
 
 **Tier 3 source choice.** Both work; daylight calibrates better, LEDs are repeatable on a
 bench: daylight-calibrated → 2.4% median on LEDs; LED-calibrated → 4.4% median on
@@ -133,7 +145,8 @@ Recorded here so the implementation does not relitigate them.
 | 5 | **The wire carries the gain *ordinal*; the firmware converts internally** via a `gain_multiplier()` helper in `spec_meas`, applied per bank. | The ordinal is compact, already documented as `as7341_gain_t 0-10`, and the host already derives a multiplier (the Calibratron CSV has a `gain_x` column). The helper goes in `spec_meas`, not the vendored Adafruit driver. |
 | 6 | **Per-channel saturation and clip masks**, plus board-level status bits. | A payload that divides, offset-corrects and weights must say *which* channels are trustworthy. §5 has the layout. |
 | 7 | **`spec_coef` is untouched and is not applied to the new `par`.** | Cmd 31 and deployed devices depend on it. `par_slope` is its successor, not a rename — a scalar on integer-weighted raw counts is a different quantity. |
-| 8 | **Default vectors stay unfitted (TODO) until the LR1-B / Li-250A campaign.** `flags` bit2 reports it. | Guessing coefficients is worse than declaring the field uncalibrated. See §11. |
+| 8 | **`spec_sens` and `par_weight` ship seeded from the miniPar campaign; `par_slope`/`par_intercept` stay identity.** (Revised 2026-08-17 — these were originally 1.0 / 0.0.) | An all-zero weight vector makes PAR identically zero, which is less useful than a fit from another unit of the same sensor. Tier 3 is per-optics and is not seeded. The seeds are miniPar's optical stack and are not an ambit calibration — §7. |
+| 9 | **`flags` bit2 changes meaning from "par_weight is zero" to "PAR provisional".** | Decision 8 makes the zero-test permanently false, which would silently retire the only signal distinguishing a seeded device from a calibrated one. §5a. |
 
 ---
 
@@ -152,12 +165,17 @@ alignment coupling that froze the cmd 33 structs at 140/48/248. All fields littl
  2  u8   gain_low       as7341_gain_t ORDINAL, F1-F4 bank
  3  u8   gain_high      as7341_gain_t ORDINAL, F5-F8 + NIR + Clear bank
  4  u16  astep
- 6  u16  flags          bit0 = any channel at digital full scale   (== sat_mask  != 0)
-                        bit1 = any channel clipped at its dark offset (== clip_mask != 0)
-                        bit2 = PAR uncalibrated (par_weight is all zero)
-                        bit3 = analog saturation reported by the AS7341 (ASAT, STATUS2)
-                        bit4 = acquisition fault (I2C read failed or sensor absent)
-                        bits 5-15 reserved, sent as 0
+ 6  u16  flags          TWO ZONES WITH OPPOSITE POLARITY, one per byte — see §5a.
+                        low byte = conditions, 1 means attention:
+                          bit0 = any channel at digital full scale   (== sat_mask  != 0)
+                          bit1 = any channel clipped at its dark offset (== clip_mask != 0)
+                          bit2 = analog saturation reported by the AS7341 (ASAT, STATUS2)
+                          bit3 = acquisition fault (I2C read failed or sensor absent)
+                          bits 4-7 reserved, sent as 0
+                        high byte = calibration, 1 means confirmed:
+                          bit8 = par_weight is an ambit fleet fit (0 = borrowed seed)
+                          bit9 = tier-3 slope/intercept stored for this device
+                          bits 10-15 reserved, sent as 0
  8  u16  sat_mask       bit i = channel i reached digital full scale
 10  u16  clip_mask      bit i = channel i clipped at its dark offset
 12  u16  raw[10]        unscaled counts: F1..F8, NIR, Clear
@@ -199,6 +217,56 @@ by `gain_high`. See §8.
   conformance check at [HW_CONFORMANCE.md:120-123](plans/HW_CONFORMANCE.md) and must be
   replaced with per-tier checks (§9).
 
+### 5a. Why `flags` has two zones with opposite polarity
+
+*Implemented.* As first written, bit2 was `par_weight_is_unset()` — literally "the tier-2
+vector is all zero". That was a sound signal while the vector shipped as zeros, because an
+all-zero weight collapsed PAR to `par_intercept` and the flag was the only thing separating
+"uncalibrated" from "dark". Seeding `par_weight` (§7c) makes that predicate permanently
+false, so left alone it would retire the only warning a host ever gets — and a fresh device
+would report a plausible PAR computed on another sensor's optics with nothing saying so.
+
+The replacement inverts the sense: **1 means confirmed calibrated**, and it lives in the high
+byte, away from the condition bits.
+
+**Why inverted.** The payload is zero-initialised and reserved bits go out as 0, so a
+"provisional = 1" bit reads as *calibrated* in every degenerate case — a truncated frame, a
+misparsed offset, a field the firmware failed to set. Doubt should resolve to "not
+calibrated": a spurious warning costs a question, while publishing seed-derived PAR as
+science data costs a dataset.
+
+**Why zoned rather than mixed.** Bits 0–3 all mean "something is wrong". A single inverted
+bit dropped among them is how a host ends up writing `if (flags) warn` and treating
+*calibrated* as a fault. Splitting by byte makes the two polarities structural instead of a
+comment someone has to notice, and both halves then fail safe in the same direction: an
+all-zero `flags` word means "no fault reported, nothing confirmed calibrated".
+
+**Why two bits rather than one.** The two facts are independent and have different lifetimes.
+`bit8` is a build property — is the compiled-in tier-2 vector an ambit fleet fit or the
+miniPar seed — and is the same on every device running an image. `bit9` is per device: has
+this unit been through a tier-3 sweep. Onboarding cares about `bit9` alone; a data consumer
+wants both. OR-ing them into one bit would have thrown that away.
+
+```c
+// nvs1.h — flip in the commit that lands an ambit-fitted fleet vector (§11).
+static constexpr bool AMBIT_PAR_WEIGHT_IS_AMBIT_FIT = false;
+extern bool ambit_spec_tier3_stored;   // set from NVS key presence, and by the setters
+
+flags |= (AMBIT_PAR_WEIGHT_IS_AMBIT_FIT &&
+          !par_weight_is_unset(...)) << 8;
+flags |= ambit_spec_tier3_stored       << 9;
+```
+
+`bit9` is keyed on **NVS key presence**, not on comparing floats to the defaults: a fitted
+slope of exactly 1.0 is legitimate, and float equality against a constant is a poor test.
+Either tier-3 key counts — a sweep through the origin has no intercept to store. `bit8`
+additionally requires the live vector not be all-zero, so a build that claims an ambit fit
+cannot vouch for a zero vector a host wrote over the setter; that is what keeps
+`par_weight_is_unset()` load-bearing.
+
+Today both high bits are **0** on every device: the seed is not an ambit fit, and no unit has
+been swept. That is the honest state, and §9's conformance expectation matches it.
+
 ---
 
 ## 6. Calibration storage
@@ -215,17 +283,18 @@ A new struct, deliberately **not** blitted onto any wire:
  * byte-explicit, versioned layout (§6.4) and can be extended freely. */
 struct ambit_spec_calibration_t {
     float spec_offset[10];      // goal A, dark offset; basic-count units, ms convention
-    float spec_sens[10];        // goal A, per-channel sensitivity; 1.0 until measured
-    float par_weight[10];       // goal B tier 2; 0.0 until fitted
-    float par_slope     = 1.0f; // goal B tier 3
-    float par_intercept = 0.0f; // goal B tier 3
+    float spec_sens[10];        // goal A, per-channel sensitivity; miniPar seed
+    float par_weight[10];       // goal B tier 2; miniPar fleet seed
+    float par_slope     = 1.0f; // goal B tier 3, per device
+    float par_intercept = 0.0f; // goal B tier 3, per device
 };
 ```
 
-Defaults: `spec_offset` seeded from the ams workbook (§7); everything else identity/zero
-until measured. Loaded by a new `load_spec_calibration()` called from
-`load_info_from_nvs()`. NVS keys (namespace `config`, ≤15 chars): `spec_off`, `spec_sens`,
-`par_w`, `par_slope`, `par_icept`.
+Defaults: `spec_offset` from the ams workbook, `spec_sens` and `par_weight` from the miniPar
+campaign — all three in §7. `par_slope`/`par_intercept` stay identity because they are
+per-device by definition and nothing about miniPar's units transfers. Loaded by a new
+`load_spec_calibration()` called from `load_info_from_nvs()`. NVS keys (namespace `config`,
+≤15 chars): `spec_off`, `spec_sens`, `par_w`, `par_slope`, `par_icept`.
 
 ### 6.2 NVS I/O — generalise, do not invent
 
@@ -332,37 +401,161 @@ payload provably cannot satisfy it.
 
 ---
 
-## 7. Concrete constants that *are* portable
+## 7. The shipped default vectors
 
-The ams dark offsets are device-independent (workbook `AS7341_AD000198_3-00.xlsx`, sheet
-`used Correction Values`, row 15), in basic-count units under the **ms** convention.
-Reordered into ambit's channel order (F1..F8, **NIR, Clear**):
+Three of the five come from measurement; two stay identity. **All are listed in ambit's
+channel order — F1..F8, NIR, Clear — which is *not* miniPar's order. See §8.**
+
+### 7a. `spec_offset` — ams, genuinely device-independent
+
+Workbook `AS7341_AD000198_3-00.xlsx`, sheet `used Correction Values`, row 15, in
+basic-count units under the **ms** convention. This is a property of the silicon, so it
+ports without qualification.
 
 ```c
 // basic-count dark offsets, ams convention (tint in ms)
 static const float kDefaultSpecOffset[10] = {
-    0.00196979f,  // F1  410
-    0.00724927f,  // F2  440
-    0.00319381f,  // F3  470
-    0.001314659f, // F4  510
-    0.001468153f, // F5  550
-    0.001858105f, // F6  583
-    0.001762778f, // F7  620
-    0.00521704f,  // F8  670
-    0.001f,       // NIR 900
-    0.003f,       // Clear 750
+    0.00196979f,  // F1  415
+    0.00724927f,  // F2  445
+    0.00319381f,  // F3  480
+    0.001314659f, // F4  515
+    0.001468153f, // F5  555
+    0.001858105f, // F6  590
+    0.001762778f, // F7  630
+    0.00521704f,  // F8  680
+    0.001f,       // NIR 910
+    0.003f,       // Clear (broadband)
 };
 ```
 
-Everything else — `spec_sens`, `par_weight`, `par_slope`, `par_intercept` — must be
-measured on ambit hardware (§11).
+**Channel centres corrected 2026-08-17.** Earlier revisions of this plan labelled these
+410/440/470/510/550/583/620/670 and "Clear 750". Those numbers are not the AS7341's: the
+datasheet centres are 415/445/480/515/555/590/630/680 with NIR ≈ 910 and Clear broadband,
+as ambit's own vendored driver enum states
+([Adafruit_AS7341.h:195-206](src/src/as7341/Adafruit_AS7341.h)) and as miniPar's column
+names (`f1_415` … `f8_680`) use. The values were always right; only the comments were wrong.
+[src/nvs1.h](src/nvs1.h) still carries the old labels and should be corrected with the
+seeding change (§9).
+
+### 7b. `spec_sens` — miniPar §2.4, ports cleanly
+
+From `Scripts/spectralCalibration_miniPAR_LR1-B.ipynb`: the median per-channel ratio
+`reference / sensor`, where `reference` is the LR1-B irradiance projected onto the channels
+by least-squares inversion of the ams reconstruction matrix, and `sensor` is basic counts
+with the ams offsets subtracted. Averaged over 3 devices; per-channel device spread is
+**1.4 % – 9.7 %** (Clear worst), which is what justifies one fleet vector instead of a
+per-serial lookup.
+
+```c
+// miniPar LR1-B campaign, 3 devices, mean of the per-device factors
+static const float kDefaultSpecSens[10] = {
+    34.950663f,   // F1  415
+    65.289484f,   // F2  445
+    72.697997f,   // F3  480
+    63.273264f,   // F4  515
+    56.737110f,   // F5  555
+    52.958660f,   // F6  590
+    48.706781f,   // F7  630
+    42.671670f,   // F8  680
+     5.781618f,   // NIR 910      <- miniPar index 9
+    31.565986f,   // Clear        <- miniPar index 8
+};
+```
+
+This one ports **exactly**, because miniPar derived it under the same chain ambit computes:
+basic counts with the ms tick, ams offsets subtracted, then scale. `s[i] × spec_sens[i]` in
+ambit is the same expression that produced the constant.
+
+### 7c. `par_weight` — miniPar tier 2, ports with one caveat
+
+From `Scripts/regression_PAR_miniPAR.ipynb`. The notebook's export cell refits on **all**
+samples and discards the tier-2 intercept; that cell had never been run, so this vector was
+regenerated by re-executing its exact code over `miniPar/data/*.csv` (462 samples, 6 devices,
+PAR 3.7 – 2033.7 µmol m⁻² s⁻¹). The notebook's stored 80/20 split reproduces bit-for-bit
+(R² 0.9988, `f1 = 381.049293`, intercept `5.3691892`), which is the check that the
+replication is faithful.
+
+```c
+// miniPar Li-250A campaign, OLS on basic counts, all 462 samples,
+// tier-2 intercept discarded (tier 3 absorbs it)
+static const float kDefaultParWeight[10] = {
+     333.463542f,  // F1  415
+     206.427134f,  // F2  445
+     -30.6130744f, // F3  480
+     283.778061f,  // F4  515
+    -144.07319f,   // F5  555
+      73.852848f,  // F6  590
+      38.9285016f, // F7  630
+      -6.43585093f,// F8  680
+     -37.6580353f, // NIR 910     <- miniPar index 9
+      16.9097651f, // Clear       <- miniPar index 8
+};
+```
+
+**The caveat.** miniPar fitted `w` against `basic_counts()`, which is §2.1 only — it does
+**not** subtract the dark offset. ambit applies `s = max(0, x − spec_offset)`. The difference
+is `Σ wᵢ·offsetᵢ` = **2.40 µmol m⁻² s⁻¹**, a *constant*, so tier 3's intercept absorbs it
+exactly. Verified by running ambit's chain over miniPar's data: R² 0.9983, median |err|
+1.96 %, and a subsequent tier-3 fit returns `a = 1.0000, b = 7.983` — i.e. the whole
+discrepancy (that 2.40 plus miniPar's discarded 5.61 tier-2 intercept) reappears as a pure
+intercept, exactly as the tier composition predicts. Nothing needs rescaling.
+
+**Read the signs before trusting this vector.** The notebook's own sanity check expects
+F1–F8 to lift PAR and Clear/NIR to subtract stray light. This fit violates that on four
+channels — F3, F5 and F8 are negative, and Clear is positive:
+
+```
+w normalised to f1:   f1  1.000   f2  0.619   f3 -0.092 ←   f4  0.851
+                      f5 -0.432 ← f6  0.221   f7  0.117   f8 -0.019 ←
+                      clear 0.051 ←           nir -0.113
+```
+
+That is collinearity, not physics: the design matrix has condition number ≈ 451 and the
+dataset is daylight-dominated, so OLS distributes weight almost arbitrarily among correlated
+visible channels. The instability is visible directly — refitting on 80 % of the samples
+moves `f1` from 333 to 381, `f3` from −30.6 to −9.2 and `f8` from −6.4 to −12.6, while the
+*prediction* barely changes (R² 0.9983 vs 0.9988). The vector predicts well in-domain and
+should not be read as a spectral response curve, nor extrapolated to spectra unlike the
+calibration set. Fixing it needs a constrained fit (visible ≥ 0, Clear/NIR free) or shrinkage
+toward the ams PAR weights — §11.
+
+### 7d. `par_slope` = 1.0, `par_intercept` = 0.0 — deliberately not seeded
+
+Tier 3 is per device and per optical stack. Seeding it from miniPar would import that
+sensor's window and diffuser as if they were ambit's. Leaving it identity means a fresh
+ambit reports `par = par_tier2` — a number of the right order that is honestly uncorrected,
+rather than one wrong in a way that looks deliberate.
+
+### 7e. What was checked before porting
+
+| | miniPar | ambit | action |
+|---|---|---|---|
+| tick | `ASTEP_TICK_MS = 2.78e-3` | `SPEC_TICK_MS = 2.78e-3` | none — both ms |
+| gain map | `0.5 if reg==0 else 1<<(reg-1)` | `0.5 × 2ⁿ` | none — identical for all 11 ordinals |
+| channel order | `..., clear, nir` | `..., NIR, Clear` | **last two swapped** |
+| offset in the fit | not subtracted (`basic_counts`) | subtracted (`s`) | none — constant, absorbed by tier 3 |
+| magnitudes | — | `valid_spec_sens` ≤ 1000, `valid_par_weight` ≤ 1e4 | both pass (max 72.7 and 333.5) |
+
+One thing to be aware of when reading the miniPar source: `Scripts/as7341_calibrate.py`
+currently has `OFFSET_BASIC` **zeroed out**, with the real ams vector commented out just
+above it. So `calibrated_raw()` in that module does not subtract the offset its
+`SPECTRAL_COEF` was derived with. That is a miniPar-side inconsistency, worth a look there;
+it does not affect anything ported here, because `spec_sens` was taken from the notebook
+(which loads the offsets straight from the workbook) and `par_weight` never touches
+`OFFSET_BASIC` at all.
 
 ## 8. Footguns
 
 **Channel order differs from miniPar.** `SPEC_RAW_INDEX = {0,1,2,3,6,7,8,9,11,10}`
 ([spec_meas.cpp:193](src/src/as7341/spec_meas.cpp)) gives slot 8 = **NIR**, slot 9 =
-**Clear**. miniPar's host order ends `..., clear, nir`. Any vector taken from miniPar
-tooling needs its last two elements swapped.
+**Clear**. miniPar's `CHANNELS` (both notebooks and `as7341_calibrate.py`) ends
+`..., 'clear', 'nir'`. Any vector taken from miniPar tooling needs its last two elements
+swapped — the §7 listings are **already swapped**; the miniPar sources are not.
+
+This one is unusually easy to get away with and unusually expensive when you don't: NIR and
+Clear have the most dissimilar coefficients in every vector (`spec_sens` 5.78 vs 31.57,
+`par_weight` −37.7 vs +16.9), so a missed swap does not fail loudly — it just produces a
+confidently wrong PAR under any spectrum with appreciable NIR content.
 
 **Gain is per bank, and three comments in this repo state it backwards.** Both SMUX
 configurations route Clear to ADC4 and NIR to ADC5, so the buffer holds two copies of each:
@@ -407,6 +600,24 @@ accuracy one.)
 
 ## 9. What else must change
 
+**Outstanding firmware work from the seeding decision** (§7) — the payload, storage,
+setters, read-back and predicates are already implemented; these three are not:
+
+- **Seed the two vectors.** `ambit_spec_calibration_t` in [src/nvs1.h](src/nvs1.h) still
+  declares `spec_sens` as ten `1.0f` and `par_weight` as `{0.0f}`. Replace them with §7b and
+  §7c, keeping the ambit channel order and the per-channel comments. No predicate changes are
+  needed — the largest values are 72.7 (`valid_spec_sens` allows ≤ 1000) and 333.5
+  (`valid_par_weight` allows ≤ 1e4).
+- ~~Redefine `flags` bit2~~ — **done**, ahead of the seeding, as §5a describes. Landing it
+  first is the safe order: seeding without it would leave a device asserting a confident PAR
+  with no provisional signal, whereas the flags change on its own simply reports the truth
+  about a still-unseeded build (both high bits 0). Do not reverse the order.
+- **Record the provenance at the definition.** House style is that a constraint's *why*
+  lives where the constant does: these vectors are another sensor's optics, and the next
+  reader must not find ten unexplained floats. While editing, fix the channel-centre comments
+  in [src/nvs1.h](src/nvs1.h) — they read 410/440/470/510/550/583/620/670 and "Clear 750",
+  none of which are AS7341 centres (§7a).
+
 **Acquisition** ([spec_meas.cpp](src/src/as7341/spec_meas.cpp)):
 
 - Add `gain_multiplier(as7341_gain_t)` in `spec_meas` — **not** in the vendored
@@ -414,10 +625,10 @@ accuracy one.)
   ordinal→multiplier switch is inside the dead `toBasicCounts()`.
 - Per-channel saturation: replace the single `out->saturated` bool with a 10-bit mask, and
   compare against the reported `(atime+1)*(astep+1)` rather than the compile-time constant.
-- Read the AS7341's own ASAT bits from STATUS2 for `flags` bit3. Today the only STATUS2
+- Read the AS7341's own ASAT bits from STATUS2 for `flags` bit2. Today the only STATUS2
   access is the AVALID bit in `getIsDataReady()`, so analog saturation below 50000 digital
   counts is invisible.
-- Give `dual_exposure()` a return value for `flags` bit4. It is currently `void` and
+- Give `dual_exposure()` a return value for `flags` bit3. It is currently `void` and
   discards both I²C results — `low_success` is assigned at
   [spec_meas.cpp:149](src/src/as7341/spec_meas.cpp) then overwritten at :156 and never
   tested — and `check_AS7341()` failure does not abort. A dead I²C bus is currently
@@ -489,18 +700,28 @@ structural changes.
 
 ## 11. Open TODOs — the measurement campaign
 
-Everything below is deliberately left unfitted; `flags` bit2 tells hosts so.
+Nothing here is fitted on **ambit** hardware. Three of the five now ship a seed rather than
+an identity value (§7), which changes the failure mode from "obviously zero" to "plausible
+but wrong" — `flags` bit2, redefined per §5a, is what keeps that visible.
 
-| quantity | needs | status |
-|---|---|---|
-| `spec_offset[10]` | none — ams constants (§7) | ready to seed |
-| `spec_sens[10]` | LR1-B spectra across multiple sources | 1 session only |
-| `par_weight[10]` | Li-250A reference across **many source families** | no data |
-| `par_slope`, `par_intercept` | per-device Li-250A intensity sweep | no data |
+| quantity | shipped default | still needs | ambit data today |
+|---|---|---|---|
+| `spec_offset[10]` | ams workbook — device-independent | nothing | n/a |
+| `spec_sens[10]` | miniPar LR1-B, 3 devices | LR1-B across ambit optics | 1 session |
+| `par_weight[10]` | miniPar Li-250A fleet OLS | Li-250A across **many source families** | none |
+| `par_slope` | 1.0 | per-device intensity sweep | none |
+| `par_intercept` | 0.0 | same sweep | none |
 
 What exists today: [data/multi_ambit_spec_lr1b.csv](data/multi_ambit_spec_lr1b.csv) — 3 rows,
 3 devices, one light condition (`office`), one timestamp, one LR1-B trace. There is no
-Li-Cor reference data anywhere in the repo, so tiers 2 and 3 have zero fitting basis.
+Li-Cor reference data anywhere in the ambit repo, so tiers 2 and 3 have no ambit fitting
+basis at all. The seeds make the command *useful* before that campaign; they do not make it
+*calibrated*, and the two must not be confused in anything reported to a user.
+
+**How to know the seeds have been earned out.** The miniPar port is finished when: an ambit
+LR1-B session across several source families replaces §7b; an ambit Li-250A campaign replaces
+§7c with a constrained or shrunk fit that has physical signs; `kParWeightIsSeed` flips to
+false (§5a); and each production device gets a tier-3 sweep. Until all four, bit2 stays set.
 
 Two constraints on the campaign, both learned the hard way on miniPar:
 
@@ -510,7 +731,11 @@ Two constraints on the campaign, both learned the hard way on miniPar:
   F8; positive on Clear) because the design matrix is collinear (condition number ≈ 451) and
   the dataset is daylight-dominated. A constrained fit (visible channels ≥ 0, Clear/NIR free)
   or shrinkage toward the ams matrix's PAR weights is the recommended fix. Plan for enough
-  narrowband LED and gel-filter measurements to break it.
+  narrowband LED and gel-filter measurements to break it. §7c shows how unstable the
+  unconstrained fit is — coefficients move by a factor of 3 between an 80 % subsample and the
+  full set while R² barely changes — so do not treat a high R² as evidence the vector is
+  right. The ambit campaign is the chance to do this properly the first time rather than
+  inheriting the same problem.
 
 Once real vectors exist, tighten the §6.5 bounds and decide whether `par_weight` should be
 seeded fleet-wide in firmware rather than written per device.
@@ -536,9 +761,9 @@ measurement). Include whatever fields are useful.
 | path | contents |
 |---|---|
 | `CALIBRATION.md` | full write-up of goals A/B, the three tiers, and the evidence |
-| `Scripts/regression_PAR_miniPAR.ipynb` | PAR model comparison; fits and exports tier-2 `w` |
-| `Scripts/spectralCalibration_miniPAR_LR1-B.ipynb` | goal A, derives per-channel sensitivity vs LR1-B |
-| `Scripts/as7341_calibrate.py` | host implementation of tier 1 + goal A |
+| `Scripts/regression_PAR_miniPAR.ipynb` | PAR model comparison; source of §7c's `par_weight`. Its tier-2 export cell has never been run and `par_coeffs_fleet.json` does not exist, so §7c was regenerated by re-executing that cell's code; the stored 80/20 cell reproduces exactly, which is the check that it was done faithfully. |
+| `Scripts/spectralCalibration_miniPAR_LR1-B.ipynb` | goal A; source of §7b's `spec_sens`. Note its printed offset output is stale — the label says "same units" while the numbers shown are the old ×1000 seconds-convention ones. The *code* is ms and is what §7b relies on. |
+| `Scripts/as7341_calibrate.py` | host implementation of tier 1 + goal A. **`OFFSET_BASIC` is currently zeroed**, with the real ams vector commented out above it, so `calibrated_raw()` skips the offset its own `SPECTRAL_COEF` was fitted with. A miniPar-side inconsistency; it does not affect what was ported here (§7e). |
 | `Firmware/docs/AS7341_AD000198_3-00.xlsx` | ams workbook: dark offsets, 721×10 reconstruction matrix |
 | `Firmware/docs/AS7341_AN000633_2-00.pdf` | ams app note: §2.1, §2.2, §2.4 |
 | `Firmware/src/app/spectrometer_api.cpp:578-584` | miniPar firmware, all three tiers in 3 lines |

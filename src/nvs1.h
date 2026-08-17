@@ -45,6 +45,75 @@ struct ambit_calibration_info_t
 
 extern struct ambit_calibration_info_t ambit_calibration_local, ambit_calibration_income;
 
+/* Spectral/PAR calibration — the three-tier chain cmd 35 computes.
+ * See plans/AMBIT_COMMAND35_SPECPAR.md.
+ *
+ * Deliberately NOT part of ambit_calibration_info_t. That struct is memcpy'd
+ * onto the wire at its full sizeof() by cmd 33 subtype 1, and is mirrored
+ * field-for-field in the ambyte's ambit_protocol.h under an explicit "MUST match
+ * ambit-1 nvs1.h — omitting it desyncs the framed read" warning. Growing it by
+ * 128 bytes would not even fail cleanly: an un-updated ambyte reads its 140
+ * bytes correctly and then *scans* for the 0xF0 terminator, so it recovers
+ * unless one of the extra bytes happens to be 0xF0 — which the all-zero/1.0f
+ * defaults never are and real fitted coefficients often are. A bench test would
+ * pass and the field would corrupt later, only on calibrated devices.
+ *
+ * This struct is read back through a byte-explicit, versioned layout instead
+ * (cmd 33 subtype 4), so it can be extended without touching a deployed logger.
+ *
+ * Units: tier 1 normalises to basic counts with tint in MILLISECONDS
+ * (SPEC_TICK_MS), which is the convention every published ams constant uses.
+ * The coefficients are meaningless under any other one. */
+struct ambit_spec_calibration_t
+{
+    // ams workbook AS7341_AD000198_3-00, sheet "used Correction Values" row 15,
+    // reordered into ambit's channel order. Device-independent, so unlike the
+    // rest of this struct these ship as real values rather than placeholders.
+    float spec_offset[ambit_calibration::SPEC_CHANNEL_COUNT] = {
+        0.00196979f,   // F1  410
+        0.00724927f,   // F2  440
+        0.00319381f,   // F3  470
+        0.001314659f,  // F4  510
+        0.001468153f,  // F5  550
+        0.001858105f,  // F6  583
+        0.001762778f,  // F7  620
+        0.00521704f,   // F8  670
+        0.001f,        // NIR 900
+        0.003f,        // Clear 750
+    };
+    // 1.0 until measured against an LR1-B on ambit optics. miniPar's vectors do
+    // not port — different window and diffuser.
+    float spec_sens[ambit_calibration::SPEC_CHANNEL_COUNT] = {
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    // 0.0 until fitted against a Li-Cor Li-250A across several source families.
+    // All-zero makes the computed PAR collapse to par_intercept, which cmd 35
+    // reports as flags bit2 rather than passing off as a reading.
+    float par_weight[ambit_calibration::SPEC_CHANNEL_COUNT] = {0.0f};
+    // Tier 3, per device, from an intensity sweep. par_slope is spec_coef's
+    // successor, not a rename: spec_coef scales a raw-count integer-weighted PAR
+    // and stays with cmd 31.
+    float par_slope = 1.0f;
+    float par_intercept = 0.0f;
+};
+
+extern struct ambit_spec_calibration_t ambit_spec_calibration;
+
+/* Is the compiled-in par_weight an ambit fleet fit, or a borrowed seed?
+ *
+ * Flip to true in the same commit that lands a par_weight fitted against a
+ * Li-250A on ambit optics (plans/AMBIT_COMMAND35_SPECPAR.md §11). Until then cmd
+ * 35 must not claim tier 2 is calibrated: a seeded vector produces a PAR of the
+ * right order that was measured on a different window and diffuser, and the
+ * whole point of the flag is that this is not silently indistinguishable from
+ * the real thing. */
+static constexpr bool AMBIT_PAR_WEIGHT_IS_AMBIT_FIT = false;
+
+/* Has this device been through a tier-3 intensity sweep? Set by
+ * load_spec_calibration() from NVS key presence and by the tier-3 setters on a
+ * successful write — key presence, not a float comparison against the default,
+ * because a fitted slope of exactly 1.0 is legitimate. */
+extern bool ambit_spec_tier3_stored;
+
 struct ambit_FW_info_t
 {
     uint8_t Major = MAJOR_VERSION;
@@ -86,6 +155,11 @@ void save_metadata(void);
 esp_err_t save_adpd_baseline(const uint32_t values[ambit_calibration::CHANNEL_COUNT]);
 esp_err_t save_actinic_coefficient(float value);
 esp_err_t save_spec_coefficient(float value);
+esp_err_t save_spec_offset(const float values[ambit_calibration::SPEC_CHANNEL_COUNT]);
+esp_err_t save_spec_sens(const float values[ambit_calibration::SPEC_CHANNEL_COUNT]);
+esp_err_t save_par_weight(const float values[ambit_calibration::SPEC_CHANNEL_COUNT]);
+esp_err_t save_par_slope(float value);
+esp_err_t save_par_intercept(float value);
 uint32_t apply_adpd_calibration(uint8_t channel, uint32_t sample);
 
 #endif // _NVS1_H_
