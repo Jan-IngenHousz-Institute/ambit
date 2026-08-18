@@ -115,43 +115,59 @@ struct ambit_spec_calibration_t
     };
 
     /* SEED, not an ambit calibration. From the miniPar Li-250A campaign
-     * (Scripts/regression_PAR_miniPAR.ipynb): OLS of measured PAR on basic
-     * counts, all 462 samples over 6 devices, tier-2 intercept discarded because
-     * composing the tiers gives PAR = a*(w.x) + (a*b0 + b), so tier 3's intercept
-     * absorbs it. Leave-one-device-out median 4.4%, worst device 9.8%.
+     * (new_calibration_miniPAR/regression_PAR_miniPAR.ipynb, exported as
+     * par_coeffs_fleet.json): lsq_linear of measured PAR on basic counts with
+     * F1-F8 >= 0 and Clear/NIR free, shrunk toward W_TARGET at lambda=0.03, all
+     * 462 samples over 6 devices, tier-2 intercept discarded because composing
+     * the tiers gives PAR = a*(w.x) + (a*b0 + b), so tier 3's intercept absorbs
+     * it. Leave-one-device-out median 4.38%.
+     *
+     * Generation "minipar-2026-08-18-constrained". It REPLACED a plain OLS fit on
+     * the same samples, whose signs were not physical: negative on F3, F5 and F8
+     * and positive on Clear, which is backwards — the visible channels should
+     * lift PAR and Clear/NIR should subtract stray light. That was collinearity,
+     * not physics (condition number ~451 on a daylight-dominated set, so OLS
+     * spreads weight arbitrarily across correlated channels). The bound plus
+     * shrinkage costs almost nothing in domain (in-sample R^2 0.9982 against
+     * 0.9984) and buys the extrapolation back: canopy PAR spread 0.4% against
+     * 6.2%, coefficient direction spread p95 8 deg against 62 deg. The old vector
+     * had L1 norm 1172 against 457 here for a 1.8x larger net response — 2.6x the
+     * leverage on spectral shape for the same in-domain answer.
      *
      * Two things to know before trusting these numbers:
      *
-     * (1) The signs are not physical. F3, F5 and F8 are negative and Clear is
-     *     positive, which is backwards — the visible channels should lift PAR and
-     *     Clear/NIR should subtract stray light. That is collinearity, not
-     *     physics: condition number ~451 on a daylight-dominated set, so OLS
-     *     spreads weight arbitrarily across correlated channels. Refitting on 80%
-     *     of the samples moves F1 by 15% and F3 by a factor of 3 while R^2 barely
-     *     moves. Good in-domain predictor; NOT a spectral response curve, and not
-     *     safe to extrapolate to spectra unlike daylight.
+     * (1) Still a seed, and still miniPar optics. The window and diffuser are not
+     *     ambit's, so AMBIT_PAR_WEIGHT_IS_AMBIT_FIT stays false and cmd 35 keeps
+     *     reporting PAR provisional. The shrinkage target is also still the
+     *     PLACEHOLDER W_TARGET (par_coeffs_fleet.json carries
+     *     "prior_is_placeholder": true), so expect one more generation once the
+     *     CM weight vector is computed.
      *
      * (2) w was fitted against basic counts with NO dark offset subtracted,
      *     while this chain computes s = max(0, x - spec_offset). The difference
-     *     is sum(w*offset) = 2.40 umol m-2 s-1, a CONSTANT, so par_intercept
-     *     absorbs it exactly — verified by running this chain over miniPar's data
-     *     (R^2 0.9983) and refitting tier 3, which returns a = 1.0000 and an
-     *     intercept holding precisely that constant plus miniPar's discarded b0.
-     *     Nothing needs rescaling here.
+     *     is sum(w*offset) = 1.09 umol m-2 s-1 (2.40 under the OLS seed), a
+     *     CONSTANT, so par_intercept absorbs it exactly and nothing needs
+     *     rescaling here. The stronger form of that check — running this chain
+     *     over miniPar's data and refitting tier 3, which returned a = 1.0000 and
+     *     an intercept holding precisely that constant plus miniPar's discarded
+     *     b0 = 7.983 total — was done on the OLS seed. par_coeffs_fleet.json does
+     *     not export the b0 this fit discarded, so only the 1.09 half is known
+     *     for this generation. Which is an argument for fitting the intercept,
+     *     which tier 3 does, not for predicting it.
      *
-     * Replace after a Li-250A campaign on ambit hardware, using a constrained or
-     * shrunk fit rather than plain OLS, then set AMBIT_PAR_WEIGHT_IS_AMBIT_FIT. */
+     * Replace after a Li-250A campaign on ambit hardware, keeping the sign
+     * constraint, then set AMBIT_PAR_WEIGHT_IS_AMBIT_FIT. */
     float par_weight[ambit_calibration::SPEC_CHANNEL_COUNT] = {
-         333.463542f,  // F1  415
-         206.427134f,  // F2  445
-         -30.6130744f, // F3  480
-         283.778061f,  // F4  515
-        -144.07319f,   // F5  555
-          73.852848f,  // F6  590
-          38.9285016f, // F7  630
-          -6.43585093f,// F8  680
-         -37.6580353f, // NIR 910
-          16.9097651f, // Clear (broadband)
+          40.8063026f, // F1  415
+          42.1780116f, // F2  445
+          69.8493647f, // F3  480
+          85.8748691f, // F4  515
+          61.8955888f, // F5  555
+          43.742399f,  // F6  590
+          51.5713801f, // F7  630
+          14.7054614f, // F8  680
+         -27.2526003f, // NIR 910
+          19.3083196f, // Clear (broadband)
     };
 
     /* Tier 3, per device, from an intensity sweep against a Li-250A. Deliberately
