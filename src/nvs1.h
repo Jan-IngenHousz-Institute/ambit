@@ -64,34 +64,104 @@ extern struct ambit_calibration_info_t ambit_calibration_local, ambit_calibratio
  * Units: tier 1 normalises to basic counts with tint in MILLISECONDS
  * (SPEC_TICK_MS), which is the convention every published ams constant uses.
  * The coefficients are meaningless under any other one. */
+/* CHANNEL ORDER, for every vector below: F1..F8, NIR, Clear — ambit's reported
+ * order, set by SPEC_RAW_INDEX. miniPar's tooling (both notebooks and
+ * as7341_calibrate.py) ends "..., clear, nir", so every vector imported from
+ * there has ALREADY had its last two elements swapped here. Getting this wrong
+ * does not fail loudly: NIR and Clear carry the most dissimilar coefficients in
+ * each vector (5.78 vs 31.57, -37.7 vs +16.9), so a missed swap just produces a
+ * confidently wrong answer under any spectrum with NIR content. */
 struct ambit_spec_calibration_t
 {
-    // ams workbook AS7341_AD000198_3-00, sheet "used Correction Values" row 15,
-    // reordered into ambit's channel order. Device-independent, so unlike the
-    // rest of this struct these ship as real values rather than placeholders.
+    // ams workbook AS7341_AD000198_3-00, sheet "used Correction Values" row 15.
+    // A property of the silicon, not of the optics, so this one is a real
+    // calibration rather than a seed.
     float spec_offset[ambit_calibration::SPEC_CHANNEL_COUNT] = {
-        0.00196979f,   // F1  410
-        0.00724927f,   // F2  440
-        0.00319381f,   // F3  470
-        0.001314659f,  // F4  510
-        0.001468153f,  // F5  550
-        0.001858105f,  // F6  583
-        0.001762778f,  // F7  620
-        0.00521704f,   // F8  670
-        0.001f,        // NIR 900
-        0.003f,        // Clear 750
+        0.00196979f,   // F1  415
+        0.00724927f,   // F2  445
+        0.00319381f,   // F3  480
+        0.001314659f,  // F4  515
+        0.001468153f,  // F5  555
+        0.001858105f,  // F6  590
+        0.001762778f,  // F7  630
+        0.00521704f,   // F8  680
+        0.001f,        // NIR 910
+        0.003f,        // Clear (broadband)
     };
-    // 1.0 until measured against an LR1-B on ambit optics. miniPar's vectors do
-    // not port — different window and diffuser.
+
+    /* SEED, not an ambit calibration. From the miniPar LR1-B campaign
+     * (Scripts/spectralCalibration_miniPAR_LR1-B.ipynb): median per-channel
+     * reference/sensor ratio over 3 devices, where reference is the LR1-B
+     * irradiance projected onto the channels through the ams reconstruction
+     * matrix. Per-channel device spread 1.4-9.7%, which is what justifies one
+     * fleet vector rather than a per-serial lookup.
+     *
+     * Ports exactly: miniPar derived it under the same chain computed here —
+     * basic counts on the ms tick, ams offsets subtracted, then scale — so
+     * s[i] * spec_sens[i] is the expression that produced the constant. What
+     * does NOT port is ambit's window and diffuser; replace after an LR1-B
+     * session on ambit optics. */
     float spec_sens[ambit_calibration::SPEC_CHANNEL_COUNT] = {
-        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
-    // 0.0 until fitted against a Li-Cor Li-250A across several source families.
-    // All-zero makes the computed PAR collapse to par_intercept, which cmd 35
-    // reports as flags bit2 rather than passing off as a reading.
-    float par_weight[ambit_calibration::SPEC_CHANNEL_COUNT] = {0.0f};
-    // Tier 3, per device, from an intensity sweep. par_slope is spec_coef's
-    // successor, not a rename: spec_coef scales a raw-count integer-weighted PAR
-    // and stays with cmd 31.
+        34.950663f,    // F1  415
+        65.289484f,    // F2  445
+        72.697997f,    // F3  480
+        63.273264f,    // F4  515
+        56.737110f,    // F5  555
+        52.958660f,    // F6  590
+        48.706781f,    // F7  630
+        42.671670f,    // F8  680
+         5.781618f,    // NIR 910
+        31.565986f,    // Clear (broadband)
+    };
+
+    /* SEED, not an ambit calibration. From the miniPar Li-250A campaign
+     * (Scripts/regression_PAR_miniPAR.ipynb): OLS of measured PAR on basic
+     * counts, all 462 samples over 6 devices, tier-2 intercept discarded because
+     * composing the tiers gives PAR = a*(w.x) + (a*b0 + b), so tier 3's intercept
+     * absorbs it. Leave-one-device-out median 4.4%, worst device 9.8%.
+     *
+     * Two things to know before trusting these numbers:
+     *
+     * (1) The signs are not physical. F3, F5 and F8 are negative and Clear is
+     *     positive, which is backwards — the visible channels should lift PAR and
+     *     Clear/NIR should subtract stray light. That is collinearity, not
+     *     physics: condition number ~451 on a daylight-dominated set, so OLS
+     *     spreads weight arbitrarily across correlated channels. Refitting on 80%
+     *     of the samples moves F1 by 15% and F3 by a factor of 3 while R^2 barely
+     *     moves. Good in-domain predictor; NOT a spectral response curve, and not
+     *     safe to extrapolate to spectra unlike daylight.
+     *
+     * (2) w was fitted against basic counts with NO dark offset subtracted,
+     *     while this chain computes s = max(0, x - spec_offset). The difference
+     *     is sum(w*offset) = 2.40 umol m-2 s-1, a CONSTANT, so par_intercept
+     *     absorbs it exactly — verified by running this chain over miniPar's data
+     *     (R^2 0.9983) and refitting tier 3, which returns a = 1.0000 and an
+     *     intercept holding precisely that constant plus miniPar's discarded b0.
+     *     Nothing needs rescaling here.
+     *
+     * Replace after a Li-250A campaign on ambit hardware, using a constrained or
+     * shrunk fit rather than plain OLS, then set AMBIT_PAR_WEIGHT_IS_AMBIT_FIT. */
+    float par_weight[ambit_calibration::SPEC_CHANNEL_COUNT] = {
+         333.463542f,  // F1  415
+         206.427134f,  // F2  445
+         -30.6130744f, // F3  480
+         283.778061f,  // F4  515
+        -144.07319f,   // F5  555
+          73.852848f,  // F6  590
+          38.9285016f, // F7  630
+          -6.43585093f,// F8  680
+         -37.6580353f, // NIR 910
+          16.9097651f, // Clear (broadband)
+    };
+
+    /* Tier 3, per device, from an intensity sweep against a Li-250A. Deliberately
+     * NOT seeded from miniPar: this is the term that carries optical throughput,
+     * and ambit's window and diffuser are not miniPar's. Until a sweep is run,
+     * par reports par_tier2 unscaled — it tracks light correctly but its
+     * MAGNITUDE is not meaningful, which is what flags bit9 exists to say.
+     *
+     * par_slope is spec_coef's successor, not a rename: spec_coef scales a
+     * raw-count integer-weighted PAR and stays with cmd 31. */
     float par_slope = 1.0f;
     float par_intercept = 0.0f;
 };

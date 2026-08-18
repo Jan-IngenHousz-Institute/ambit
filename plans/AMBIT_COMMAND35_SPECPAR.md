@@ -13,8 +13,8 @@ weight vector makes the computed PAR *identically zero*, which is a worse starti
 a vector fitted on a different unit of the same sensor. So miniPar's fitted vectors are now
 carried in as **defaults** (§7), under conditions spelled out there: they encode miniPar's
 optical stack, they are provisional, and they must not be mistaken for an ambit calibration.
-§11 tracks what replaces them, and `flags` bit2 exists to keep the distinction visible on
-the wire.
+§11 tracks what replaces them, and the `flags` calibration byte (§5a) exists to keep the
+distinction visible on the wire.
 
 **Status fact that shapes the whole plan: cmd 35 has never been released.** `git tag
 --contains a1ff230` is empty, the commit is not an ancestor of `origin/main`, `git show
@@ -31,10 +31,44 @@ Calibratron repo (§9).
 | | goal | output | fitted against |
 |---|---|---|---|
 | **A** | spectral characteristics of the light | per-channel irradiance-like values (optionally a 1 nm spectrum, host-side) | LR1-B spectrometer |
-| **B** | PAR | one scalar, µmol m⁻² s⁻¹ | Li-Cor Li-250A |
+| **B** | PAR | one scalar, µmol m⁻² s⁻¹ | tier 2: Li-Cor Li-250A. tier 3: a Li-250A **or** a transfer standard — §1a |
 
 They share the exposure normalisation and diverge immediately after. Goal B is **not**
 computed from goal A's output — see §8.
+
+### 1a. Tier 3 does not require a Li-250A. Tier 2 does.
+
+The two tiers have different reference requirements, and conflating them has been costing
+this plan clarity.
+
+**Tier 2 needs an absolute PAR reference across many source families.** It is where the
+µmol scale enters and where spectral weighting is decided, so nothing but a proper quantum
+sensor will do. That stays a Li-250A, and it stays a TODO (§11).
+
+**Tier 3 does not.** It is two per-device parameters fitted at one spectrum, and what it
+actually measures is the ratio of this device's optical throughput to whatever the tier-2
+vector was fitted on. A **transfer standard** serves that: any instrument that computes PAR
+with *the same* `par_weight`. A miniPAR is exactly that today, because §7c's seed *is*
+miniPar's fleet vector — so at one spectrum both devices compute `w · s` over identical
+weights, the spectral bias is common-mode, and it divides out of the ratio. The fit's
+*linearity* is unaffected, which is what makes the host's quality gates still mean something.
+
+The cost is a pure multiplicative bias equal to the reference's own PAR error at the
+calibration spectrum: ~2 % in-domain (§7c) but **4.4 % median / 9.8 % worst** by §2's
+cross-source figures, which are the honest ones for a halogen bench lamp that is nothing
+like miniPar's daylight-dominated set. Against the ~5 % absolute accuracy of a Li-250A that
+is ~7 % combined rather than ~5 %.
+
+It is also **recoverable without repeating any bench work**, provided the host stores
+`par_tier2` per sweep point: one later Li-250A comparison on a single device yields a scale
+correction applicable to every stored sweep. That storage requirement is on the host, and the
+Calibratron does it.
+
+So: **tier 3 against a Li-250A is an optional TODO, not a precondition.** A transfer-standard
+fit is a conforming tier-3 calibration as long as the record names the reference and carries
+the sweep. Two caveats to record with it: the fitted `par_slope` is specific to the
+calibration lamp's spectrum, and a halogen lamp shifts colour temperature across an intensity
+sweep, so the record should say how far the spectrum moved.
 
 ## 2. The three tiers
 
@@ -146,7 +180,7 @@ Recorded here so the implementation does not relitigate them.
 | 6 | **Per-channel saturation and clip masks**, plus board-level status bits. | A payload that divides, offset-corrects and weights must say *which* channels are trustworthy. §5 has the layout. |
 | 7 | **`spec_coef` is untouched and is not applied to the new `par`.** | Cmd 31 and deployed devices depend on it. `par_slope` is its successor, not a rename — a scalar on integer-weighted raw counts is a different quantity. |
 | 8 | **`spec_sens` and `par_weight` ship seeded from the miniPar campaign; `par_slope`/`par_intercept` stay identity.** (Revised 2026-08-17 — these were originally 1.0 / 0.0.) | An all-zero weight vector makes PAR identically zero, which is less useful than a fit from another unit of the same sensor. Tier 3 is per-optics and is not seeded. The seeds are miniPar's optical stack and are not an ambit calibration — §7. |
-| 9 | **`flags` bit2 changes meaning from "par_weight is zero" to "PAR provisional".** | Decision 8 makes the zero-test permanently false, which would silently retire the only signal distinguishing a seeded device from a calibrated one. §5a. |
+| 9 | **`flags` is split into a negative-polarity condition byte and a positive-polarity calibration byte.** Provisional PAR is reported by *two* bits — bit8 `par_weight` is an ambit fleet fit, bit9 tier 3 stored for this device — not by one. | Decision 8 makes the old `par_weight_is_unset()` test permanently false, which would silently retire the only signal distinguishing a seeded device from a calibrated one. One bit could not express it either: the two halves of the PAR chain are calibrated by different people at different times. Positive polarity makes an all-zero word read as "nothing confirmed". §5a. |
 
 ---
 
@@ -346,8 +380,28 @@ degrades gracefully instead of going silent.
 132  end
 ```
 
-Mirror it as a text verb (`get_spec_cal`, comma-separated) so the Calibratron can confirm a
-write landed without speaking binary.
+Mirror it as a text verb (`get_spec_cal`) so the Calibratron can confirm a write landed
+without speaking binary. *Implemented* in [src/do_command.h](src/do_command.h) as **five
+labelled lines**, `<field>:<comma-separated %.9g>`, in the same order as the binary layout:
+
+```
+spec_offset:0.00196979,0.00724927,0.00319381,...      10 values
+spec_sens:34.9506626,65.2894836,72.6979971,...        10 values
+par_weight:333.463542,206.427139,-30.6130743,...      10 values
+par_slope:1
+par_intercept:0
+```
+
+Labelled lines rather than one flat row of 32 floats, for a specific reason: a host parsing
+by *position* silently shifts every subsequent value by one when a field is added, removed or
+interleaved with a log line — and for these vectors a one-slot shift is undetectable in the
+numbers, because every element is a plausible magnitude for its neighbour. Keying on the label
+makes that failure impossible instead of merely unlikely. `%.9g` is chosen to round-trip an
+IEEE-754 `float` exactly, so the text mirror and cmd 33/4 agree bit for bit and a host may use
+either as the read-back of record.
+
+Hosts should read a few more lines than the five and match on labels, since the console can
+interleave `ESP_LOG` output at any point.
 
 ### 6.5 Predicates
 
@@ -386,10 +440,42 @@ Use the text console instead:
   the host a full read timeout. Worse for cmd 18: `Serial.readBytes` is inside the `if`, so
   the vector payload is never consumed and the stray bytes desync the next header scan.
 
-Proposed verbs, following the existing `set_*` naming: `set_spec_offset`, `set_spec_sens`,
+Verbs, following the existing `set_*` naming: `set_spec_offset`, `set_spec_sens`,
 `set_par_weight` (10 comma-separated floats each), `set_par_slope`, `set_par_icept`.
 The loose-parse + strict-predicate idiom already used by `set_act`/`set_spec` is fine —
 `isfinite` catches `Serial_Input_Double`'s NAN-on-empty.
+
+**Reply contract — three outcomes, and hosts must test for the good one.** As implemented
+(`report_spec_save` in [src/do_command.h](src/do_command.h)) every setter answers with exactly
+one line:
+
+| reply | meaning | state |
+|---|---|---|
+| `<what> saved and verified` | committed to NVS and read back | **written** |
+| `<what> rejected` | failed the predicate | NVS untouched |
+| `<what> save failed: <ESP_ERR_…>` | predicate passed, the NVS write did not | NVS untouched |
+
+`<what>` is `Spectral offset`, `Spectral sensitivity`, `PAR weight`, `PAR slope`,
+`PAR intercept`.
+
+The third row is the trap, and it is worth stating rather than leaving to be discovered: it
+contains no negative keyword at all. A host that tests for `"rejected"` — the obvious reading
+of "it already reports accept/reject explicitly" above — treats an NVS failure as a success
+and walks away believing it wrote a coefficient it did not write. **So acceptance must be
+tested positively, on `saved and verified`.** That single test covers all three outcomes and
+any future rewording, because only the confirmation passes it. Recommended for anything
+matching these replies, host or firmware test.
+
+Two smaller notes for hosts:
+
+- Validate the value you are about to *transmit*, not the one you fitted. The wire is
+  fixed-point, so a value that satisfies §6.5 at full precision can violate it after
+  rounding — a `par_slope` below the format's resolution prints as `0.000000`, which
+  `valid_par_slope`'s `(0, 100]` correctly refuses. `%.6f` is ample for a slope near 1.0.
+- These are five independent NVS commits, with no cross-key atomicity. Writing `par_slope`
+  then `par_icept` can therefore be interrupted between them, leaving `a` new and `b` old.
+  That is bounded and self-consistent rather than torn, but a host should read both back
+  together after writing both, and be able to restore the pair it replaced.
 
 **If binary subtypes are added later, fix this first:** [run_esp.cpp:423](src/run_esp.cpp)
 discards the `readBytes` return value, and the integrity check is a plain u16 sum compared
@@ -500,6 +586,27 @@ exactly. Verified by running ambit's chain over miniPar's data: R² 0.9983, medi
 discrepancy (that 2.40 plus miniPar's discarded 5.61 tier-2 intercept) reappears as a pure
 intercept, exactly as the tier composition predicts. Nothing needs rescaling.
 
+**But the constant is only constant while nothing clips — so a clipped point must never be
+fitted.** The argument above is what licenses reusing this vector at all, and it rests on
+`Σ wᵢ·offsetᵢ` being a fixed offset. Once any channel hits the `max(0, …)` floor, that term
+stops depending on the light and the relation stops being affine. Since the clip is the
+chain's only nonlinearity (§5), a clipped reading is off-model by construction.
+
+The consequence is sharp and easy to walk into, because the natural place to put a low anchor
+in a tier-3 sweep is with the lamp off — and that is exactly where every channel clips. The
+ams offsets are **0.28 – 2.02 raw counts** at the pinned 2× / 139 ms (F2 the largest), so the
+clip bites only in a light-tight fixture, but there it bites on all ten. A fully clipped
+reading has `par_tier2` identically 0 against a reference of ~0, so it sits on the line only
+if `par_intercept` is 0. Folding one into the fit drags the intercept from 7.983 to **4.78 —
+40 % low — while R² stays above 0.99, so no ordinary fit-quality gate catches it.**
+
+So a tier-3 sweep must exclude any point whose `clip_mask` is non-zero, at *any* lamp drive,
+and must include at least one genuinely lit low point to constrain the intercept. Keying the
+rule on `clip_mask` rather than on the drive setting handles both cases automatically: a dark
+reading that comes back unclipped (ambient light present) is perfectly usable. This is also
+the second reason `clip_mask` is on the wire per-channel rather than as one bit — the first
+being §5's.
+
 **Read the signs before trusting this vector.** The notebook's own sanity check expects
 F1–F8 to lift PAR and Clear/NIR to subtract stray light. This fit violates that on four
 channels — F3, F5 and F8 are negative, and Clear is positive:
@@ -522,9 +629,14 @@ toward the ams PAR weights — §11.
 ### 7d. `par_slope` = 1.0, `par_intercept` = 0.0 — deliberately not seeded
 
 Tier 3 is per device and per optical stack. Seeding it from miniPar would import that
-sensor's window and diffuser as if they were ambit's. Leaving it identity means a fresh
-ambit reports `par = par_tier2` — a number of the right order that is honestly uncorrected,
-rather than one wrong in a way that looks deliberate.
+sensor's window and diffuser as if they were ambit's.
+
+Be precise about what this leaves: a fresh ambit reports `par = par_tier2` unscaled. It
+tracks light correctly and has roughly the right spectral weighting, but its **magnitude is
+not meaningful** — `par_slope` is exactly the term that carries optical throughput, and
+ambit's aperture and diffuser are not miniPar's, so the scale can be off by a large factor
+in either direction. Do not read the number as µmol m⁻² s⁻¹ before a tier-3 sweep. `flags`
+bit9 is what says so on the wire.
 
 ### 7e. What was checked before porting
 
@@ -600,23 +712,24 @@ accuracy one.)
 
 ## 9. What else must change
 
-**Outstanding firmware work from the seeding decision** (§7) — the payload, storage,
-setters, read-back and predicates are already implemented; these three are not:
+**Firmware work from the seeding decision (§7) — complete.** Landed in this order, which is
+the safe one: the flags change first (on its own it just reports the truth about a
+still-unseeded build, both high bits 0), then the vectors. Reversing it would have left a
+window where a device asserted a confident PAR with no provisional signal.
 
-- **Seed the two vectors.** `ambit_spec_calibration_t` in [src/nvs1.h](src/nvs1.h) still
-  declares `spec_sens` as ten `1.0f` and `par_weight` as `{0.0f}`. Replace them with §7b and
-  §7c, keeping the ambit channel order and the per-channel comments. No predicate changes are
-  needed — the largest values are 72.7 (`valid_spec_sens` allows ≤ 1000) and 333.5
-  (`valid_par_weight` allows ≤ 1e4).
-- ~~Redefine `flags` bit2~~ — **done**, ahead of the seeding, as §5a describes. Landing it
-  first is the safe order: seeding without it would leave a device asserting a confident PAR
-  with no provisional signal, whereas the flags change on its own simply reports the truth
-  about a still-unseeded build (both high bits 0). Do not reverse the order.
-- **Record the provenance at the definition.** House style is that a constraint's *why*
-  lives where the constant does: these vectors are another sensor's optics, and the next
-  reader must not find ten unexplained floats. While editing, fix the channel-centre comments
-  in [src/nvs1.h](src/nvs1.h) — they read 410/440/470/510/550/583/620/670 and "Clear 750",
-  none of which are AS7341 centres (§7a).
+- ~~Redefine `flags` bit2~~ — done; became the two-zone field of §5a.
+- ~~Seed `spec_sens` and `par_weight`~~ — done, in `ambit_spec_calibration_t`
+  ([src/nvs1.h](src/nvs1.h)), in ambit channel order with the provenance, the sign caveat and
+  the offset-convention note recorded at the definition. No predicate changes were needed:
+  the largest magnitudes are 72.7 against `valid_spec_sens`'s 1000 and 333.5 against
+  `valid_par_weight`'s 1e4.
+- ~~Fix the channel-centre comments~~ — done; they now read 415/445/480/515/555/590/630/680,
+  NIR 910, Clear broadband (§7a).
+
+Verified against miniPar's 462 samples after the port: the ambit-order vectors applied to
+ambit-order columns reproduce the miniPar-order computation to 4.4e-16, and the chain scores
+R² 0.9983 / median 1.96 %. A deliberately incorrect NIR/Clear swap scores R² 0.795 / 25.8 %
+on the same data — worth knowing as the signature to look for if a future import goes wrong.
 
 **Acquisition** ([spec_meas.cpp](src/src/as7341/spec_meas.cpp)):
 
@@ -625,10 +738,10 @@ setters, read-back and predicates are already implemented; these three are not:
   ordinal→multiplier switch is inside the dead `toBasicCounts()`.
 - Per-channel saturation: replace the single `out->saturated` bool with a 10-bit mask, and
   compare against the reported `(atime+1)*(astep+1)` rather than the compile-time constant.
-- Read the AS7341's own ASAT bits from STATUS2 for `flags` bit2. Today the only STATUS2
+- Read the AS7341's own ASAT bits from STATUS2 for `flags` bit2 (condition byte). Today the only STATUS2
   access is the AVALID bit in `getIsDataReady()`, so analog saturation below 50000 digital
   counts is invisible.
-- Give `dual_exposure()` a return value for `flags` bit3. It is currently `void` and
+- Give `dual_exposure()` a return value for `flags` bit3 (condition byte). It is currently `void` and
   discards both I²C results — `low_success` is assigned at
   [spec_meas.cpp:149](src/src/as7341/spec_meas.cpp) then overwritten at :156 and never
   tested — and `check_AS7341()` failure does not abort. A dead I²C bus is currently
@@ -702,14 +815,15 @@ structural changes.
 
 Nothing here is fitted on **ambit** hardware. Three of the five now ship a seed rather than
 an identity value (§7), which changes the failure mode from "obviously zero" to "plausible
-but wrong" — `flags` bit2, redefined per §5a, is what keeps that visible.
+but wrong" — the `flags` calibration byte (§5a) is what keeps that visible: bit8 stays 0
+while `par_weight` is miniPar's, bit9 stays 0 until this device has been swept.
 
 | quantity | shipped default | still needs | ambit data today |
 |---|---|---|---|
 | `spec_offset[10]` | ams workbook — device-independent | nothing | n/a |
 | `spec_sens[10]` | miniPar LR1-B, 3 devices | LR1-B across ambit optics | 1 session |
-| `par_weight[10]` | miniPar Li-250A fleet OLS | Li-250A across **many source families** | none |
-| `par_slope` | 1.0 | per-device intensity sweep | none |
+| `par_weight[10]` | miniPar Li-250A fleet OLS | Li-250A across **many source families** — required, §1a | none |
+| `par_slope` | 1.0 | per-device intensity sweep against a Li-250A **or a transfer standard** (§1a); a Li-250A anchor is an optional TODO worth ~4 % | none |
 | `par_intercept` | 0.0 | same sweep | none |
 
 What exists today: [data/multi_ambit_spec_lr1b.csv](data/multi_ambit_spec_lr1b.csv) — 3 rows,
@@ -720,8 +834,10 @@ basis at all. The seeds make the command *useful* before that campaign; they do 
 
 **How to know the seeds have been earned out.** The miniPar port is finished when: an ambit
 LR1-B session across several source families replaces §7b; an ambit Li-250A campaign replaces
-§7c with a constrained or shrunk fit that has physical signs; `kParWeightIsSeed` flips to
-false (§5a); and each production device gets a tier-3 sweep. Until all four, bit2 stays set.
+§7c with a constrained or shrunk fit that has physical signs; `AMBIT_PAR_WEIGHT_IS_AMBIT_FIT`
+flips to true (§5a); and each production device gets a tier-3 sweep. Until the third of those,
+bit8 stays 0 on every device however well it has been swept — which is correct, and is why a
+host must test bit8 and bit9 separately rather than collapsing them.
 
 Two constraints on the campaign, both learned the hard way on miniPar:
 
