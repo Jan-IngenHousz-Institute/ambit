@@ -301,6 +301,17 @@ cannot vouch for a zero vector a host wrote over the setter; that is what keeps
 Today both high bits are **0** on every device: the seed is not an ambit fit, and no unit has
 been swept. That is the honest state, and §9's conformance expectation matches it.
 
+**Known gap — bit9 latches on and cannot be cleared.** Verified on hardware 2026-08-24: once
+any tier-3 key exists in NVS, `ambit_spec_tier3_stored` is true for the life of that
+partition, and there is no verb to delete the key. The flag is therefore honest about "a value
+was written" but cannot distinguish a real intensity sweep from a bench write — a device that
+receives a test or bogus tier-3 value claims calibrated status permanently. The unit used for
+that conformance run is in exactly that state (`par_slope` restored to 1.0, but bit9 stuck
+at 1). If tier-3 status is going to gate anything downstream, this wants either a
+`clear_par_cal` verb that erases both keys or a stored provenance field (reference
+instrument + date) rather than a bare presence bit. Not urgent, but do not build a data
+pipeline that trusts bit9 as proof of a sweep until it is closed.
+
 ---
 
 ## 6. Calibration storage
