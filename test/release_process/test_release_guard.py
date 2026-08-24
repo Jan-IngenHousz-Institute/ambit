@@ -250,10 +250,16 @@ class WorkflowBoundaryTests(unittest.TestCase):
         self.assertEqual(finalizer.count("-F draft=false"), 1)
         self.assertNotIn("npx semantic-release", finalizer)
         self.assertNotIn("actions/upload-artifact", finalizer)
-        self.assertIn("QUALIFIED_PR_RUN_ID", workflow)
-        self.assertIn("QUALIFIED_ARTIFACT_ID", workflow)
-        self.assertIn("QUALIFIED_APP_SHA256", workflow)
-        self.assertIn("QUALIFIED_PR_HEAD_SHA: ${{ vars.AMBIT_V114_PR_HEAD_SHA }}", workflow)
+        # Every qualification pin must be sourced from a repository variable --
+        # never a literal, never an arbitrary expression. That is the boundary
+        # being guarded here. Matched by SHAPE rather than by one release's
+        # variable names: pinning the next firmware should not require editing
+        # this test, and a stale assertion here fails the PR that re-pins rather
+        # than the release it was meant to protect.
+        for pin in ("PR_HEAD_SHA", "PR_RUN_ID", "ARTIFACT_ID", "APP_SHA256"):
+            self.assertRegex(
+                workflow,
+                r"QUALIFIED_%s: \$\{\{ vars\.AMBIT_V\d+_%s \}\}" % (pin, pin))
         self.assertNotIn("actions/artifacts?name=", workflow)
         self.assertIn("-F draft=false -f make_latest=true", finalizer)
         preview = stage.index("npx semantic-release --dry-run")
