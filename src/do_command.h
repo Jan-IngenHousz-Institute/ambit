@@ -23,6 +23,27 @@ constexpr unsigned hash(const char *string)
  return *string == 0 ? 17325 : *string + (*string * hash(string+1));
 }
 
+/* Read a ten-element float vector as comma-separated text, the same shape as
+ * set_baseline. Strictly parsed: par_weight takes 0.0 as both its shipping
+ * default and a legitimate fitted value, so the loose Serial_Input_Double idiom
+ * — which cannot separate a deliberate zero from a strtod parse failure — is
+ * not good enough here. Consumes all ten tokens before returning either way, so
+ * a rejected line does not leave half a vector in the input buffer. */
+static bool read_spec_vector(float values[ambit_calibration::SPEC_CHANNEL_COUNT]){
+  bool valid = true;
+  for (uint8_t i = 0; i < ambit_calibration::SPEC_CHANNEL_COUNT; ++i){
+    char token[25] = {0};
+    Serial_Input_Chars(token, ",", 10, sizeof(token) - 1);
+    if (!ambit_calibration::parse_calibration_float(token, &values[i])) valid = false;
+  }
+  return valid;
+}
+
+static void report_spec_save(const char *what, esp_err_t err){
+  if (err == ESP_OK) Serial.printf("%s saved and verified\n", what);
+  else Serial.printf("%s save failed: %s\n", what, esp_err_to_name(err));
+}
+
 void do_command(char *choose){
 
     int setting;
@@ -422,6 +443,104 @@ void do_command(char *choose){
           }else{
             Serial.println("PAR coefficient rejected");
           }
+      }
+      break;
+
+      /* Spectral/PAR calibration — the three-tier chain cmd 35 computes.
+       * See plans/AMBIT_COMMAND35_SPECPAR.md.
+       *
+       * These live on the text console rather than as new binary cmd 17/18
+       * subtypes: this is the dialect the Calibratron speaks, and the
+       * Calibratron is what runs the calibration. It also reports acceptance,
+       * where cmds 17/18 write nothing at all on an unrecognised subtype — no
+       * ESP_CMD_DONE, no ESP_CMD_END — so an older image costs the host its full
+       * read timeout and, for cmd 18, leaves the unread vector payload behind to
+       * desync the next frame.
+       *
+       * Vectors are ten comma-separated floats in wavelength order:
+       * F1..F8, NIR, Clear. Validation and persistence both happen inside the
+       * save_* helpers, so every transport shares one predicate. */
+      case hash("set_spec_offset"):
+      {
+        float values[ambit_calibration::SPEC_CHANNEL_COUNT] = {0.0f};
+        if (!read_spec_vector(values) || !ambit_calibration::valid_spec_offset(values)){
+          Serial.println("Spectral offset rejected");
+          break;
+        }
+        report_spec_save("Spectral offset", save_spec_offset(values));
+      }
+      break;
+
+      case hash("set_spec_sens"):
+      {
+        float values[ambit_calibration::SPEC_CHANNEL_COUNT] = {0.0f};
+        if (!read_spec_vector(values) || !ambit_calibration::valid_spec_sens(values)){
+          Serial.println("Spectral sensitivity rejected");
+          break;
+        }
+        report_spec_save("Spectral sensitivity", save_spec_sens(values));
+      }
+      break;
+
+      case hash("set_par_weight"):
+      {
+        float values[ambit_calibration::SPEC_CHANNEL_COUNT] = {0.0f};
+        if (!read_spec_vector(values) || !ambit_calibration::valid_par_weight(values)){
+          Serial.println("PAR weight rejected");
+          break;
+        }
+        report_spec_save("PAR weight", save_par_weight(values));
+      }
+      break;
+
+      case hash("set_par_slope"):
+      {
+        float value = 0.0f;
+        char token[25] = {0};
+        Serial_Input_Chars(token, ",", 10, sizeof(token) - 1);
+        if (!ambit_calibration::parse_calibration_float(token, &value) ||
+            !ambit_calibration::valid_par_slope(value)){
+          Serial.println("PAR slope rejected");
+          break;
+        }
+        report_spec_save("PAR slope", save_par_slope(value));
+      }
+      break;
+
+      case hash("set_par_icept"):
+      {
+        float value = 0.0f;
+        char token[25] = {0};
+        Serial_Input_Chars(token, ",", 10, sizeof(token) - 1);
+        if (!ambit_calibration::parse_calibration_float(token, &value) ||
+            !ambit_calibration::valid_par_intercept(value)){
+          Serial.println("PAR intercept rejected");
+          break;
+        }
+        report_spec_save("PAR intercept", save_par_intercept(value));
+      }
+      break;
+
+      /* Text mirror of cmd 33 subtype 4. Onboarding needs to confirm a vector
+       * actually landed in NVS, and the Calibratron should not have to speak
+       * binary to do it. */
+      case hash("get_spec_cal"):
+      {
+        Serial.print("spec_offset:");
+        for (uint8_t i = 0; i < ambit_calibration::SPEC_CHANNEL_COUNT; ++i){
+          Serial.printf("%s%.9g", i ? "," : "", ambit_spec_calibration.spec_offset[i]);
+        }
+        Serial.print("\nspec_sens:");
+        for (uint8_t i = 0; i < ambit_calibration::SPEC_CHANNEL_COUNT; ++i){
+          Serial.printf("%s%.9g", i ? "," : "", ambit_spec_calibration.spec_sens[i]);
+        }
+        Serial.print("\npar_weight:");
+        for (uint8_t i = 0; i < ambit_calibration::SPEC_CHANNEL_COUNT; ++i){
+          Serial.printf("%s%.9g", i ? "," : "", ambit_spec_calibration.par_weight[i]);
+        }
+        Serial.printf("\npar_slope:%.9g\npar_intercept:%.9g\n",
+                      ambit_spec_calibration.par_slope,
+                      ambit_spec_calibration.par_intercept);
       }
       break;
 

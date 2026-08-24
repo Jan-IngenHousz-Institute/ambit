@@ -14,6 +14,22 @@ static const char *const ADPD_BASELINE_KEYS[ambit_calibration::CHANNEL_COUNT] = 
 };
 static bool adpd_baseline_present[ambit_calibration::CHANNEL_COUNT] = {false};
 
+struct ambit_spec_calibration_t ambit_spec_calibration;
+bool ambit_spec_tier3_stored = false;
+
+// NVS keys are capped at 15 characters.
+static const char *const SPEC_OFFSET_KEY = "spec_off";
+static const char *const SPEC_SENS_KEY = "spec_sens";
+static const char *const PAR_WEIGHT_KEY = "par_w";
+static const char *const PAR_SLOPE_KEY = "par_slope";
+static const char *const PAR_INTERCEPT_KEY = "par_icept";
+
+// Largest blob this module reads or writes: one ten-element float vector.
+// Bounds the readback buffer in save_calibration_blob() so it can stay on stack.
+#define SPEC_CALIBRATION_VECTOR_BYTES \
+    (sizeof(float) * ambit_calibration::SPEC_CHANNEL_COUNT)
+#define SPEC_CALIBRATION_BLOB_MAX SPEC_CALIBRATION_VECTOR_BYTES
+
 uint32_t apply_adpd_calibration(uint8_t channel, uint32_t sample){
     const bool present = channel < ambit_calibration::CHANNEL_COUNT
         ? adpd_baseline_present[channel] : false;
@@ -58,30 +74,38 @@ esp_err_t save_adpd_baseline(const uint32_t values[ambit_calibration::CHANNEL_CO
     return ESP_OK;
 }
 
-static esp_err_t save_calibration_float(const char *key, float value){
-    if (key == nullptr) return ESP_ERR_INVALID_ARG;
+// Generalised from the scalar version: same commit-then-verify contract, any
+// length. Preferences::putFloat stores a four-byte NVS blob, so a single float
+// written through here stays byte-compatible with existing installations.
+// A vector is one blob rather than N keys, which makes it strictly more atomic
+// than save_adpd_baseline()'s six-key loop — nvs_set_blob + nvs_commit is
+// all-or-nothing by construction.
+static esp_err_t save_calibration_blob(const char *key, const void *data, size_t len){
+    if (key == nullptr || data == nullptr || len == 0) return ESP_ERR_INVALID_ARG;
+    if (len > SPEC_CALIBRATION_BLOB_MAX) return ESP_ERR_INVALID_SIZE;
 
-    // Preferences::putFloat stores a four-byte NVS blob. Use the same type so
-    // existing installations remain readable, while making the commit and
-    // readback checks explicit before any runtime calibration is changed.
     nvs_handle_t handle;
     esp_err_t err = nvs_open("config", NVS_READWRITE, &handle);
     if (err != ESP_OK) return err;
 
-    err = nvs_set_blob(handle, key, &value, sizeof(value));
+    err = nvs_set_blob(handle, key, data, len);
     if (err == ESP_OK) err = nvs_commit(handle);
 
-    float readback = 0.0f;
-    size_t readback_size = sizeof(readback);
+    uint8_t readback[SPEC_CALIBRATION_BLOB_MAX] = {0};
+    size_t readback_size = len;
     if (err == ESP_OK){
-        err = nvs_get_blob(handle, key, &readback, &readback_size);
+        err = nvs_get_blob(handle, key, readback, &readback_size);
         if (err == ESP_OK &&
-            (readback_size != sizeof(readback) || memcmp(&readback, &value, sizeof(value)) != 0)){
+            (readback_size != len || memcmp(readback, data, len) != 0)){
             err = ESP_ERR_INVALID_STATE;
         }
     }
     nvs_close(handle);
     return err;
+}
+
+static esp_err_t save_calibration_float(const char *key, float value){
+    return save_calibration_blob(key, &value, sizeof(value));
 }
 
 esp_err_t save_actinic_coefficient(float value){
@@ -95,6 +119,52 @@ esp_err_t save_spec_coefficient(float value){
     if (!ambit_calibration::valid_spec_coefficient(value)) return ESP_ERR_INVALID_ARG;
     const esp_err_t err = save_calibration_float("spec", value);
     if (err == ESP_OK) ambit_calibration_local.spec_coef = value;
+    return err;
+}
+
+/* Spectral/PAR calibration setters. Validation lives here rather than in the
+ * callers, following save_adpd_baseline(): one call site covers the text
+ * console, any future binary subtype, and anything else that ever writes these,
+ * which is what calibration_math.h's shared-predicate rule asks for. The runtime
+ * copy moves only after NVS has confirmed the write. */
+static esp_err_t save_spec_vector(const char *key, const float *values, float *destination){
+    const esp_err_t err = save_calibration_blob(key, values, SPEC_CALIBRATION_VECTOR_BYTES);
+    if (err == ESP_OK) memcpy(destination, values, SPEC_CALIBRATION_VECTOR_BYTES);
+    return err;
+}
+
+esp_err_t save_spec_offset(const float values[ambit_calibration::SPEC_CHANNEL_COUNT]){
+    if (!ambit_calibration::valid_spec_offset(values)) return ESP_ERR_INVALID_ARG;
+    return save_spec_vector(SPEC_OFFSET_KEY, values, ambit_spec_calibration.spec_offset);
+}
+
+esp_err_t save_spec_sens(const float values[ambit_calibration::SPEC_CHANNEL_COUNT]){
+    if (!ambit_calibration::valid_spec_sens(values)) return ESP_ERR_INVALID_ARG;
+    return save_spec_vector(SPEC_SENS_KEY, values, ambit_spec_calibration.spec_sens);
+}
+
+esp_err_t save_par_weight(const float values[ambit_calibration::SPEC_CHANNEL_COUNT]){
+    if (!ambit_calibration::valid_par_weight(values)) return ESP_ERR_INVALID_ARG;
+    return save_spec_vector(PAR_WEIGHT_KEY, values, ambit_spec_calibration.par_weight);
+}
+
+esp_err_t save_par_slope(float value){
+    if (!ambit_calibration::valid_par_slope(value)) return ESP_ERR_INVALID_ARG;
+    const esp_err_t err = save_calibration_float(PAR_SLOPE_KEY, value);
+    if (err == ESP_OK){
+        ambit_spec_calibration.par_slope = value;
+        ambit_spec_tier3_stored = true;   // cmd 35 flags bit9
+    }
+    return err;
+}
+
+esp_err_t save_par_intercept(float value){
+    if (!ambit_calibration::valid_par_intercept(value)) return ESP_ERR_INVALID_ARG;
+    const esp_err_t err = save_calibration_float(PAR_INTERCEPT_KEY, value);
+    if (err == ESP_OK){
+        ambit_spec_calibration.par_intercept = value;
+        ambit_spec_tier3_stored = true;   // cmd 35 flags bit9
+    }
     return err;
 }
 
@@ -189,6 +259,67 @@ static void load_calibration_info(){
 }
 
 
+/* Read one ten-element float vector, adopting it only if it is both the right
+ * size and valid.
+ *
+ * The size check is the part that is easy to skip and expensive to debug:
+ * Preferences::getBytes copies a SHORTER-than-expected stored blob and returns
+ * the short length, leaving the tail of the destination untouched. Reading
+ * straight into the live struct would silently blend stored elements with
+ * compiled-in defaults, with nothing afterwards able to tell which is which. So
+ * read into scratch, check the returned length, run the predicate, then adopt.
+ * (getBytes already calls getBytesLength internally and returns the real count,
+ * so comparing its return value is the single-call form of that check.)
+ *
+ * Re-validating on load is calibration_math.h's rule: a value must not be
+ * accepted over one frontend and rejected after a reboot. Note the adpd
+ * baselines in load_calibration_info() above are the standing exception —
+ * validated on save but read back unchecked — which is a bug to fix, not a
+ * pattern to copy. */
+static void load_spec_vector(const char *key, float *destination,
+                             bool (*predicate)(const float *)){
+    if (!preferences.isKey(key)) return;
+
+    float scratch[ambit_calibration::SPEC_CHANNEL_COUNT] = {0.0f};
+    if (preferences.getBytes(key, scratch, sizeof(scratch)) != sizeof(scratch)) return;
+    if (!predicate(scratch)) return;
+
+    memcpy(destination, scratch, sizeof(scratch));
+}
+
+static void load_spec_calibration(){
+    preferences.begin("config", true);
+
+    load_spec_vector(SPEC_OFFSET_KEY, ambit_spec_calibration.spec_offset,
+                     ambit_calibration::valid_spec_offset);
+    load_spec_vector(SPEC_SENS_KEY, ambit_spec_calibration.spec_sens,
+                     ambit_calibration::valid_spec_sens);
+    load_spec_vector(PAR_WEIGHT_KEY, ambit_spec_calibration.par_weight,
+                     ambit_calibration::valid_par_weight);
+
+    /* Tier 3 counts as stored if either key was written and survived validation.
+     * Either alone is a legitimate calibration — a sweep through the origin has
+     * no intercept to store — so this is an OR, not an AND. */
+    ambit_spec_tier3_stored = false;
+    if (preferences.isKey(PAR_SLOPE_KEY)){
+        const float value = preferences.getFloat(PAR_SLOPE_KEY, 1.0f);
+        if (ambit_calibration::valid_par_slope(value)){
+            ambit_spec_calibration.par_slope = value;
+            ambit_spec_tier3_stored = true;
+        }
+    }
+    if (preferences.isKey(PAR_INTERCEPT_KEY)){
+        const float value = preferences.getFloat(PAR_INTERCEPT_KEY, 0.0f);
+        if (ambit_calibration::valid_par_intercept(value)){
+            ambit_spec_calibration.par_intercept = value;
+            ambit_spec_tier3_stored = true;
+        }
+    }
+
+    preferences.end();
+}
+
+
 
 
 
@@ -198,6 +329,7 @@ void load_info_from_nvs(bool print){
         Serial.printf("Metadata: lon:%f\tlat:%f\talt:%f\ttime:%d\tacc:%f\tvacc:%f\tinfo1:%s\tx:%f\ty:%f\tz:%f\n", metadata_epprom.lon, metadata_epprom.lat, metadata_epprom.alt, metadata_epprom.time, metadata_epprom.acc, metadata_epprom.vacc, metadata_epprom.info1, metadata_epprom.x, metadata_epprom.y, metadata_epprom.z);
     }
     load_calibration_info();
+    load_spec_calibration();
     if (print){
         // print all ambit_calibration_local
         Serial.printf("Calibration: Name:%s\tActinic:%f\tSpec:%f\tEmit:%f\tSun:%f\tTemp_offset:%f\tTemp_slope:%f\n", ambit_calibration_local.ambit_name, ambit_calibration_local.actinic_coef, ambit_calibration_local.spec_coef, ambit_calibration_local.mlx_emissivity, ambit_calibration_local.sun_coef, ambit_calibration_local.temp_offset, ambit_calibration_local.temp_slope);
