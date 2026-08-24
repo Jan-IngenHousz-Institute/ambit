@@ -12,16 +12,23 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # This workflow is intentionally pinned to ticket 21's qualified candidate.
-  # Change this only in a reviewed release-process PR for the next firmware.
-  EXPECTED_VERSION: 1.1.4
-  EXPECTED_TAG: v1.1.4
+  # Pinned to this PR's own qualified candidate. Change only in a reviewed
+  # release-process PR for the next firmware.
+  #
+  # Why 1.2.0 and not 1.1.5: `feat(spec): add get_spec_raw ...` has been in main
+  # since v1.1.4, so commit-analyzer resolves minor for every release from here.
+  # PR 7 was merged as a MERGE commit rather than squashed, so its own pr.yml
+  # build - which derives the version from the PR title, `fix(...)` - baked 1.1.5
+  # while main's history says 1.2.0. Those two can only agree under squash-merge.
+  # Squash-merge this PR so its artifact and this tag stay in step.
+  EXPECTED_VERSION: 1.2.0
+  EXPECTED_TAG: v1.2.0
   RELEASE_BRANCH: main
-  QUALIFIED_PR_NUMBER: 4
-  QUALIFIED_PR_HEAD_SHA: ${{ vars.AMBIT_V114_PR_HEAD_SHA }}
-  QUALIFIED_PR_RUN_ID: ${{ vars.AMBIT_V114_PR_RUN_ID }}
-  QUALIFIED_ARTIFACT_ID: ${{ vars.AMBIT_V114_ARTIFACT_ID }}
-  QUALIFIED_APP_SHA256: ${{ vars.AMBIT_V114_APP_SHA256 }}
+  QUALIFIED_PR_NUMBER: 8
+  QUALIFIED_PR_HEAD_SHA: ${{ vars.AMBIT_V120_PR_HEAD_SHA }}
+  QUALIFIED_PR_RUN_ID: ${{ vars.AMBIT_V120_PR_RUN_ID }}
+  QUALIFIED_ARTIFACT_ID: ${{ vars.AMBIT_V120_ARTIFACT_ID }}
+  QUALIFIED_APP_SHA256: ${{ vars.AMBIT_V120_APP_SHA256 }}
 
 jobs:
   stage-draft:
