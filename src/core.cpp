@@ -41,3 +41,10 @@ int core_run_array(uint8_t len, uint8_t* arr, uint8_t persist, bool allow_interr
 int core_run_mpf(uint16_t length, uint8_t interval, bool change_act, uint8_t act){
     return run_trigger_spacer(length, interval, change_act, act, true);
 }
+
+int core_run_array_triggered(uint8_t len, uint8_t* arr, uint8_t persist, bool allow_interrupt,
+                             bool json_output, bool retain){
+    core_ensure_array_config();
+    return run_arr_trigger(len, arr, persist, allow_interrupt, json_output, retain);
+}
+
