@@ -39,4 +39,12 @@ int core_run_array(uint8_t len, uint8_t* arr, uint8_t persist, bool allow_interr
 // Multi-phase (trigger-spacer) run; always interruptible (the legacy constant).
 int core_run_mpf(uint16_t length, uint8_t interval, bool change_act, uint8_t act);
 
+// Exact-N triggered array run (plans/DETERMINISTIC_ADPD.md): the same line protocol
+// and "ensure config, then run" as core_run_array, but the ADPD is edge-driven
+// (EXT_SYNC) so exactly N sequences are emitted. Returns 0 or a negative
+// ArrTriggerResult (PAM.h); the adapter must reply explicitly on failure because
+// logging is compiled out. Additive: core_run_array / cmd 21 are untouched.
+int core_run_array_triggered(uint8_t len, uint8_t* arr, uint8_t persist, bool allow_interrupt,
+                             bool json_output = false, bool retain = false);
+
 #endif
