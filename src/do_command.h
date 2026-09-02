@@ -44,6 +44,31 @@ static void report_spec_save(const char *what, esp_err_t err){
   else Serial.printf("%s save failed: %s\n", what, esp_err_to_name(err));
 }
 
+/* arrunt / arrunt1 / arrunt2 share arrun's "<len>,<persist>,<8*len bytes>" line and
+ * its "run all 16 slots, type-0 lines are skipped" call. The difference is the
+ * engine: exact-N EXT_SYNC pacing (plans/DETERMINISTIC_ADPD.md) instead of the
+ * free-run ADPD, so exactly num_ptx LED sequences fire per line. Failures get an
+ * explicit "ERROR arrunt <code>" reply: -DCORE_DEBUG_LEVEL=0 compiles every log
+ * away, and a silent failure looks like a hung device to the app / Calibratron.
+ * Codes are ArrTriggerResult (PAM.h). */
+static void console_arrunt(void){
+  long requested_len = Serial_Input_Long(",", 10);
+  uint8_t persist = (uint8_t) Serial_Input_Long(",", 10);
+  if (requested_len < 1 || requested_len > 16){
+    Serial.printf("ERROR arrunt %d\n", (int) ARR_TRIG_BAD_LINE);
+    return;
+  }
+  const uint8_t len = (uint8_t) requested_len;
+  uint8_t arr[128] = {0};
+  for (uint8_t i = 0; i < len; i++){
+    for (uint8_t j = 0; j < 8; j++){
+      arr[i * 8 + j] = (uint8_t) Serial_Input_Long(",", 10);
+    }
+  }
+  const int rc = core_run_array_triggered(16, arr, persist, false);
+  if (rc != ARR_TRIG_OK) Serial.printf("ERROR arrunt %d\n", rc);
+}
+
 void do_command(char *choose){
 
     int setting;
@@ -281,6 +306,60 @@ void do_command(char *choose){
       core_run_array(16, arr, persist, false);
     }
       break;
+
+    // arrunt = current CONNECTION_TYPE; arrunt1 = PLOTTING stream; arrunt2 = COMPUTER
+    // dump — the same three flavours as arrun / arrun1 / arrun2 (see console_arrunt).
+    case hash("arrunt"):
+      console_arrunt();
+      break;
+
+    case hash("arrunt1"):
+      CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
+      console_arrunt();
+      Serial.println("Done");
+      break;
+
+    case hash("arrunt2"):
+      CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
+      console_arrunt();
+      break;
+
+#ifdef AMBIT_DIAG_TRIGGER
+    // Bench diagnostics for plans/DETERMINISTIC_ADPD.md (Phase 0 / gate V0, V1f).
+    // Branch-only: compiled out without -DAMBIT_DIAG_TRIGGER (platformio.ini).
+    case hash("tseq"):      // tseq,<reps>,<farred>,<integ>[,<frrep>]
+    {
+      uint16_t reps   = (uint16_t) Serial_Input_Long(",", 10);
+      uint8_t  farred = (uint8_t)  Serial_Input_Long(",", 10);
+      uint8_t  integ  = (uint8_t)  Serial_Input_Long(",", 10);
+      uint8_t  frrep  = (uint8_t)  Serial_Input_Long(",", 10);
+      measure_tseq(reps, farred != 0, integ, frrep);
+    }
+      break;
+
+    case hash("tidle"):     // tidle,<farred>,<integ>,<gate>
+    {
+      uint8_t farred = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t integ  = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t gate   = (uint8_t) Serial_Input_Long(",", 10);
+      measure_idle(farred != 0, integ, gate);
+    }
+      break;
+
+    case hash("tratio"):    // tratio,<reps>,<N>,<freq>,<integ>
+    {
+      uint16_t reps  = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t N     = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t freq  = (uint16_t) Serial_Input_Long(",", 10);
+      uint8_t  integ = (uint8_t)  Serial_Input_Long(",", 10);
+      measure_first_ratio(reps, N, freq, integ);
+    }
+      break;
+
+    case hash("tstat"):     // pacing stats of the last arrunt (V1j)
+      print_trig_stats();
+      break;
+#endif
 
 
       case hash("q"):

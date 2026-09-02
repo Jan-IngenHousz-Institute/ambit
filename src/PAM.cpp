@@ -258,6 +258,117 @@ static void send_fluo_json(dataclass* num, dataclass* den){
   Serial.print(']');
 }
 
+// ── Shared per-sample store: free-run run_arr_type1 + triggered run_arr_trigger ──
+// One readout `ret` (0 sun-vis, 1 leaf-ir, 2/3 fluo signal dark/lit, 4/5 fluo
+// reference dark/lit, 6/7 730 signal/reference) -> calibration at the result
+// boundary -> channel buffers (+ the every-8 subsampling accumulator `buf_opt`) ->
+// optional PLOTTING line. `counter` is the 0-based index of this sample within its
+// line. Extracted VERBATIM from run_arr_type1 so the two acquisition engines cannot
+// drift apart (plans/DETERMINISTIC_ADPD.md §5 invariant 1). Wire-touching: what is
+// stored here is what pam_send_results streams, so HW_CONFORMANCE.md covers it.
+static void pam_store_type1_sample(const uint32_t* ret, uint8_t num_integration, uint8_t _type,
+                                   uint8_t subsampling, uint32_t counter, float_t leaf_temp,
+                                   uint32_t* buf_opt,
+                                   dataclass* d_fluor, dataclass* d_fluoRef, dataclass* d_sun,
+                                   dataclass* d_leaf, dataclass* d_730, dataclass* d_730Ref){
+  uint32_t ploter1 = 0, ploter2 = 0;
+  // 0: sun-vis; 1: leaf-ir; 2: fluoS_dark; 3: fluoS_lit; 4: fluoR_dark; 5: fluoR_lit; 6: Reflect_signal; 7: reflect_ref
+  // Apply each stored baseline exactly once at the result boundary.
+  const uint32_t calibrated_fluor = apply_adpd_calibration(
+      ambit_calibration::S630, calc_signal(ret[2], ret[3], num_integration));
+  const uint32_t calibrated_fluo_ref = apply_adpd_calibration(
+      ambit_calibration::R630, calc_signal(ret[4], ret[5], num_integration));
+  const uint32_t calibrated_sun = apply_adpd_calibration(ambit_calibration::SUN, ret[0]);
+  const uint32_t calibrated_leaf = apply_adpd_calibration(ambit_calibration::LEAF, ret[1]);
+  const uint32_t calibrated_730 = _type == 1
+      ? apply_adpd_calibration(ambit_calibration::S730, ret[6]) : 0;
+  const uint32_t calibrated_730_ref = _type == 1
+      ? apply_adpd_calibration(ambit_calibration::R730, ret[7]) : 0;
+  d_fluor->put(calibrated_fluor);
+  d_fluoRef->put(calibrated_fluo_ref);
+
+
+  // save option data
+  if (subsampling > 0){
+    if (subsampling == 1){ // every point
+      d_sun->put(calibrated_sun);
+      d_leaf->put(calibrated_leaf);
+      if (_type == 1){d_730->put(calibrated_730);d_730Ref->put(calibrated_730_ref);} // ir enabled
+
+    }else if (subsampling == 2){
+      buf_opt[0] += calibrated_sun;
+      buf_opt[1] += calibrated_leaf;
+      if (_type == 1){
+        buf_opt[2] += calibrated_730;
+        buf_opt[3] += calibrated_730_ref;
+      }
+
+      if (counter % 8 == 7){
+        d_sun->put(buf_opt[0]/8);
+        d_leaf->put(buf_opt[1]/8);
+        if(_type == 1){d_730->put(buf_opt[2]/8);d_730Ref->put(buf_opt[3]/8);}                
+        for (uint8_t i = 0; i < 4; i++) buf_opt[i] = 0;
+      }
+    }
+  }
+
+  if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
+    ploter1 = calibrated_fluor;
+    ploter2 = calibrated_fluo_ref;
+    if (ploter2 == 0){
+      ploter2 = 1;
+      ploter1 = 0;
+    }
+    if (_type == 1) {
+      Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, calibrated_730, calibrated_730_ref, calibrated_sun, calibrated_leaf);
+    }else if (_type == 2){
+      Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, calibrated_sun, calibrated_leaf);            }
+    Serial.flush();
+  }
+}
+
+// Shared end-of-run sink for the array engines. Three mutually exclusive outputs,
+// unchanged from the inline block they replace: json_output -> one JSON object on
+// Serial (no TIMING block: the envelope has no slot for it); retain -> hand the
+// eight buffers to the async holder for a later FETCH (cmd 24); otherwise stream
+// them now via pam_send_results on the active CONNECTION_TYPE. Returns true when
+// buffer ownership moved to g_async — the caller must then NOT delete them.
+static bool pam_finish_results(dataclass* d_env, dataclass* d_fluor, dataclass* d_fluoRef,
+                               dataclass* d_sun, dataclass* d_leaf, dataclass* d_730,
+                               dataclass* d_730Ref, dataclass* d_timing,
+                               uint8_t subsampling, bool has_730, bool allow_interrupt,
+                               bool json_output, bool retain, int64_t run_tick_begin){
+  if (json_output) {            // one JSON object: {"env":[..],"fluo":[..],"s_630":[..],...}
+    Serial.print('{');
+    send_env_json(d_env);
+    // fluo first: it reads d_fluor/d_fluoRef before send_json() drains them.
+    Serial.print(','); send_fluo_json(d_fluor, d_fluoRef);
+    Serial.print(','); d_fluor->send_json("s_630");
+    Serial.print(','); d_fluoRef->send_json("r_630");
+    if (d_sun->available)    { Serial.print(','); d_sun->send_json("sun"); }
+    if (d_leaf->available)   { Serial.print(','); d_leaf->send_json("leaf"); }
+    if (d_730->available)    { Serial.print(','); d_730->send_json("s_730"); }
+    if (d_730Ref->available) { Serial.print(','); d_730Ref->send_json("r_730"); }
+    Serial.print('}');
+    return false;
+  }
+  d_timing->put((uint32_t) run_tick_begin);          // Change 3: run start tick (us)
+  d_timing->put((uint32_t) esp_timer_get_time());    //           run end tick (us)
+  if (retain){
+    // Parallel protocol: transfer ownership of the buffers to the async holder
+    // instead of streaming + freeing. The host fetches them later (cmd 24).
+    g_async.d_env = d_env; g_async.d_fluor = d_fluor; g_async.d_fluoRef = d_fluoRef;
+    g_async.d_sun = d_sun; g_async.d_leaf = d_leaf; g_async.d_730 = d_730;
+    g_async.d_730Ref = d_730Ref; g_async.d_timing = d_timing;
+    g_async.subsampling = subsampling; g_async.has_730 = has_730;
+    g_async.allow_interrupt = allow_interrupt;
+    return true;
+  }
+  pam_send_results(d_env, d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref,
+                   d_timing, subsampling, has_730, allow_interrupt);
+  return false;
+}
+
 int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt, bool json_output, bool retain){
   if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
     conf_slow_FR_1();
@@ -308,7 +419,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
   // data counter and buffer
   // [sun-amb, leaf-ir, lit_leaf-ir, dark_leaf-ir, lit_leaf-ref, dark_leaf-ref]
   uint32_t ret[expected_readout] = {0};
-  uint32_t counter = 0, ploter1 = 0, ploter2 = 0;
+  uint32_t counter = 0;
   uint16_t fifo_c = 0;
   uint8_t watch_dog_timer = 0;
   int32_t tmp_var = 0;
@@ -384,59 +495,8 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
           adpd.readfifo(expected_readout, 3, ret);
           fifo_c -= expected_readout_bytes;
           if (counter == num_ptx) break;
-          // 0: sun-vis; 1: leaf-ir; 2: fluoS_dark; 3: fluoS_lit; 4: fluoR_dark; 5: fluoR_lit; 6: Reflect_signal; 7: reflect_ref
-          // Apply each stored baseline exactly once at the result boundary.
-          const uint32_t calibrated_fluor = apply_adpd_calibration(
-              ambit_calibration::S630, calc_signal(ret[2], ret[3], num_integration));
-          const uint32_t calibrated_fluo_ref = apply_adpd_calibration(
-              ambit_calibration::R630, calc_signal(ret[4], ret[5], num_integration));
-          const uint32_t calibrated_sun = apply_adpd_calibration(ambit_calibration::SUN, ret[0]);
-          const uint32_t calibrated_leaf = apply_adpd_calibration(ambit_calibration::LEAF, ret[1]);
-          const uint32_t calibrated_730 = _type == 1
-              ? apply_adpd_calibration(ambit_calibration::S730, ret[6]) : 0;
-          const uint32_t calibrated_730_ref = _type == 1
-              ? apply_adpd_calibration(ambit_calibration::R730, ret[7]) : 0;
-          d_fluor->put(calibrated_fluor);
-          d_fluoRef->put(calibrated_fluo_ref);
-
-
-          // save option data
-          if (subsampling > 0){
-            if (subsampling == 1){ // every point
-              d_sun->put(calibrated_sun);
-              d_leaf->put(calibrated_leaf);
-              if (_type == 1){d_730->put(calibrated_730);d_730Ref->put(calibrated_730_ref);} // ir enabled
-
-            }else if (subsampling == 2){
-              buf_opt[0] += calibrated_sun;
-              buf_opt[1] += calibrated_leaf;
-              if (_type == 1){
-                buf_opt[2] += calibrated_730;
-                buf_opt[3] += calibrated_730_ref;
-              }
-
-              if (counter % 8 == 7){
-                d_sun->put(buf_opt[0]/8);
-                d_leaf->put(buf_opt[1]/8);
-                if(_type == 1){d_730->put(buf_opt[2]/8);d_730Ref->put(buf_opt[3]/8);}                
-                for (uint8_t i = 0; i < 4; i++) buf_opt[i] = 0;
-              }
-            }
-          }
-
-          if (CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING){
-            ploter1 = calibrated_fluor;
-            ploter2 = calibrated_fluo_ref;
-            if (ploter2 == 0){
-              ploter2 = 1;
-              ploter1 = 0;
-            }
-            if (_type == 1) {
-              Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,7:%d,7R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, calibrated_730, calibrated_730_ref, calibrated_sun, calibrated_leaf);
-            }else if (_type == 2){
-              Serial.printf("T:%2.3f,F:%3.4f,S:%d,R:%d,Sun:%d,L:%d\n", leaf_temp, (float)ploter1/(float)ploter2, ploter1, ploter2, calibrated_sun, calibrated_leaf);            }
-            Serial.flush();
-          }
+          pam_store_type1_sample(ret, num_integration, _type, subsampling, counter, leaf_temp, buf_opt,
+                                 d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref);
           counter++;
           watch_dog_timer = 0;
         }
@@ -479,33 +539,10 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
   };
 
 
-  if (json_output) {            // one JSON object: {"env":[..],"fluo":[..],"s_630":[..],...}
-    Serial.print('{');
-    send_env_json(d_env);
-    // fluo first: it reads d_fluor/d_fluoRef before send_json() drains them.
-    Serial.print(','); send_fluo_json(d_fluor, d_fluoRef);
-    Serial.print(','); d_fluor->send_json("s_630");
-    Serial.print(','); d_fluoRef->send_json("r_630");
-    if (d_sun->available)    { Serial.print(','); d_sun->send_json("sun"); }
-    if (d_leaf->available)   { Serial.print(','); d_leaf->send_json("leaf"); }
-    if (d_730->available)    { Serial.print(','); d_730->send_json("s_730"); }
-    if (d_730Ref->available) { Serial.print(','); d_730Ref->send_json("r_730"); }
-    Serial.print('}');
-  } else {
-    d_timing->put((uint32_t) run_tick_begin);          // Change 3: run start tick (us)
-    d_timing->put((uint32_t) esp_timer_get_time());    //           run end tick (us)
-    if (retain){
-      // Parallel protocol: transfer ownership of the buffers to the async holder
-      // instead of streaming + freeing. The host fetches them later (cmd 24).
-      g_async.d_env = d_env; g_async.d_fluor = d_fluor; g_async.d_fluoRef = d_fluoRef;
-      g_async.d_sun = d_sun; g_async.d_leaf = d_leaf; g_async.d_730 = d_730;
-      g_async.d_730Ref = d_730Ref; g_async.d_timing = d_timing;
-      g_async.subsampling = subsampling; g_async.has_730 = (data_count[2] > 0);
-      g_async.allow_interrupt = allow_interrupt;
-      return 0;   // holder owns the buffers now — do NOT delete
-    }
-    pam_send_results(d_env, d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref,
-                     d_timing, subsampling, data_count[2] > 0, allow_interrupt);
+  if (pam_finish_results(d_env, d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref, d_timing,
+                         subsampling, data_count[2] > 0, allow_interrupt,
+                         json_output, retain, run_tick_begin)){
+    return 0;   // holder owns the buffers now — do NOT delete
   }
 
   delete d_fluor;
@@ -737,6 +774,607 @@ int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8
   adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;        
   return _func_ret;
 }
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Exact-N triggered acquisition — plans/DETERMINISTIC_ADPD.md (Phase 1)
+// ═════════════════════════════════════════════════════════════════════════════
+// run_arr_type1 puts the ADPD6100 in free-run (GO=1, internal TIMESLOT_PERIOD =
+// run_freq(freq)) and only STOP()s once num_ptx samples have been READ from the
+// FIFO. num_ptx therefore bounds the samples stored, not the timeslot sequences
+// executed: between the last useful FIFO read and STOP() the sequencer keeps
+// firing LED pulses, and at high freq the light-sleep cadence lets many
+// sequences run per wake. The leaf receives an unknown, rate-dependent number
+// of extra 630 nm pulses and the emitted count is not reproducible.
+//
+// Here the same per-line protocol is acquired in EXT_SYNC: one rising edge on
+// ESP32 GPIO10 -> ADPD GPIO0 launches exactly one full timeslot sequence and the
+// internal period timer is gated off. A software-paced loop fires exactly
+// num_ptx edges at period 1/freq, reads one sequence after each, and aborts —
+// never stores a partial sample — if an edge is lost. Sequences == edges ==
+// stored == N. Storage, calibration, subsampling and sinks are the helpers
+// shared with run_arr_type1, so a given line yields the same bytes.
+
+// Per-sample bound from the edge to a full readout. Well above every measured or
+// computed sequence time (plan §4.7: ~0.7-2 ms at num_ts=3, ~3 ms far-red); a
+// miss means the edge was lost (rate above the ceiling, or a chip fault), and
+// the run aborts rather than desyncing (plan §4.5).
+static constexpr uint32_t kTrigSampleTimeoutUs = 20000;
+// Light-sleep only for gaps longer than this; below it the wake latency would
+// overshoot the edge, so the loop busy-waits.
+static constexpr int64_t kTrigSleepMinGapUs = 3000;
+// Wake at least this early and busy-wait the remainder to the edge. The light-sleep
+// timer runs on the ESP's 136 kHz RC slow clock (ESP8685 DS §4.1.3.3): calibrated at
+// boot but percent-level over temperature, so the margin also scales with the gap
+// (kTrigSleepMarginPct) — a fixed 1.5 ms would be overrun by a 1 s sleep at 1 % error.
+static constexpr int64_t kTrigSleepMarginUs = 1500;
+static constexpr int64_t kTrigSleepMarginPct = 2;
+// EXT_SYNC pulse width. The ADPD's low-frequency state machine runs at 960 kHz
+// (ADPD6000 DS "Low Frequency Oscillator"), a 1.04 µs tick; the legacy 1 µs
+// adpd_trigger() pulse is one tick wide and can straddle a boundary. Five ticks costs
+// nothing at any rate this path can reach (plan §5 invariant 8).
+static constexpr uint32_t kTrigPulseUs = 5;
+// Settle after RUN() in EXT_SYNC before the first edge (run_trigger_spacer's
+// value; Phase 3 measures whether it can go).
+static constexpr uint32_t kTrigArmSettleMs = 5;
+
+// Far-red lines run num_ts(9): the FIFO is complete after ts0..ts2, but the six
+// illumination-only slots (ts3..ts8, `repeats` pulses each, 0 FIFO bytes) are
+// STILL firing. An edge sent into that tail is swallowed (LEGACY bench: exactly
+// 50 % timeouts), so the period is floored to the whole sequence and far-red runs
+// at min(freq, ceiling) rather than aborting. PROVISIONAL datasheet arithmetic —
+// gate V0 (`tseq,500,1,4`) replaces it with the measured full-sequence time.
+static inline int64_t trig_farred_sequence_us(uint8_t repeats){
+  return 1000 + 2200LL * repeats;
+}
+
+// ── EXT_SYNC arm / disarm, shared by the triggered run and the diagnostics ──────
+// GPIO0_cfg=1 (input), SYNC_GPIO=0 (GPIO0 is the sync source), EXT_SYNC_EN=1: the
+// sequencer runs one full timeslot sequence per rising edge and the internal
+// period timer is gated off. GPIO10 (the edge source) is driven LOW first and
+// held LOW as an output through light sleep — a floating pin across the
+// sleep/wake transition can produce an edge the ADPD would count (plan §4.4).
+static void trig_arm_ext_sync(void){
+  digitalWrite(10, LOW);
+  adpd.gpio_config.GPIO0_cfg = 1;
+  adpd.gpio_config.SYNC_GPIO = 0;
+  adpd.gpio_config.EXT_SYNC_EN = 1;
+  adpd.gpio_setup(&(adpd.gpio_config));
+  gpio_sleep_set_direction(GPIO_NUM_10, GPIO_MODE_OUTPUT);
+  gpio_sleep_set_pull_mode(GPIO_NUM_10, GPIO_PULLDOWN_ONLY);
+}
+
+// Restore free-run: STOP, drain, EXT_SYNC off, GPIO0 tristate. A leftover
+// EXT_SYNC_EN=1 silently breaks the next free-run arrun (it would wait for edges
+// that never come), so every exit of every EXT_SYNC user passes through here
+// (plan §5 invariant 3).
+static void trig_disarm_ext_sync(void){
+  adpd.STOP();
+  adpd.clear_fifo();
+  adpd.gpio_config.GPIO0_cfg = 0;
+  adpd.gpio_config.EXT_SYNC_EN = 0;
+  adpd.gpio_config.SYNC_GPIO = 0;
+  adpd.gpio_setup(&(adpd.gpio_config));
+  digitalWrite(10, LOW);
+}
+
+// Fire one edge and wait, µs-bounded, for `expected_bytes` in the FIFO. Returns
+// true with *fifo_c set when the sequence landed; false on a lost edge.
+static bool trig_fire_and_wait(uint8_t expected_bytes, int64_t* t_trig, uint16_t* fifo_c){
+  *t_trig = esp_timer_get_time();
+  digitalWrite(10, HIGH);
+  delayMicroseconds(kTrigPulseUs);
+  digitalWrite(10, LOW);
+  *fifo_c = 0;
+  while ((uint32_t)(esp_timer_get_time() - *t_trig) < kTrigSampleTimeoutUs){
+    *fifo_c = adpd.fifo_count();
+    if (*fifo_c >= expected_bytes) return true;
+  }
+  return false;
+}
+
+// Non-blocking interrupt poll. PAM_interrupt() spins up to 15 ms when the input
+// is idle — harmless in free-run, where the FIFO buffers the stall, fatal to edge
+// pacing here. Only consult it once a byte is actually pending.
+static bool trig_poll_interrupt(bool allow){
+  if (!allow || Serial.available() <= 0) return false;
+  return PAM_interrupt(allow, false);
+}
+
+// Pacing statistics of the last triggered run, for gate V1j (mean interval, drift,
+// sleep-wake overshoot). Recorded on every run — a few integer ops per sample — and
+// read back by the AMBIT_DIAG_TRIGGER-only `tstat` console verb.
+struct trig_run_stats_t {
+  uint32_t samples = 0;        // edges fired
+  uint32_t late_count = 0;     // edges fired after their planned instant
+  uint32_t max_late_us = 0;    // worst overshoot of the planned instant
+  uint32_t residual_count = 0; // FIFO held more than one sequence after an edge (=> abort)
+  int      result = 0;         // ArrTriggerResult of the run
+};
+static trig_run_stats_t g_trig_stats;
+
+// Boundary check for the triggered engine (plan §6 Phase 1). The free-run path
+// lets dataclass::init fail on an oversized N and returns -1 leaking its eight
+// buffers; here nothing is allocated and the chip is untouched until the whole
+// array is known good. freq == 0 would be a zero-rate line (the free-run path
+// divides by it).
+int run_arr_trigger_validate(uint8_t length, uint8_t* arr){
+  uint16_t data_count[4] = {0};
+  run_preprocess_type1(length, arr, data_count);
+  if (data_count[0] == 0 || data_count[0] >= MAX_DATACLASS_SIZE) return ARR_TRIG_BAD_LINE;
+  for (uint8_t pc = 0; pc < length; pc++){
+    const uint8_t* line = arr + pc * 8;
+    if (line[0] != 1 && line[0] != 2) continue;
+    const uint16_t num_ptx = line[3] + (line[2] << 8);
+    const uint16_t freq    = line[5] + (line[4] << 8);
+    if (num_ptx > 0 && freq == 0) return ARR_TRIG_BAD_LINE;
+  }
+  return ARR_TRIG_OK;
+}
+
+int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt,
+                    bool json_output, bool retain){
+  const int validation = run_arr_trigger_validate(length, arr);
+  g_trig_stats = trig_run_stats_t();
+  g_trig_stats.result = validation;
+  if (validation != ARR_TRIG_OK) return validation;
+
+  if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1) conf_slow_FR_1();
+
+  // Fluor slot on-chip integration is 1 (preset_config_2(1, 1) in conf_slow_FR_1);
+  // the calc_signal divisor must stay equal to it (plan §5 invariant 5).
+  const uint8_t num_integration = 1;
+  const unsigned int start_t0 = millis();
+  const int64_t run_tick_begin = esp_timer_get_time();
+
+  uint16_t data_count[] = {0, 0, 0, 0};
+  run_preprocess_type1(length, arr, data_count);
+
+  // Every local is declared before the first goto (single-exit cleanup).
+  uint8_t pc = 0, _type = 0, farred = 0, actinic = 0, subsampling = 0;
+  uint16_t num_ptx = 0, freq = 0;
+  uint8_t expected_readout = 8, expected_readout_bytes = 24;
+  uint32_t ret[8] = {0};
+  uint32_t counter = 0;
+  uint16_t fifo_c = 0;
+  uint32_t buf_opt[4] = {0};
+  uint32_t _tmparr = 0;
+  uint8_t _repeats = 1;
+  uint32_t period_ms_int = 1;             // run_arr_type1's `light_sleep_time`: gates the env resample
+  int64_t period_us = 1000000, next_trigger = 0, t_trig = 0, now_us = 0, farred_floor = 0;
+  int64_t gap_us = 0, margin_us = 0;
+  float_t leaf_temp = 0.0;
+  unsigned int env_timer1 = millis();
+  bool measure_temperature = false;
+  bool interrupt_run = false;
+  bool ext_sync_on = false;
+  bool buffers_transferred = false;
+  int _func_ret = ARR_TRIG_ABORT;
+
+  dataclass *d_env = new dataclass;
+  dataclass *d_fluor = new dataclass;      // fluorescence signal
+  dataclass *d_fluoRef = new dataclass;    // fluorescence reference
+  dataclass *d_sun = new dataclass;        // sun-side ambient
+  dataclass *d_leaf = new dataclass;       // leaf-side ambient
+  dataclass *d_730 = new dataclass;        // 730nm reflectance signal
+  dataclass *d_730Ref = new dataclass;     // 730nm reference
+  dataclass *d_timing = new dataclass;     // [tick_begin, tick_end] controller ticks (us)
+
+  _func_ret = ARR_TRIG_NOMEM;
+  if (!(d_env->init(512))) goto cleanup;
+  if (!(d_timing->init(2))) goto cleanup;
+  if (!((d_fluor->init(data_count[0])) && (d_fluoRef->init(data_count[0])))) goto cleanup;
+  if (data_count[1] > 0){
+    if (!((d_sun->init(data_count[1])) && (d_leaf->init(data_count[1])))) goto cleanup;
+  }
+  if (data_count[2] > 0){
+    if (!((d_730->init(data_count[2])) && (d_730Ref->init(data_count[2])))) goto cleanup;
+  }
+  _func_ret = ARR_TRIG_ABORT;
+
+  _tmparr = PAM_get_env(4, start_t0);
+  d_env->put(_tmparr);
+  leaf_temp = (int16_t) (_tmparr & 0xFFFF) / 100.0;
+  env_timer1 = millis();
+
+  adpd.STOP();
+  trig_arm_ext_sync();
+  ext_sync_on = true;
+  adpd_mode = ADPD_CONFIG_MODE::ARRAY_SLOW;
+
+  while (pc < length){
+    if (interrupt_run) break;
+    _type = *(arr + pc * 8);
+    if ((_type == 1) || (_type == 2)){
+      arr_line_parse_type1((arr + pc * 8), &farred, &num_ptx, &freq, &actinic, &subsampling, NULL);
+      // Park the internal period at 100 ms. EXT_SYNC gates the timer (tidle shows
+      // zero self-triggers), but if that ever failed the leak would be slow and
+      // visible rather than a kHz pulse train (plan §4.3).
+      adpd.run_freq(10);
+      adpd.clear_fifo();
+      period_us = 1000000LL / freq;        // freq > 0: validated above
+      period_ms_int = (1000/freq);
+      // Env cadence identical to run_arr_type1: the env stream is part of the frozen
+      // wire. JSON gets exactly one env per array; the others resample every 2 s on
+      // slow (< ~50 Hz), low-actinic lines.
+      if (json_output) measure_temperature = false;
+      else measure_temperature = (period_ms_int > 20) && measure_temp && actinic < 50;
+
+      if (_type == 1){
+        if (farred == 1){
+          adpd.num_ts(9);
+          _repeats = int(400/freq);
+          if (freq < 3) _repeats = 250;
+          if (_repeats == 0) _repeats = 1;
+          for (uint8_t i = 3; i < 9;i++) adpd.repeats_only(i, 1, _repeats);
+        }else{
+          adpd.num_ts(3);
+        }
+        expected_readout = 8;
+      }else{ // NO IR
+        adpd.num_ts(2);
+        expected_readout = 6;
+      }
+      expected_readout_bytes = expected_readout * 3;
+      farred_floor = (farred == 1) ? trig_farred_sequence_us(_repeats) : 0;
+
+      if (actinic > 3){
+        AS_LED_Current(actinic);
+        AS_LED_ON();
+      }else{
+        AS_LED_OFF();
+        AS_LED_Current(0);
+      }
+
+      counter = 0;
+      for (uint8_t i = 0; i < 4; i++) buf_opt[i] = 0;
+      adpd.RUN();                          // GO=1 in EXT_SYNC: armed, waits for the first edge
+      delay(kTrigArmSettleMs);
+
+      next_trigger = esp_timer_get_time();
+      while (counter < num_ptx){
+        // ── pace to the edge: light-sleep the long part of the gap, busy-wait the rest ──
+        now_us = esp_timer_get_time();
+        while ((gap_us = next_trigger - now_us) > kTrigSleepMinGapUs){
+          margin_us = gap_us * kTrigSleepMarginPct / 100;
+          if (margin_us < kTrigSleepMarginUs) margin_us = kTrigSleepMarginUs;
+          esp_sleep_enable_timer_wakeup((uint64_t)(gap_us - margin_us));
+          interrupt_run = trig_poll_interrupt(allow_interrupt);
+          if (!interrupt_run) esp_light_sleep_start();
+          interrupt_run = PAM_interrupt(allow_interrupt, true);   // cheap: only acts on a UART wake
+          if (interrupt_run) break;
+          now_us = esp_timer_get_time();
+        }
+        if (interrupt_run) break;
+        while (esp_timer_get_time() < next_trigger) { /* fine busy-wait to the edge */ }
+
+        // ── one edge, one sequence, one µs-bounded readout ──
+        if (!trig_fire_and_wait(expected_readout_bytes, &t_trig, &fifo_c)){
+          _func_ret = ARR_TRIG_LOST_TRIGGER;     // never store a partial / desynced sample
+          goto cleanup;
+        }
+        g_trig_stats.samples++;
+        if (t_trig > next_trigger){
+          g_trig_stats.late_count++;
+          if ((uint32_t)(t_trig - next_trigger) > g_trig_stats.max_late_us)
+            g_trig_stats.max_late_us = (uint32_t)(t_trig - next_trigger);
+        }
+        // Pace the next edge from THIS edge, not from the read, so the mean interval
+        // is exactly 1/freq; the far-red floor keeps the edge out of the LED tail.
+        next_trigger = t_trig + period_us;
+        if (next_trigger < t_trig + farred_floor) next_trigger = t_trig + farred_floor;
+
+        // One edge is one sequence is exactly expected_readout_bytes: the poll only
+        // exits at >= expected, so anything above it is a sequence we did not ask for
+        // (tidle rules out self-triggering) or a FIFO we did not own. That is a
+        // desync, and the datasheet specifies CLEAR_FIFO "while not operating", so
+        // the run aborts instead of clearing in GO mode (plan §4.1, §9).
+        if (fifo_c != expected_readout_bytes){
+          g_trig_stats.residual_count++;
+          _func_ret = ARR_TRIG_FIFO_DESYNC;
+          goto cleanup;
+        }
+        adpd.readfifo(expected_readout, 3, ret);
+
+        pam_store_type1_sample(ret, num_integration, _type, subsampling, counter, leaf_temp, buf_opt,
+                               d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref);
+        counter++;
+
+        // In-run env resample: same cadence and guards as run_arr_type1. The MLX read
+        // takes a few ms; it only runs on slow lines (period > 20 ms) so it fits the gap.
+        if (counter + 10 < num_ptx && measure_temperature && (millis() - env_timer1 > 2000)){
+          _tmparr = PAM_get_env(4, start_t0);
+          d_env->put(_tmparr);
+          leaf_temp = (int16_t) (_tmparr & 0xFFFF) / 100.0;
+          env_timer1 = millis();
+        }
+        interrupt_run = trig_poll_interrupt(allow_interrupt);
+      }
+
+      adpd.STOP();
+      if (!led_persist) AS_LED_OFF();
+      digitalWrite(STF_FLASH_PIN, LOW);
+    }
+    pc += 1;
+  }
+
+  // Interrupted (host sent AMBYTE_INTR): as in run_arr_type1, what was acquired is
+  // still delivered — the binary host waits for a reply — and the return is OK.
+  if (interrupt_run){
+    digitalWrite(STF_FLASH_PIN, LOW);
+    adpd.STOP();
+    AS_LED_OFF();
+  }
+
+  buffers_transferred = pam_finish_results(d_env, d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref,
+                                           d_timing, subsampling, data_count[2] > 0, allow_interrupt,
+                                           json_output, retain, run_tick_begin);
+  _func_ret = ARR_TRIG_OK;
+
+cleanup:
+  // Single exit for every path: bad alloc, lost edge, desync, interrupt, completion.
+  g_trig_stats.result = _func_ret;
+  adpd.STOP();
+  if (ext_sync_on){
+    trig_disarm_ext_sync();
+    adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
+  }
+  if (_func_ret != ARR_TRIG_OK){
+    if (!led_persist) AS_LED_OFF();
+    digitalWrite(STF_FLASH_PIN, LOW);
+  }
+  if (!buffers_transferred){
+    delete d_fluor;
+    delete d_fluoRef;
+    delete d_sun;
+    delete d_leaf;
+    delete d_730;
+    delete d_730Ref;
+    delete d_env;
+    delete d_timing;
+  }
+  return _func_ret;
+}
+
+
+#ifdef AMBIT_DIAG_TRIGGER
+// ═════════════════════════════════════════════════════════════════════════════
+// Bench diagnostics — plans/DETERMINISTIC_ADPD.md Phase 0 (gates V0, V1f)
+// ═════════════════════════════════════════════════════════════════════════════
+// Console-only replies to explicit console verbs (allowed by AGENTS.md), compiled
+// out without -DAMBIT_DIAG_TRIGGER. Each one overrides the ambient/730 slot
+// integration, so it leaves adpd_mode dirty (MPF_MODE): the next array run
+// re-applies conf_slow_FR_1 instead of inheriting the diagnostic's integration.
+
+// Standard optics, then only the COUNTS register of ts0 (ambient) and ts2 (730)
+// overridden to `integ`; the fluor slot stays integ=1. Far-red adds ts3..ts8 with
+// `frrep` pulses each. Returns the active slot count.
+static uint8_t diag_config(bool farred, uint8_t integ, uint8_t frrep){
+  adpd.STOP();
+  conf_slow_FR_1();
+  adpd.repeats_only(0, integ, 1);
+  adpd.repeats_only(2, integ, 1);
+  uint8_t num_active = 3;
+  if (farred){
+    num_active = 9;
+    for (uint8_t i = 3; i < 9; i++) adpd.repeats_only(i, 1, frrep);
+  }
+  return num_active;
+}
+
+static void diag_arm(uint8_t num_active){
+  trig_arm_ext_sync();
+  adpd.clear_fifo();
+  adpd.run_freq(10);          // 100 ms park: if gating failed, ~10 self-triggers/s, visible
+  adpd.num_ts(num_active);
+  adpd.RUN();
+  delay(kTrigArmSettleMs);
+}
+
+static void diag_teardown(void){
+  trig_disarm_ext_sync();
+  adpd_mode = ADPD_CONFIG_MODE::MPF_MODE;   // dirty: ts0/ts2 integration was overridden
+}
+
+// Empty the FIFO by READING it. CLEAR_FIFO is specified "while not operating"
+// (ADPD6000 DS, FIFO_STATUS), so a diagnostic that stays in GO between edges drains
+// by reads instead.
+static void diag_drain_bytes(uint16_t n){
+  uint32_t scratch[16];
+  while (n > 0){
+    const uint16_t chunk = n > 16 ? 16 : n;
+    adpd.readfifo(chunk, 1, scratch);
+    n -= chunk;
+  }
+}
+
+// tstat — pacing statistics of the last run_arr_trigger() (gate V1j). Late edges
+// come from light-sleep overshoot (RC slow clock) or a requested rate above the
+// ceiling; a residual means a FIFO desync (the run aborted with -5).
+void print_trig_stats(void){
+  Serial.printf("tstat: result=%d samples=%u late=%u max_late_us=%u residual=%u\n",
+                g_trig_stats.result, g_trig_stats.samples, g_trig_stats.late_count,
+                g_trig_stats.max_late_us, g_trig_stats.residual_count);
+  Serial.flush();
+}
+
+// tseq,<reps>,<farred>,<integ>[,<frrep>] — per-sequence execution time. One edge
+// -> time until the FIFO holds a full type-1 readout, min/mean/max over `reps`.
+// 1/t_seq is the hard ceiling on the triggered rate; the far-red number is the
+// DATA-slot (head) time only, the illumination tail is not visible in the FIFO
+// and must be scoped on the LED line. The measured time includes one
+// fifo_count() poll (tens of µs), a slight over-estimate within the V0 ±10 %.
+int measure_tseq(uint16_t reps, bool farred, uint8_t integ, uint8_t frrep){
+  if (reps == 0)  reps = 200;
+  if (integ == 0) integ = 4;     // production value on the ambient/730 slots
+  if (frrep == 0) frrep = 1;
+  const uint8_t expected_readout = 8, expected_readout_bytes = 24;
+  const uint8_t num_active = diag_config(farred, integ, frrep);
+  diag_arm(num_active);
+
+  uint32_t ret[8] = {0};
+  uint32_t dt = 0, dt_min = 0xFFFFFFFFUL, dt_max = 0;
+  uint64_t dt_sum = 0;
+  uint16_t ok = 0, timeouts = 0, residuals = 0;
+  int64_t t0 = 0;
+  uint16_t fifo_c = 0;
+
+  for (uint16_t n = 0; n < reps; n++){
+    const bool got = trig_fire_and_wait(expected_readout_bytes, &t0, &fifo_c);
+    dt = (uint32_t)(esp_timer_get_time() - t0);
+    if (got){
+      adpd.readfifo(expected_readout, 3, ret);
+      if (fifo_c > expected_readout_bytes){          // more than one sequence: count + drain
+        residuals++;
+        diag_drain_bytes(fifo_c - expected_readout_bytes);
+      }
+      if (dt < dt_min) dt_min = dt;
+      if (dt > dt_max) dt_max = dt;
+      dt_sum += dt;
+      ok++;
+      // Far-red: let the illumination tail finish before the next edge (plan §4.2).
+      if (farred){
+        while ((esp_timer_get_time() - t0) < trig_farred_sequence_us(frrep)) { }
+      }
+    }else{
+      timeouts++;
+      if (fifo_c > 0) diag_drain_bytes(fifo_c);      // partial sequence: drain by reads
+    }
+  }
+  diag_teardown();
+
+  const uint32_t mean = ok ? (uint32_t)(dt_sum / ok) : 0;
+  Serial.printf("tseq: num_ts=%u integ(amb/730)=%u frrep=%u reps=%u ok=%u timeouts=%u residuals=%u\n",
+                num_active, integ, farred ? frrep : 0, reps, ok, timeouts, residuals);
+  Serial.printf("tseq_us: min=%u mean=%u max=%u max_rate_hz~%u\n",
+                (ok ? dt_min : 0), mean, dt_max, (mean ? (uint32_t)(1000000UL / mean) : 0));
+  if (farred){
+    Serial.printf("tseq_note: far-red dt is DATA-slot (head) time only; the LED tail runs "
+                  "~%u us beyond FIFO-ready (provisional floor) - scope the LED line.\n",
+                  (unsigned)(trig_farred_sequence_us(frrep) - mean));
+  }
+  Serial.flush();
+  return 0;
+}
+
+// tidle,<farred>,<integ>,<gate> — is the ADPD firing sequences we did NOT
+// trigger? Arms EXT_SYNC exactly like run_arr_trigger, then sits 2 s sending
+// ZERO edges and watches the FIFO. GO_autorun>0: GO=1 ran a sequence on its own.
+// idle_max>0: the internal timer self-triggers (real spurious LED pulses). Both 0:
+// the engine is edge-gated and any run-time "extra bytes" is a byte-count read
+// artifact. gate: 0 = none. gate 1 (GO_SLEEP) needed the vendored ADI driver's
+// sleep-mode call; the clean-room driver does not expose it, so it is refused.
+int measure_idle(bool farred, uint8_t integ, uint8_t gate){
+  if (gate != 0){
+    Serial.println("tidle: gate=1 (GO_SLEEP) is not exposed by the clean-room driver; use gate=0");
+    return -1;
+  }
+  if (integ == 0) integ = 1;
+  const uint8_t num_active = diag_config(farred, integ, 1);
+  diag_arm(num_active);
+
+  const uint16_t initial = adpd.fifo_count();   // GO auto-run sequence(s), if any (no edge sent)
+  adpd.clear_fifo();
+
+  const int64_t t0 = esp_timer_get_time();
+  uint16_t maxc = 0, c = 0;
+  uint32_t polls = 0;
+  while ((uint32_t)(esp_timer_get_time() - t0) < 2000000){   // 2 s, NO triggers
+    c = adpd.fifo_count();
+    if (c > maxc) maxc = c;
+    polls++;
+  }
+  diag_teardown();
+
+  Serial.printf("tidle: gate=none num_ts=%u integ=%u GO_autorun=%u bytes idle_max=%u bytes / 2000ms (%u polls)\n",
+                num_active, integ, initial, maxc, polls);
+  Serial.printf("tidle_verdict: GO_autorun=%s self_trigger=%s\n",
+                initial == 0 ? "NO" : "YES", maxc == 0 ? "NO" : "YES");
+  Serial.flush();
+  return 0;
+}
+
+// tratio,<reps>,<N>,<freq>,<integ> — first-sample ratio check (plan §4.6). Repeats
+// a triggered type-1 acquisition `reps` times (fresh RUN() each time so sample 0
+// is a genuine first sample) and compares the first sample's fluor s/r to the
+// steady-state ratio (samples [skip..N-1]) with a Welford SEM noise floor.
+// Common-mode (ratio preserved) -> relative yield unaffected, no warm-up needed;
+// channel-specific (ratio shifts) -> AFE settling, warm-up / drop-first warranted.
+// Fires reps*N lit pulses: run on a test target, not a precious sample.
+int measure_first_ratio(uint16_t reps, uint16_t N, uint16_t freq, uint8_t integ){
+  if (reps == 0) reps = 20;
+  if (N == 0)    N = 20;
+  if (N > 512)   N = 512;
+  if (freq == 0) freq = 500;
+  if (integ == 0) integ = 1;
+  const uint8_t skip = 3;
+  if (N < (uint16_t)(skip + 3)) N = skip + 3;
+
+  const uint8_t expected_readout = 8, expected_readout_bytes = 24;
+  const int64_t period_us = 1000000LL / freq;
+  const uint8_t num_active = diag_config(false, integ, 1);
+  trig_arm_ext_sync();
+
+  uint32_t ret[8] = {0};
+  double m0 = 0, M2_0 = 0, mS = 0, M2_S = 0;   // Welford: per-run first-sample & steady ratios
+  uint32_t n = 0, bad = 0;
+
+  for (uint16_t rep = 0; rep < reps; rep++){
+    adpd.clear_fifo();
+    adpd.run_freq(10);
+    adpd.num_ts(num_active);
+    adpd.RUN();
+    delay(kTrigArmSettleMs);
+
+    uint32_t s0 = 0, r0 = 0;
+    double sumS_s = 0, sumS_r = 0;
+    bool run_ok = true;
+    int64_t next_trigger = esp_timer_get_time(), t_trig = 0;
+    uint16_t fifo_c = 0;
+    for (uint16_t k = 0; k < N; k++){
+      while (esp_timer_get_time() < next_trigger) { /* pace */ }
+      if (!trig_fire_and_wait(expected_readout_bytes, &t_trig, &fifo_c)){ run_ok = false; break; }
+      next_trigger = t_trig + period_us;
+      adpd.readfifo(expected_readout, 3, ret);
+      if (fifo_c > expected_readout_bytes){ run_ok = false; break; }   // desync: discard run
+      const uint32_t sig = calc_signal(ret[2], ret[3], 1);
+      const uint32_t ref = calc_signal(ret[4], ret[5], 1);
+      if (k == 0){ s0 = sig; r0 = ref; }
+      else if (k >= skip){ sumS_s += sig; sumS_r += ref; }
+    }
+    adpd.STOP();
+    if (!run_ok || r0 == 0 || sumS_r <= 0){ bad++; continue; }
+
+    const double fr0 = (double)s0 / (double)r0;
+    const double frS = sumS_s / sumS_r;
+    n++;
+    const double d0 = fr0 - m0; m0 += d0 / n; M2_0 += d0 * (fr0 - m0);
+    const double dS = frS - mS; mS += dS / n; M2_S += dS * (frS - mS);
+  }
+  diag_teardown();
+
+  if (n < 2){
+    Serial.printf("tratio: only %u good runs (bad=%u) - raise reps or lower freq\n", n, bad);
+    Serial.flush();
+    return -1;
+  }
+  const double sem0 = sqrt((M2_0 / (n - 1)) / (double)n);
+  const double semS = sqrt((M2_S / (n - 1)) / (double)n);
+  const double dev_pct   = (m0 - mS) / mS * 100.0;
+  const double noise_pct = 2.0 * sqrt(sem0*sem0 + semS*semS) / mS * 100.0;
+
+  Serial.printf("tratio: runs=%u bad=%u N=%u freq=%u integ=%u skip=%u (lit pulses=%u)\n",
+                n, bad, N, freq, integ, skip, (unsigned)reps * N);
+  Serial.printf("tratio: first s/r=%.5f (SEM %.5f) steady s/r=%.5f (SEM %.5f)\n", m0, sem0, mS, semS);
+  Serial.printf("tratio: deviation=%+.2f%% noise(2SEM)=+/-%.2f%%\n", dev_pct, noise_pct);
+  Serial.printf("tratio_verdict: %s\n",
+                (fabs(dev_pct) < noise_pct)
+                  ? "COMMON-MODE -> relative yield unaffected; no warm-up needed"
+                  : "RATIO SHIFTS -> channel-specific settling; warm-up / drop-first warranted");
+  Serial.flush();
+  return 0;
+}
+#endif  // AMBIT_DIAG_TRIGGER
 
 
 int external_trigger_run(void){

@@ -1,9 +1,14 @@
 # Branch plan: `deterministic-adpd` — exact-N triggered ADPD acquisition
 
-> Status: **Phase 0 not started on this codebase.** This document ports the ideas from the
-> abandoned `feature/arrun-deterministic-trigger` branch of the pre-cleanroom repo
-> (`LEGACY/ambit-IoT`, last commit 2026-07-03) onto today's single-image firmware. Nothing
-> from that branch has been cherry-picked; the two repos share no git history.
+> Status (2026-09-02): **Phase 0 and Phase 1 code landed on `deterministic-adpd`, builds
+> clean (`pio run`). Gate V0 PASSED on the bench (§8). Gate V1 not yet run.** The plan was
+> then reviewed against the ESP8685 and ADPD6000 datasheets (§10); the review's code changes
+> are in and listed in §9. This document ports
+> the ideas from the abandoned `feature/arrun-deterministic-trigger` branch of the
+> pre-cleanroom repo (`LEGACY/ambit-IoT`, last commit 2026-07-03) onto today's single-image
+> firmware. Nothing from that branch was cherry-picked (no shared git history); the
+> diagnostics and `run_arr_trigger` were ported by hand and adapted to the calibration
+> boundary and the clean-room driver. See §9 for what landed and where it deviates.
 
 ## 1. The problem
 
@@ -62,8 +67,12 @@ recorded only in code comments on that branch; **no V0 timing numbers were ever 
 1. **EXT_SYNC truly gates the sequencer.** `tidle` (arm EXT_SYNC, send zero edges, watch the
    FIFO for 2 s at a 100 ms parked period) showed **no GO auto-run sequence and no
    self-triggering**. Consequence: any "extra bytes in FIFO" seen after a triggered read is a
-   `fifo_count()` byte-count read artifact, not an extra LED pulse. Recovery = `clear_fifo()`,
-   as `run_trigger_spacer` already does.
+   `fifo_count()` byte-count read artifact, not an extra LED pulse. LEGACY recovered with
+   `clear_fifo()` in GO mode, as `run_trigger_spacer` still does. **Datasheet review (§10):
+   CLEAR_FIFO is specified "while not operating"**, so that recovery is off-spec. The
+   triggered path now treats any byte count other than exactly one sequence as a desync and
+   aborts (`ARR_TRIG_FIFO_DESYNC`, −5); the diagnostics drain by reads and count residuals.
+   V0 saw zero residuals in 1500 edges.
 2. **Far-red swallows re-triggers.** With `num_ts(9)` the FIFO is full after ts0..ts2, but the
    six illumination-only slots are **still firing**. An edge sent into that tail is lost:
    observed as exactly 50 % timeouts. The pacing loop must not re-trigger before the *whole*
@@ -80,9 +89,21 @@ recorded only in code comments on that branch; **no V0 timing numbers were ever 
    The open question (LEGACY's uncommitted `tratio` diagnostic) was whether it is
    common-mode (LED intensity → signal/reference ratio preserved → harmless for relative
    yield) or channel-specific (AFE settling → warm-up or drop-first needed). **Unresolved.**
-7. **Expected ceiling** (from datasheet arithmetic, not measured): ~500 Hz safe /
-   ~1.2–1.5 kHz at `num_ts=3`; ~300 Hz with far-red. Bounded by sequence time, dominated by
-   the 4× integration on the ambient/730 slots.
+7. **Sequence time and ceiling — measured at V0 (§8), superseding the earlier estimate.**
+   `t_seq` = 410 µs (amb/730 integ 1) / 423 µs (integ 4) at `num_ts=3`; the 26 µs spread is
+   one `fifo_count()` poll (20 µs), so the chip's own jitter is below the resolution of
+   `tseq`. The time is fixed by the slot registers, not by integration: per data slot
+   8 µs precondition + DARK1 48 µs (the ambient-loop minimum the datasheet requires) +
+   LED 60 + LIT 64/72 + DARK2 90 + `NUM_INT` samples at 1 µs in two regions, ≈105 µs, plus
+   the HFO wake-up; integ 1→4 adds 3 samples × 2 regions × 2 slots = 12 µs (measured 13).
+   **Integration is therefore not a speed knob.** Chip ceiling ≈ 2.3 kHz. The practical
+   ceiling is the SPI: at the ADPD's 10 MHz maximum each transaction still costs ≈20 µs of
+   driver overhead, so the per-value FIFO read is 8 × 20 ≈ 160 µs → ≈1.6 kHz absolute,
+   ≈1.2 kHz with margin before Phase 2, ≈2 kHz after the single-transaction read.
+   **Far-red:** head 425 µs (FIFO complete after ts0..ts2); tail from the far-red slot
+   registers = 6 × (MIN_PERIOD 320 µs × `_repeats` + ≈60 µs) ≈ 1.92 ms·`_repeats` + 0.4 ms,
+   which gives the provisional floor `1000 + 2200·_repeats` 15–40 % margin. It stays until
+   V1 scopes the LED line; far-red is capped near 300 Hz either way.
 
 ## 5. Invariants every phase re-asserts
 
@@ -100,6 +121,12 @@ recorded only in code comments on that branch; **no V0 timing numbers were ever 
 6. **Frozen-binary semantics** — `arrun`/cmd 21 untouched; the triggered path is additive.
 7. **Nothing prints on UART0 except explicit console replies** (AGENTS.md). Diagnostics are
    console verbs and are build-flag gated so they cannot ship.
+8. **Trigger pulse ≥ 5 µs.** The ADPD's LF state machine ticks at 960 kHz (1.04 µs); the
+   legacy 1 µs pulse is one tick wide. `kTrigPulseUs` = 5. V1a confirms on the scope.
+9. **No CLEAR_FIFO while OP_MODE = 1.** Clear only after STOP; in GO, drain by reads or abort.
+10. **Light-sleep wake margin scales with the gap.** The ESP RTC slow clock is a 136 kHz RC
+    oscillator (percent-level after calibration); margin = max(1.5 ms, 2 % of the gap), and
+    `tstat` reports late edges so V1j can size it.
 
 ## 6. Phases for this codebase
 
@@ -143,15 +170,19 @@ numbers in this file** (LEGACY never did). They set the rate ceiling and the far
 - Text verbs `arrunt` / `arrunt1` (PLOTTING) / `arrunt2` (COMPUTER) in do_command.h mirroring
   `arrun*`, plus an `arrunt` JSON handler in frontend_json.cpp (`json_output=true`). Binary and
   async adapters wait for Phase 4.
+- From the datasheet review (§10): 5 µs trigger pulse (inv. 8); byte count ≠ one sequence →
+  abort −5, no `clear_fifo()` in GO (inv. 9); gap-scaled sleep margin (inv. 10); `tstat`
+  console verb (diag-gated) reporting samples / late edges / max overshoot / residuals for V1j.
 
 **Gate V1** — on a scope / logic analyser with the LED-driver line and GPIO10: V1a trigger width
 and no runts; V1b **zero extra pulses**; V1c no self-trigger; V1e three-count correlation
 (GPIO10 == LED sequences == stored == N) at 10/100/200/500/1k Hz, type-1, type-1+farred, type-2;
 V1f first-sample integrity (`tratio` decides warm-up/drop-first); V1g timeout aborts cleanly with
 a console error; V1h teardown read-back (`arrun` free-run works correctly right after an aborted
-`arrunt`); V1i N-cap boundary 1999 ok / 2000 rejected; V1j mean interval and drift.
+`arrunt`); V1i N-cap boundary 1999 ok / 2000 rejected; V1j mean interval and drift (`tstat`:
+late edges and max overshoot at 1, 10, 100, 1000 Hz — sizes the sleep margin).
 
-### Phase 2 — Batched FIFO read
+### Phase 2 — Batched FIFO read (throughput; V0 showed the SPI, not the chip, sets the ceiling)
 - Add an `ADPD6::readfifo_block()` that calls `Driver::read_fifo(buf, expected_readout_bytes)`
   once and unpacks MSB-first; keep the per-value path for the other callers. Check the return
   code (the current callers ignore it).
@@ -162,8 +193,8 @@ a console error; V1h teardown read-back (`arrun` free-run works correctly right 
 fault-injection aborts instead of hanging; `fifo_count()==0` after every read.
 
 ### Phase 3 — Speed knobs
-- Expose `num_integration` for the ambient/730 slots (`repeats_only(0/2, integ, 1)`) as a
-  header-level parameter of `arrunt`, default unchanged (4). Fluorescence stays integ=1.
+- `num_integration` on the ambient/730 slots is **not** a speed knob (V0: 13 µs for 1→4, §4.7).
+  Expose it only if the SNR study below wants it; default stays 4, fluorescence stays integ=1.
 - Remove the deliberate `delay(2)` after `RUN()` in the triggered path only; keep `delay(5)`
   after arming EXT_SYNC (settle) unless V3 shows it is unnecessary.
 - Replace the provisional far-red period floor with the V0-measured full-sequence time.
@@ -210,9 +241,72 @@ to payload values; async over-cap returns ERROR with flat heap.
 
 _(fill in at each gate; date, firmware `git describe`, DUT serial)_
 
+**V0 — 2026-09-02, FW `1.2.0-1-gb8dc1ef-dirty` (branch tree, uncommitted), DUT NVS name
+`AmbitV003` (no physical serial recorded). PASS: spread ±3 % (criterion ±10 %), 1500/1500
+edges landed, zero GO-autorun, zero self-trigger.**
+
 | Gate | Config | Result |
 |---|---|---|
-| V0 `tseq,500,0,1` | num_ts=3, amb/730 integ=1 | |
-| V0 `tseq,500,0,4` | num_ts=3, amb/730 integ=4 | |
-| V0 `tseq,500,1,4` | num_ts=9 far-red, frrep=1 | |
-| V0 `tidle,0,1,0` | | |
+| V0 `tseq,500,0,1` | num_ts=3, amb/730 integ=1 | ok=500 timeouts=0; min/mean/max 403/410/429 µs; ~2439 Hz |
+| V0 `tseq,500,0,4` | num_ts=3, amb/730 integ=4 | ok=500 timeouts=0; min/mean/max 409/423/430 µs; ~2364 Hz |
+| V0 `tseq,500,1,4` | num_ts=9 far-red, frrep=1 | ok=500 timeouts=0; head min/mean/max 423/425/430 µs; tail not visible in FIFO (see §4.7) |
+| V0 `tidle,0,1,0` | num_ts=3, integ=1, 2 s, no edges | GO_autorun=0 bytes, idle_max=0 bytes, 99 305 polls (≈20 µs per `fifo_count()`) |
+
+## 9. Implementation notes (what landed 2026-09-02)
+
+Files: `platformio.ini`, `src/PAM.{h,cpp}`, `src/core.{h,cpp}`, `src/do_command.h`,
+`src/frontend_json.cpp`. `run_esp.cpp`, `data_utils.cpp` and the router are untouched.
+
+- **Shared helpers (pure refactor of `run_arr_type1`)** — `pam_store_type1_sample()` is the
+  per-sample block (calibration → buffers → subsampling → PLOTTING line) lifted verbatim;
+  `pam_finish_results()` is the end-of-run sink (JSON / retain→`g_async` / `pam_send_results`).
+  `run_arr_type1` now calls both; its behaviour is unchanged but it is covered by
+  `HW_CONFORMANCE.md` and must be byte-diffed at V4.
+- **`run_arr_trigger()`** in PAM.cpp: EXT_SYNC arm/disarm helpers (`trig_arm_ext_sync`,
+  `trig_disarm_ext_sync`) shared with the diagnostics, `trig_fire_and_wait()` (20 ms
+  µs-bounded), pacing from the edge, provisional far-red floor `1000 + 2200·_repeats` µs,
+  single `cleanup:` exit. Return codes are `ArrTriggerResult` (PAM.h): `0` ok, `-2` bad line,
+  `-3` alloc, `-4` lost trigger.
+- **Validation at the boundary** — `run_arr_trigger_validate()` rejects total N of 0 or
+  ≥ `MAX_DATACLASS_SIZE` and any line with `num_ptx > 0 && freq == 0`, before anything is
+  allocated or written to the chip.
+- **Interrupt polling deviates from `run_arr_type1`** — `PAM_interrupt()` spins up to 15 ms
+  when the input is idle, which would wreck pacing above ~60 Hz. The triggered path only
+  consults it when `Serial.available() > 0` (and after a light-sleep wake, which is cheap).
+- **Adapters** — core op `core_run_array_triggered()`; text `arrunt` / `arrunt1` / `arrunt2`
+  (reply `ERROR arrunt <code>` on failure; `len` outside 1..16 rejected before reading the
+  array); JSON `arrunt` (`{"error":"arrunt_failed","code":<n>}` on failure, the data object
+  only on success). Binary and async adapters wait for Phase 4.
+- **Diagnostics** (`-DAMBIT_DIAG_TRIGGER`, on in `platformio.ini` for this branch):
+  `tseq`, `tidle`, `tratio` as specified in §6. Two changes vs LEGACY: (a) each diagnostic
+  leaves `adpd_mode = MPF_MODE` so the next array run re-applies `conf_slow_FR_1` (LEGACY left
+  `ARRAY_MODE1` and the next `arrun` inherited the overridden ts0/ts2 integration);
+  (b) `tidle` gate 1 (GO_SLEEP) is refused — it relied on the vendored ADI driver's sleep-mode
+  call, which the clean-room driver does not expose. Gate 0 is what V0 requires.
+- **Datasheet review changes (2026-09-02, after V0):** `kTrigPulseUs = 5` in
+  `trig_fire_and_wait()` (the legacy `adpd_trigger()` keeps its 1 µs pulse for the frozen MPF
+  and trigger-spacer paths); byte count ≠ one sequence after an edge → `ARR_TRIG_FIFO_DESYNC`
+  (−5) and cleanup, no `clear_fifo()` in GO; sleep margin = max(1.5 ms, 2 % of gap);
+  `g_trig_stats` + `tstat` verb (samples, late edges, max overshoot µs, residuals, result).
+  `tseq` no longer clears the FIFO between edges (drains by reads, reports `residuals=`);
+  `tratio` discards a run on a residual.
+- **Open before Phase 2**: run V1 on the scope (V1a pulse width, V1e counts, V1j `tstat`);
+  measure the far-red tail and replace the provisional floor.
+
+## 10. Datasheet review (2026-09-02)
+
+Sources: *ESP8685 Series Datasheet* v1.6 (Espressif; the ESP32-C3 die) and *ADPD6000 Data
+Sheet* Rev. 0 (Analog Devices; local copy `Projects/1.1 Ambit/0.8 Savedir/datasheet_adpd6000.pdf`).
+
+| Plan element | Datasheet says | Consequence |
+|---|---|---|
+| EXT_SYNC gates the sequencer (§2, §4.1) | GPIO_EXT[2] EXT_SYNC_EN: "use the GPIO selected by EXT_SYNC_GPIO to trigger samples rather than the period counter"; in GO with external sync "the device enters the sleep state before the first wake-up and time slot regions begin" | Confirms `tidle`. Parking the period at 100 ms is redundant but harmless |
+| Trigger pulse 1 µs | LF state machine clock = 960 kHz internal RC (1.04 µs tick); no minimum sync pulse width is specified | One-tick pulse is marginal → 5 µs (inv. 8) |
+| `clear_fifo()` on residual (§4.1) | FIFO_STATUS[15] CLEAR_FIFO: "empty the FIFO while not operating" | Off-spec in GO → abort on residual, drain by reads in diagnostics (inv. 9) |
+| Sequence time dominated by integration (§4.7 old) | Two-region digital integration: DARK1 ≥ 48 µs ambient loop, ADC samples at 1 µs; firmware slots use offsets 48/60/64–72/90 µs | Slot ≈ 105 µs regardless of integ; measured 13 µs for 1→4 |
+| Far-red tail | Far-red slots: MIN_PERIOD 320 µs (per repeat), LED width 200 µs, 6 slots | Tail ≈ 1.92 ms·`_repeats`; provisional floor has 15–40 % margin |
+| SPI | ADPD f_SCLK max 10 MHz (firmware already at 10 MHz); ESP GP-SPI2 up to 60 MHz | Bound is ESP-IDF per-transaction overhead (≈20 µs), not the bus → Phase 2 is throughput |
+| GPIO10 through light sleep (§4.4) | ESP8685 Table 5-8: in Light-sleep "all GPIOs are high-impedance" | The pull-down sleep hold is required, keep it |
+| Light-sleep wake timing | RTC slow clock = internal 136 kHz RC (or 32 kHz XTAL, not fitted) | Percent-level error → gap-scaled margin (inv. 10), `tstat` late-edge count |
+| Register writes in GO | "Register writes that affect operating modes cannot occur during go mode" | Code already brackets every `run_freq`/`num_ts`/`repeats_only` between STOP and RUN |
+| ESP logic levels vs ADPD input | ESP VOH ≥ 0.8·VDD; ADPD GPIO VIH ≥ 0.7·IOVDD | Direct drive is fine |

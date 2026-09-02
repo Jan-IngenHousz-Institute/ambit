@@ -107,24 +107,34 @@ static_assert(!valid_arrun_shape(0, 0), "empty arrun must be rejected");
 static_assert(!valid_arrun_shape(17, 136), "oversized arrun must be rejected");
 static_assert(!valid_arrun_shape(1, 128), "arrun byte count must match len");
 
-// arrun,<len>,<persist>,<8*len array bytes> — runs an array-mode measurement and
-// emits one JSON object {"env":[..],"s_630":[..],...}. run_arr_type1's json_output
-// path writes it to Serial, which IS the openJII output stream in the cloud build.
-static void cmd_arrun(const String& args, Print& out) {
+// Parse "<len>,<persist>,<8*len array bytes>" — the shape arrun and arrunt share.
+// On a bad shape writes {"error":"<bad_tag>"} to `out` and returns false.
+static bool parse_arrun_args(const String& args, Print& out, const char* bad_tag,
+                             uint8_t* len_out, uint8_t* persist_out, uint8_t arr[128]) {
   long requested_len = arg_long(args, 0);
-  uint8_t persist = (uint8_t) arg_long(args, 1);
-  uint8_t arr[128] = {0};
+  *persist_out = (uint8_t) arg_long(args, 1);
   if (requested_len < ARRUN_MIN_LEN || requested_len > ARRUN_MAX_LEN) {
-    out.print("{\"error\":\"bad_arrun\"}");
-    return;
+    out.printf("{\"error\":\"%s\"}", bad_tag);
+    return false;
   }
   const uint8_t len = static_cast<uint8_t>(requested_len);
   const size_t expected = static_cast<size_t>(len) * 8U;
   const size_t parsed = arg_array8(args, 2, arr, expected);
   if (!valid_arrun_shape(requested_len, parsed)) {
-    out.print("{\"error\":\"bad_arrun\"}");
-    return;
+    out.printf("{\"error\":\"%s\"}", bad_tag);
+    return false;
   }
+  *len_out = len;
+  return true;
+}
+
+// arrun,<len>,<persist>,<8*len array bytes> — runs an array-mode measurement and
+// emits one JSON object {"env":[..],"s_630":[..],...}. run_arr_type1's json_output
+// path writes it to Serial, which IS the openJII output stream in the cloud build.
+static void cmd_arrun(const String& args, Print& out) {
+  uint8_t len = 0, persist = 0;
+  uint8_t arr[128] = {0};
+  if (!parse_arrun_args(args, out, "bad_arrun", &len, &persist, arr)) return;
 
   if (!adpd_gains_config.init)   adpd_gains_config.init = true;
   if (!adpd_current_config.init) adpd_current_config.init = true;
@@ -134,6 +144,23 @@ static void cmd_arrun(const String& args, Print& out) {
   }
   CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;   // no inline plotting; JSON emitted at the end
   run_arr_type1(len, arr, persist, false, true);  // json_output -> writes the JSON object to Serial
+}
+
+// arrunt,<len>,<persist>,<8*len array bytes> — same payload and same JSON object as
+// arrun, acquired with the exact-N EXT_SYNC engine (plans/DETERMINISTIC_ADPD.md):
+// exactly num_ptx LED sequences per line. The run prints the object itself on
+// success and nothing on failure, so the error envelope below is never mixed with
+// data. `code` is ArrTriggerResult (PAM.h).
+static void cmd_arrunt(const String& args, Print& out) {
+  uint8_t len = 0, persist = 0;
+  uint8_t arr[128] = {0};
+  if (!parse_arrun_args(args, out, "bad_arrunt", &len, &persist, arr)) return;
+
+  if (!adpd_gains_config.init)   adpd_gains_config.init = true;
+  if (!adpd_current_config.init) adpd_current_config.init = true;
+  CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;   // no inline plotting; JSON emitted at the end
+  const int rc = core_run_array_triggered(len, arr, persist, false, true);
+  if (rc != ARR_TRIG_OK) out.printf("{\"error\":\"arrunt_failed\",\"code\":%d}", rc);
 }
 
 // ── config setters (snapshot: ack with the applied values; command-as-root) ──
@@ -187,4 +214,5 @@ void frontend_json_register() {
   ojii::on("get_currents", cmd_get_currents);
   ojii::on("get_gains",    cmd_get_gains);
   ojii::on_stream("arrun", cmd_arrun);
+  ojii::on_stream("arrunt", cmd_arrunt);
 }

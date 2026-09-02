@@ -47,6 +47,40 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist);
 int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt, bool json_output = false, bool retain = false);
 int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8_t act, bool interrrupt);
 
+// ── Exact-N triggered acquisition (plans/DETERMINISTIC_ADPD.md) ──────────────
+// Deterministic sibling of run_arr_type1: same frozen 8-byte line protocol, same
+// calibration / storage / sinks (shared helpers), but the ADPD runs in EXT_SYNC so
+// every sample is one GPIO10 edge -> exactly one timeslot sequence. Emitted LED
+// sequences == edges == stored == num_ptx at every rate. `freq` is the software
+// pacing target (period 1/freq), not a free-run divider. Additive: arrun / cmd 21
+// keep the free-run engine until the calibration-gated default swap (plan §6 Ph.5).
+// Returns ARR_TRIG_OK or a negative ArrTriggerResult. Logging is compiled out
+// (-DCORE_DEBUG_LEVEL=0), so every adapter must reply explicitly on failure.
+enum ArrTriggerResult {
+    ARR_TRIG_OK           =  0,
+    ARR_TRIG_ABORT        = -1,   // generic / internal
+    ARR_TRIG_BAD_LINE     = -2,   // total N outside 1..MAX_DATACLASS_SIZE-1, or freq == 0
+    ARR_TRIG_NOMEM        = -3,   // dataclass allocation failed
+    ARR_TRIG_LOST_TRIGGER = -4,   // an edge produced no full readout within the per-sample bound
+    ARR_TRIG_FIFO_DESYNC  = -5,   // FIFO held more than the one sequence the edge asked for
+};
+int run_arr_trigger_validate(uint8_t length, uint8_t* arr);
+int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt,
+                    bool json_output = false, bool retain = false);
+
+#ifdef AMBIT_DIAG_TRIGGER
+// Bench diagnostics (plan §6 Phase 0, gates V0/V1f). Console-only, branch-only:
+// they print on UART0 and are compiled out without -DAMBIT_DIAG_TRIGGER.
+// tseq,<reps>,<farred>,<integ>[,<frrep>]: edge -> full-FIFO time, min/mean/max.
+int measure_tseq(uint16_t reps, bool farred, uint8_t integ, uint8_t frrep);
+// tidle,<farred>,<integ>,<gate>: arm EXT_SYNC, send NO edges for 2 s, count bytes.
+int measure_idle(bool farred, uint8_t integ, uint8_t gate);
+// tratio,<reps>,<N>,<freq>,<integ>: first-sample s/r vs steady state (plan §4.6).
+int measure_first_ratio(uint16_t reps, uint16_t N, uint16_t freq, uint8_t integ);
+// tstat: pacing statistics of the last run_arr_trigger() (gate V1j).
+void print_trig_stats(void);
+#endif
+
 // ── Async (trigger/poll/fetch) result holder — parallel measurement protocol ──
 // A run started via ambit_async_run_start() blocks the C3 to completion (as the
 // synchronous run does today) but RETAINS its result arrays instead of streaming
