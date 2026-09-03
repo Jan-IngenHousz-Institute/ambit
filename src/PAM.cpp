@@ -846,8 +846,9 @@ static TrigQuietMode trig_pick_quiet_mode(int64_t period_us){
   if (period_us >= (int64_t)kTrigQuietWfiUs + kTrigReadBudgetUs) return TRIG_QUIET_WFI;  // <= ~1.25 kHz
   return TRIG_QUIET_BUSY;
 }
-// Settle after RUN() in EXT_SYNC before the first edge (run_trigger_spacer's
-// value; Phase 3 measures whether it can go).
+// Settle after RUN() in EXT_SYNC before the first edge. Measured (PHASE3_HANDOFF 1.3,
+// unit AD88): 1 ms works, 0 ms loses the first edge every time (−4). Kept at 5 ms for
+// unit-to-unit margin — it is paid once per line, not per sample.
 static constexpr uint32_t kTrigArmSettleMs = 5;
 // An edge counts as late only beyond this. The busy-wait exits at >= next_trigger
 // and the timestamp is taken a call later, so every edge reads 8-9 µs "late" by
@@ -876,6 +877,29 @@ static uint32_t g_trig_sleepq_us = 0;
 // (r_730 sd 88 -> 40 = free-run) but is refused below ~1 ms of requested sleep, which
 // caps the rate near 400 Hz; WFI has µs-level entry cost. 0 = off.
 static uint32_t g_trig_wfi_us = 0;
+// Phase 3 knobs (plans/PHASE3_HANDOFF.md 1.1 / 1.3). twarm: extra wait after arming and
+// before the FIRST edge of each line, to test whether the post-idle transient is time-based.
+// tarm: overrides kTrigArmSettleMs (5 ms after RUN()) to find the smallest that still works.
+static uint32_t g_trig_warm_ms = 0;
+static uint32_t g_trig_arm_ms  = kTrigArmSettleMs;
+
+// ── Warm-up sequences (plan §4.10, PHASE3_HANDOFF 1.1) ──────────────────────────
+// After minutes of idle the first two sequences of a run read off on every channel
+// (r_630 −4.6 % then +5.2 %, bench 2026-09-03), in both engines, and a 100 ms wait
+// before the first edge does NOT remove it — it is per-sequence, not time-based.
+// Back-to-back runs never show it. So the run fires kTrigWarmupSequences extra edges
+// after arming its first line, reads and discards them, then starts storing. They are
+// edges the leaf receives but not samples the host gets: invariant 2 reads
+// "edges == stored + warm-up". Cost ≈ 3 × (t_seq + read) ≈ 1.5 ms per run.
+static constexpr uint8_t kTrigWarmupSequences = 3;
+
+// PLOTTING (arrunt1) prints one ~80-character line per sample and flushes it: ≈7 ms at
+// 115200 baud, inside the pacing loop. Measured (PHASE3_HANDOFF 1.4): 200 Hz → every edge
+// 1.4 ms late, 500 Hz → 4.4 ms late; 50 Hz → late=0. Live plotting above this rate cannot
+// be exact, so the line is refused (−7) instead of silently mistimed; arrunt2 dumps after
+// the run and has no cap.
+static constexpr uint16_t kTrigPlotMaxHz = 50;
+static uint8_t g_trig_warmup_n = kTrigWarmupSequences;   // `twarmn` knob for verification
 static esp_timer_handle_t g_trig_wfi_timer = NULL;
 static TaskHandle_t g_trig_wfi_task = NULL;
 static void trig_wfi_timer_cb(void*){
@@ -884,12 +908,18 @@ static void trig_wfi_timer_cb(void*){
 
 // Far-red lines run num_ts(9): the FIFO is complete after ts0..ts2, but the six
 // illumination-only slots (ts3..ts8, `repeats` pulses each, 0 FIFO bytes) are
-// STILL firing. An edge sent into that tail is swallowed (LEGACY bench: exactly
-// 50 % timeouts), so the period is floored to the whole sequence and far-red runs
-// at min(freq, ceiling) rather than aborting. PROVISIONAL datasheet arithmetic —
-// gate V0 (`tseq,500,1,4`) replaces it with the measured full-sequence time.
+// STILL firing. An edge sent into that tail is swallowed, so the period is floored
+// to the whole sequence and far-red runs at min(freq, ceiling) rather than aborting.
+// MEASURED 2026-09-03 (`tseqfr`, PHASE3_HANDOFF 1.2, unit AD88): the whole sequence is
+// 2.55 ms at repeats=1 and grows 2.47 ms per extra repeat (2: 4.9, 4: 9.4, 40: 99 ms).
+// The earlier estimate 1000 + 2200·n was 25 % long at n=1 and 10 % SHORT at n=40,
+// where a 10 Hz far-red line (n = 400/10 = 40) has ≈1 % of its 100 ms period spare.
+// 10 % margin on the measurement: the slot timing runs on the ADPD's untrimmed RC
+// clocks and varies unit to unit (plans/ADPD_OSC_TRIM.md). Far-red lines whose
+// period is below this floor run slower than requested; TIMING shows it.
 static inline int64_t trig_farred_sequence_us(uint8_t repeats){
-  return 1000 + 2200LL * repeats;
+  const int64_t measured = 2550 + 2470LL * ((int64_t)repeats - 1);
+  return measured + measured / 10;
 }
 
 // ── EXT_SYNC arm / disarm, shared by the triggered run and the diagnostics ──────
@@ -986,6 +1016,7 @@ struct trig_run_stats_t {
   uint32_t glitch_bytes = 0;   // the value that first read (last glitch)
   uint32_t glitch_sample = 0;  // 1-based sample index of the last glitch
   uint8_t  quiet_mode = 0;     // TrigQuietMode used by the last line (0 busy, 1 wfi, 2 sleep)
+  uint8_t  warmup_seqs = 0;    // discarded warm-up sequences fired at the start of the run
   int32_t  io_error = 0;       // driver code of the failing FIFO count / read (result -6)
   uint32_t fifo_status = 0;    // FIFO_STATUS register (0x0000) read at abort: bit13 OFLOW, bit14 UFLOW
   uint32_t read_max_us = 0;    // longest readfifo_block() (poll-exit to data in hand)
@@ -1089,6 +1120,8 @@ int run_arr_trigger_validate(uint8_t length, uint8_t* arr){
     const uint16_t num_ptx = line[3] + (line[2] << 8);
     const uint16_t freq    = line[5] + (line[4] << 8);
     if (num_ptx > 0 && freq == 0) return ARR_TRIG_BAD_LINE;
+    if (num_ptx > 0 && CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING && freq > kTrigPlotMaxHz)
+      return ARR_TRIG_PLOT_RATE;
   }
   return ARR_TRIG_OK;
 }
@@ -1130,6 +1163,7 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
   bool interrupt_run = false;
   bool ext_sync_on = false;
   bool buffers_transferred = false;
+  bool warmed_up = false;
   int _func_ret = ARR_TRIG_ABORT;
 
   dataclass *d_env = new dataclass;
@@ -1213,7 +1247,24 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
       counter = 0;
       for (uint8_t i = 0; i < 4; i++) buf_opt[i] = 0;
       adpd.RUN();                          // GO=1 in EXT_SYNC: armed, waits for the first edge
-      delay(kTrigArmSettleMs);
+      delay(g_trig_arm_ms);
+      if (g_trig_warm_ms) delay(g_trig_warm_ms);   // Phase 3 1.1 experiment (time-based: refuted)
+      if (!warmed_up){                     // first active line of the run: discard the settling sequences
+        for (uint8_t w = 0; w < g_trig_warmup_n; w++){
+          if (!trig_fire_and_wait(expected_readout_bytes, &t_trig, &fifo_c)){
+            _func_ret = (g_trig_poll_rc == jii::adpd6000::kOk) ? ARR_TRIG_LOST_TRIGGER : ARR_TRIG_IO_ERROR;
+            goto cleanup;
+          }
+          if (adpd.readfifo_block(expected_readout, 3, ret) != jii::adpd6000::kOk){
+            _func_ret = ARR_TRIG_IO_ERROR;
+            goto cleanup;
+          }
+          g_trig_stats.warmup_seqs++;
+          // far-red: do not re-trigger into the illumination tail
+          if (farred_floor){ while (esp_timer_get_time() - t_trig < farred_floor) { } }
+        }
+        warmed_up = true;
+      }
 
       next_trigger = esp_timer_get_time();
       while (counter < num_ptx){
@@ -1423,7 +1474,7 @@ void print_trig_stats(void){
                 "residual_bytes=%u residual_sample=%u count_glitches=%u glitch_bytes=%u "
                 "glitch_sample=%u park_hz=%u quiet_us=%u sleepq_us=%u "
                 "sleepq_rejects=%u sleepq_min_us=%u sleepq_max_us=%u wfi_us=%u quiet_mode=%u "
-                "io_error=%d fifo_status=0x%04X read_max_us=%u leftover=%u\n",
+                "io_error=%d fifo_status=0x%04X read_max_us=%u leftover=%u warm_ms=%u arm_ms=%u warmup_seqs=%u\n",
                 g_trig_stats.result, g_trig_stats.samples, g_trig_stats.late_count,
                 g_trig_stats.max_late_us, g_trig_stats.residual_count,
                 g_trig_stats.residual_bytes, g_trig_stats.residual_sample,
@@ -1432,7 +1483,7 @@ void print_trig_stats(void){
                 g_trig_stats.sleepq_rejects, g_trig_stats.sleepq_min_us, g_trig_stats.sleepq_max_us,
                 g_trig_wfi_us, g_trig_stats.quiet_mode,
                 g_trig_stats.io_error, g_trig_stats.fifo_status & 0xFFFF, g_trig_stats.read_max_us,
-                g_trig_stats.leftover_count);
+                g_trig_stats.leftover_count, g_trig_warm_ms, g_trig_arm_ms, g_trig_stats.warmup_seqs);
   Serial.flush();
 }
 
@@ -1558,6 +1609,74 @@ void diag_set_wfi_us(uint32_t us){
   g_trig_wfi_us = us;
   Serial.printf("twfi: %u us blocked on a timer (core idle/WFI) after each edge\n", g_trig_wfi_us);
   Serial.flush();
+}
+
+// twarm,<ms> — wait after arming before the first edge of each line (post-idle transient test).
+void diag_set_warm_ms(uint32_t ms){
+  g_trig_warm_ms = ms;
+  Serial.printf("twarm: %u ms after RUN() before the first edge\n", g_trig_warm_ms);
+  Serial.flush();
+}
+// twarmn,<n> — warm-up sequences discarded at the start of a run (production 3; 0 disables).
+void diag_set_warmup_n(uint8_t n){
+  g_trig_warmup_n = n;
+  Serial.printf("twarmn: %u warm-up sequences per run\n", g_trig_warmup_n);
+  Serial.flush();
+}
+// tarm,<ms> — arm settle after RUN() (production 5 ms).
+void diag_set_arm_ms(uint32_t ms){
+  g_trig_arm_ms = ms;
+  Serial.printf("tarm: %u ms settle after RUN()\n", g_trig_arm_ms);
+  Serial.flush();
+}
+
+// tseqfr,<frrep>,<start_us>,<step_us>,<reps> — far-red tail boundary (PHASE3_HANDOFF 1.2).
+// Arms the far-red config (num_ts 9, ts3..8 with <frrep> pulses each) and fires <reps> edges
+// at a fixed inter-edge delay, counting lost edges (no full readout within 20 ms) and
+// residuals; then shortens the delay by <step_us> and repeats until edges are lost at
+// three consecutive delays or the delay reaches the head time. The largest delay that still
+// loses edges bounds the whole sequence (head + illumination tail). Values read after each
+// edge are drained (never stored), the FIFO is emptied by reads, never CLEAR_FIFO in GO.
+int measure_farred_tail(uint8_t frrep, uint32_t start_us, uint32_t step_us, uint16_t reps){
+  if (frrep == 0) frrep = 1;
+  if (start_us == 0) start_us = 4000;
+  if (step_us == 0) step_us = 100;
+  if (reps == 0) reps = 50;
+  const uint8_t expected_readout = 8, expected_readout_bytes = 24;
+  const uint8_t num_active = diag_config(true, 4, frrep);
+  ambit_boot_gesture_pause();
+  diag_arm(num_active);
+  uint32_t ret[8];
+  uint16_t fifo_c = 0;
+  int64_t t_trig = 0;
+  uint32_t boundary_us = 0, last_clean_us = 0;
+  uint8_t lossy_in_a_row = 0;
+  Serial.printf("tseqfr: frrep=%u start=%u step=%u reps=%u (delay_us, lost, residual)\n", frrep, start_us, step_us, reps);
+  for (uint32_t d = start_us; d >= 450 && d <= start_us; d -= step_us){
+    uint16_t lost = 0, residual = 0;
+    int64_t next = esp_timer_get_time();
+    for (uint16_t k = 0; k < reps; k++){
+      while (esp_timer_get_time() < next) { }
+      const bool got = trig_fire_and_wait(expected_readout_bytes, &t_trig, &fifo_c);
+      next = t_trig + d;
+      if (!got){ lost++; if (fifo_c) diag_drain_bytes(fifo_c); continue; }
+      if (fifo_c > expected_readout_bytes) residual++;
+      diag_drain_bytes(fifo_c);
+    }
+    Serial.printf("tseqfr: %u,%u,%u\n", d, lost, residual);
+    if (lost == 0 && residual == 0){ last_clean_us = d; lossy_in_a_row = 0; }
+    else { if (boundary_us == 0) boundary_us = d; if (++lossy_in_a_row >= 3) break; }
+    // after a lossy step let the chip finish whatever tail is running
+    delay(20);
+    (void)ret;
+  }
+  diag_teardown();
+  ambit_boot_gesture_resume();
+  Serial.printf("tseqfr: frrep=%u first_lossy_delay_us=%u last_clean_delay_us=%u (model now %lld us)\n",
+                frrep, boundary_us, last_clean_us, (long long) trig_farred_sequence_us(frrep));
+  Serial.println("tseqfr end");
+  Serial.flush();
+  return 0;
 }
 
 // tquiet,<us> — blind wait after the edge before the first fifo_count() poll.

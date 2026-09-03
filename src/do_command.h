@@ -378,6 +378,28 @@ void do_command(char *choose){
     }
       break;
 
+    case hash("twarm"):     // twarm,<ms>: wait before the first edge of each line (Phase 3 1.1)
+      diag_set_warm_ms((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("twarmn"):    // twarmn,<n>: warm-up sequences per run (Phase 3 1.1)
+      diag_set_warmup_n((uint8_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tarm"):      // tarm,<ms>: arm settle after RUN() (Phase 3 1.3)
+      diag_set_arm_ms((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tseqfr"):    // tseqfr,<frrep>,<start_us>,<step_us>,<reps>: far-red tail sweep (Phase 3 1.2)
+    {
+      uint8_t  frrep = (uint8_t)  Serial_Input_Long(",", 10);
+      uint32_t start = (uint32_t) Serial_Input_Long(",", 10);
+      uint32_t step  = (uint32_t) Serial_Input_Long(",", 10);
+      uint16_t reps  = (uint16_t) Serial_Input_Long(",", 10);
+      measure_farred_tail(frrep, start, step, reps);
+    }
+      break;
+
     case hash("tovf"):      // tovf,<n>: overflow the FIFO before sample n of the next arrunt (V2)
       diag_overflow_at((uint32_t) Serial_Input_Long(",", 10));
       break;
