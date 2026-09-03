@@ -1,7 +1,7 @@
 # Branch plan: `deterministic-adpd` — exact-N triggered ADPD acquisition
 
-> Status (2026-09-03): **Phase 0 and Phase 1 landed on `deterministic-adpd`; V0 passed; V1
-> passed except V1a (scope on GPIO10, TODO). Ten bench sessions (§8) found and closed three
+> Status (2026-09-03): **Phases 0, 1 and 2 landed on `deterministic-adpd`; V0, V1 (except V1a,
+> scope on GPIO10, TODO) and V2 passed on the bench.** Ten bench sessions (§8) found and closed three
 > things the plan did not anticipate: the BOOT-pin reset gesture fired by LED coupling, the
 > running ESP core degrading the 730 channel (fixed by sleeping the core through each
 > sequence), and a ≈21 % free-run time-base error (handed off, `plans/ADPD_OSC_TRIM.md`).**
@@ -118,7 +118,8 @@ recorded only in code comments on that branch; **no V0 timing numbers were ever 
    **Integration is therefore not a speed knob.** Chip ceiling ≈ 2.3 kHz. The practical
    ceiling is the SPI: at the ADPD's 10 MHz maximum each transaction still costs ≈20 µs of
    driver overhead, so the per-value FIFO read is 8 × 20 ≈ 160 µs → ≈1.6 kHz absolute,
-   ≈1.2 kHz with margin before Phase 2, ≈2 kHz after the single-transaction read.
+   ≈1.2 kHz with margin before Phase 2, ≈2 kHz after the single-transaction read
+   (**measured after Phase 2: 2 kHz with exact counts and zero lost edges**, block read 46 µs).
    **Far-red:** head 425 µs (FIFO complete after ts0..ts2); tail from the far-red slot
    registers = 6 × (MIN_PERIOD 320 µs × `_repeats` + ≈60 µs) ≈ 1.92 ms·`_repeats` + 0.4 ms,
    which gives the provisional floor `1000 + 2200·_repeats` 15–40 % margin. It stays until
@@ -205,15 +206,18 @@ a console error; V1h teardown read-back (`arrun` free-run works correctly right 
 `arrunt`); V1i N-cap boundary 1999 ok / 2000 rejected; V1j mean interval and drift (`tstat`:
 late edges and max overshoot at 1, 10, 100, 1000 Hz — sizes the sleep margin).
 
-### Phase 2 — Batched FIFO read (throughput; V0 showed the SPI, not the chip, sets the ceiling)
-- Add an `ADPD6::readfifo_block()` that calls `Driver::read_fifo(buf, expected_readout_bytes)`
-  once and unpacks MSB-first; keep the per-value path for the other callers. Check the return
-  code (the current callers ignore it).
-- Make `fifo_count()` overflow observable to the triggered path (a sentinel, or use the
-  two-arg overload and treat `kOutOfRange` as an abort), instead of the silent 0.
+### Phase 2 — Batched FIFO read (throughput; V0 showed the SPI, not the chip, sets the ceiling) — DONE 2026-09-03
+- `ADPD6::readfifo_block()` calls `Driver::read_fifo(buf, n·width)` once and unpacks MSB-first;
+  the per-value `readfifo()` stays for the free-run path. The triggered engine checks the return
+  code and aborts with `ARR_TRIG_IO_ERROR` (−6) instead of storing zeros.
+- `trig_fire_and_wait()` polls with the rc-returning `fifo_count(&c)`: an I/O error aborts −6,
+  `kOutOfRange` (count > 640) aborts −5; FIFO_STATUS (0x0000) is captured at every abort so
+  `tstat` shows OFLOW/UFLOW and the count. The silent-zero trap is gone.
+- `kTrigReadBudgetUs` 350 → 150 (block read measured 46–55 µs), which moves the light-sleep
+  band to ≈900 Hz and the WFI band to the chip ceiling.
 
 **Gate V2** — bit-exact vs per-value over ≥100 k samples including values > 65 000; overflow
-fault-injection aborts instead of hanging; `fifo_count()==0` after every read.
+fault-injection aborts instead of hanging; `fifo_count()==0` after every read. **PASSED**, §8.
 
 ### Phase 3 — Speed knobs
 - `num_integration` on the ambient/730 slots is **not** a speed knob (V0: 13 µs for 1→4, §4.7).
@@ -259,7 +263,7 @@ to payload values; async over-cap returns ERROR with flat heap.
 | Spurious edge across light sleep | GPIO10 sleep hold LOW; `tidle` |
 | Text host latch + long busy-wait at kHz | TEXT host never sleeps anyway; JSON envelope owns the stream while `busy()` — no router change needed |
 | Binary id collision with Ambyte | Agree the id in `ambit_protocol.h` first; Phase 4 only |
-| Core activity degrades the 730 channel | Inv. 11: sleep/WFI through the sequence; verified across 10 Hz–1 kHz (§8 session 10). Above ≈750 Hz only WFI fits, 730 noise ≈1.5× free-run there — document, or hardware fix on the next spin |
+| Core activity degrades the 730 channel | Inv. 11: sleep/WFI through the sequence; verified across 10 Hz–1 kHz (§8 session 10). Above ≈750 Hz only WFI fits, 730 noise ≈1.5× free-run there. **Accepted (2026-09-03): the 730 channel is not used in normal measurements**, so the residual high-rate penalty needs no hardware action; documented here only |
 | LED coupling into GPIO9 resets the ESP | Inv. 12: gesture paused during runs. `arrun` at 90–125 Hz is still exposed in the field: separate fix on `main` |
 | Baselines taken with the free-run engine | Phase 5: re-take `fluor_offset` baselines with the shipping engine (≈12-count dark offset measured before the quiet fix; re-measure after) |
 
@@ -480,6 +484,30 @@ metric. Counts exact, `late=0`, `sleepq_rejects=0` in every run.
 | far-red 200 Hz | sleep | | 47.6 | 5.45 s (floor-limited, as before) |
 | type-2 200 Hz | sleep | | — | 5.03 s, no count glitch |
 
+**Gate V2 — 2026-09-03, `v2_bench.py` (`tblk`, `tovf`, production runs with the block read).
+PASS on all three criteria.**
+
+| Test | Result |
+|---|---|
+| `tblk,4000,500` ×3 + `tblk,2000,1000`: interleaved per-value / block reads, 7000 sequences per method = 112 000 values | every column agrees within noise (largest Δmean 4.7 on r_730 whose sd is 90; r_dark/r_lit/sun Δ ≤ 0.1), sd equal; `rc_err=0/0`; **`leftover=0/0`**; every sequence carried values > 65 535 (raw sun ≈ 65 846, leaf ≈ 65 485) so the 3-byte MSB-first unpack is exercised on all 14 000 |
+| read time | per-value 169–171 µs, block 46 µs (`read_max_us` 45–55 in production runs, poll exit to data) |
+| production runs with the block read: 1 kHz ×2, 500 Hz, 200 Hz, far-red 200 Hz, type-2 1 kHz, N=1999/1000 | counts exact, `late=0`, `leftover=0`, `io_error=0`, timing exact |
+| `tovf,50` (31 unread sequences injected before sample 50 → 744 B into a 640 B FIFO) | `ERROR arrunt -5` after 0.6 s, `residual_bytes=576 residual_sample=50 fifo_status=0x3A40` (bit 13 INT_FIFO_OFLOW set, count 576); no hang. The next run was clean (500 samples, `leftover=0`) — cleanup's STOP + CLEAR_FIFO recovers |
+| `traw,1,100,200` through the block read | raw sun 65 845.6, 100/100 values > 65 535 |
+
+**Rate bands after Phase 2 (`kTrigReadBudgetUs` = 150), N=1999 each, counts exact, `late=0`:**
+
+| Rate | quiet_mode | r_730 sd | TIMING | Note |
+|---|---|---|---|---|
+| 700 Hz | sleep | 42.6 | 2.908 s | parity with free-run |
+| 900 Hz | sleep | 46.8 | 2.255 s | parity; the new upper edge of the sleep band |
+| 1000 Hz | WFI | 65.0 | 2.092 s | ≈1.5× free-run (accepted, 730 not used in normal measurements) |
+| 1500 Hz | WFI | 65.1 | 1.365 s | |
+| 2000 Hz | busy | 93.5 | 1.036 s | `max_late_us=46`, zero lost edges: **the engine now reaches 2 kHz** with exact counts |
+
+Ceiling after Phase 2: ≥ 2 kHz exact-count (chip limit ≈ 2.3 kHz from t_seq); it was ≈1.6 kHz
+with the per-value read.
+
 ## 9. Implementation notes (what landed 2026-09-02)
 
 Files: `platformio.ini`, `src/PAM.{h,cpp}`, `src/core.{h,cpp}`, `src/do_command.h`,
@@ -527,7 +555,13 @@ Files: `platformio.ini`, `src/PAM.{h,cpp}`, `src/core.{h,cpp}`, `src/do_command.
   `trig_quiet_wfi`, constants `kTrigQuiet*`), reset to BUSY at cleanup and in every diagnostic
   so `tseq` measures the chip; `tstat` gained `sleepq_rejects/min/max`, `wfi_us`, `quiet_mode`.
   Diag knobs kept (all `-DAMBIT_DIAG_TRIGGER` only): `tpark`, `tquiet`, `tsleepq`, `twfi`,
-  `tslotc`, `tinteg`, `traw`, `tdrop`, `tstat`. Bench driver scripts lived in the session
+  `tslotc`, `tinteg`, `traw`, `tdrop`, `tstat`, and for V2 `tblk` (per-value vs block) and
+  `tovf` (FIFO overflow injection).
+- **Phase 2 (2026-09-03):** `ADPD6::readfifo_block()` (u_adpd6100.{h,cpp}); triggered engine
+  uses it with the rc checked (−6 on I/O error); `fifo_count(&c)` rc checked in the poll (−6 I/O,
+  −5 out-of-range); FIFO_STATUS captured at abort; `tstat` gained `io_error`, `fifo_status`,
+  `read_max_us`, `leftover` (leftover check compiled only with the diag flag);
+  `kTrigReadBudgetUs` 350 → 150. Bench driver scripts lived in the session
   scratchpad (`v1*_bench.py`); they are ≈100 lines of pyserial each and trivial to recreate:
   open COM61 at 115200, wait for the boot banner, send a line, read until `Data sent` /
   `ERROR` / `tstat:` or an `ESP-ROM:` banner, summarise the `Data:` arrays.

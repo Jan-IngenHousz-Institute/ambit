@@ -378,6 +378,18 @@ void do_command(char *choose){
     }
       break;
 
+    case hash("tovf"):      // tovf,<n>: overflow the FIFO before sample n of the next arrunt (V2)
+      diag_overflow_at((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tblk"):      // tblk,<N>,<freq>: per-value vs block read comparison (V2)
+    {
+      uint16_t N    = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t freq = (uint16_t) Serial_Input_Long(",", 10);
+      measure_block_read(N, freq);
+    }
+      break;
+
     case hash("tinteg"):    // tinteg,<n>: slots A/C integration for both engines
       diag_set_integ((uint8_t) Serial_Input_Long(",", 10));
       break;

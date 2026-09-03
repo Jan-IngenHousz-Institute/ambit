@@ -119,6 +119,26 @@ int32_t ADPD6::readfifo(uint16_t num_samples, uint8_t width, uint32_t* data){
   return ADPD6::driver.read_fifo_samples(num_samples, width, data);
 }
 
+int32_t ADPD6::readfifo_block(uint16_t num_samples, uint8_t width, uint32_t* data){
+  uint8_t raw[jii::adpd6000::kFifoCapacityBytes];
+  const size_t total = (size_t)num_samples * width;
+  if (data == nullptr || num_samples == 0 || width == 0 || width > 4 || total > sizeof(raw)){
+    return jii::adpd6000::kInvalidArgument;
+  }
+  const int32_t rc = ADPD6::driver.read_fifo(raw, total);
+  if (rc != jii::adpd6000::kOk){
+    for (uint16_t i = 0; i < num_samples; i++) data[i] = 0;   // same contract as readfifo()
+    return rc;
+  }
+  const uint8_t* p = raw;
+  for (uint16_t i = 0; i < num_samples; i++){
+    uint32_t v = 0;
+    for (uint8_t b = 0; b < width; b++) v = (v << 8) | *p++;   // MSB first, as read_fifo_samples()
+    data[i] = v;
+  }
+  return jii::adpd6000::kOk;
+}
+
 int32_t ADPD6::write_reg(uint32_t reg_addr, uint16_t *reg_data){
     if (reg_data == nullptr || reg_addr > jii::adpd6000::kMaxRegisterAddress) {
       return jii::adpd6000::kInvalidArgument;

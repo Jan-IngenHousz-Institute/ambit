@@ -1,4 +1,9 @@
-# Handoff: load the ADPD6000 factory 960 kHz oscillator trim at init
+# Handoff: two `main` fixes found on the `deterministic-adpd` bench
+
+Item A — load the ADPD6000 factory 960 kHz oscillator trim at init. Item B (§5) — protect
+the BOOT-pin reset gesture during free-run measurements.
+
+# A. Load the ADPD6000 factory 960 kHz oscillator trim at init
 
 > Status: **not started.** Found 2026-09-02 on the `deterministic-adpd` bench
 > (`plans/DETERMINISTIC_ADPD.md` §8). Independent of that branch: it is an `arrun` / free-run
@@ -98,3 +103,32 @@ unit-specific and the trim removes it on both.
 
 Residual after the trim should be within the RC's trimmed tolerance (a few %). If a tighter time
 base is ever needed, the branch's triggered engine (`arrunt`) is exact by construction.
+
+# B. Protect the BOOT-pin reset gesture during free-run measurements
+
+## Symptom
+
+On the bench (`plans/DETERMINISTIC_ADPD.md` §8, 2026-09-02/03) every triggered `arrunt` at
+90–125 Hz reset the ESP within ≈250 ms, silently (`rst:0x3 RTC_SW_SYS_RST`, no panic text). The
+user also saw one free-run `arrun2` at 100 Hz reset. Root cause: `RB_toggle()` in
+`src/ambit-1.ino`, the ISR on `BOOT_PIN` (GPIO9) that calls `esp_restart()` after four toggles
+spaced 8–12 ms apart. GPIO9 runs only to J1.1, the FFC to the Ambyte (the gesture is the
+Ambyte's remote reset); it has no pull-up besides the ESP's internal 45 kΩ. The LED-driver
+current edges of a 10 ms-period sequence land inside the 8–12 ms window and an awake core counts
+them as toggles. Free-run mostly light-sleeps through the pulses, which is why it rarely trips,
+but it is exposed whenever the core is awake at the wrong moment.
+
+## Fix already on the branch (triggered engine only)
+
+`ambit_boot_gesture_pause()` / `ambit_boot_gesture_resume()` in `src/ambit-1.ino`
+(detach the interrupt, re-attach with a fresh count), called around `run_arr_trigger()`.
+
+## What `main` needs
+
+Call the same pair around `run_arr_type1()` (and `run_trigger_spacer()` / `MPF()`, which also
+pulse LEDs at fixed rates) — or, if the Ambyte must be able to reset a device mid-measurement,
+harden the ISR instead: require the pin to actually read the alternating level on each toggle
+(a coupled glitch returns to the pulled-up level before the ISR reads it) and/or a minimum low
+time. Confirm with the Ambyte team which semantics the remote reset needs before choosing.
+Behind the wire; no byte changes. Verify: `arrun2,1,0,1,0,1,44,0,100,0,1` (100 Hz, N=300)
+and the same at 90 Hz must complete with 300 samples, repeatedly, with the FFC connected.

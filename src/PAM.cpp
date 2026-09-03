@@ -837,8 +837,9 @@ enum TrigQuietMode : uint8_t { TRIG_QUIET_BUSY = 0, TRIG_QUIET_WFI = 1, TRIG_QUI
 static constexpr uint32_t kTrigQuietSleepReqUs   = 500;   // requested; actual ~820-880 µs
 static constexpr int64_t  kTrigQuietSleepCostUs  = 950;   // worst observed actual + margin
 static constexpr uint32_t kTrigQuietWfiUs        = 450;   // ~t_seq(410 µs) + margin
-static constexpr int64_t  kTrigReadBudgetUs      = 350;   // poll + 8-value read + store
+static constexpr int64_t  kTrigReadBudgetUs      = 150;   // poll + block read (46-55 us measured, V2) + store
 static TrigQuietMode g_trig_quiet_mode = TRIG_QUIET_BUSY;  // set per line in run_arr_trigger
+static int32_t g_trig_poll_rc = 0;   // driver code of the last FIFO_BYTE_COUNT poll in trig_fire_and_wait
 
 static TrigQuietMode trig_pick_quiet_mode(int64_t period_us){
   if (period_us >= kTrigQuietSleepCostUs + kTrigReadBudgetUs) return TRIG_QUIET_SLEEP;   // <= ~750 Hz
@@ -924,11 +925,13 @@ static void trig_disarm_ext_sync(void){
 // Fire one edge and wait, µs-bounded, for `expected_bytes` in the FIFO. Returns
 // true with *fifo_c set when the sequence landed; false on a lost edge.
 static bool trig_edge_suppressed(void);   // AMBIT_DIAG_TRIGGER fault injection; false in release
+static void trig_overflow_injection(void); // AMBIT_DIAG_TRIGGER fault injection; no-op in release
 static void trig_quiet_sleep(uint32_t req_us);   // light-sleep the core through the sequence
 static void trig_quiet_wfi(uint32_t us);         // block the task on a one-shot timer (idle -> WFI)
 static void trig_sleep_through_sequence(void);   // tsleepq knob
 static void trig_wfi_through_sequence(void);     // twfi knob
 static bool trig_fire_and_wait(uint8_t expected_bytes, int64_t* t_trig, uint16_t* fifo_c){
+  trig_overflow_injection();
   *t_trig = esp_timer_get_time();
   if (!trig_edge_suppressed()){
     digitalWrite(10, HIGH);
@@ -947,9 +950,16 @@ static bool trig_fire_and_wait(uint8_t expected_bytes, int64_t* t_trig, uint16_t
     trig_quiet_wfi(kTrigQuietWfiUs);
   }
   *fifo_c = 0;
+  g_trig_poll_rc = jii::adpd6000::kOk;
   while ((uint32_t)(esp_timer_get_time() - *t_trig) < kTrigSampleTimeoutUs){
-    *fifo_c = adpd.fifo_count();
-    if (*fifo_c >= expected_bytes) return true;
+    uint16_t c = 0;
+    const int32_t rc = adpd.fifo_count(&c);
+    if (rc != jii::adpd6000::kOk){          // I/O error, or count > 640 (kOutOfRange): not a
+      g_trig_poll_rc = rc;                  // silent zero any more — the caller aborts
+      return false;
+    }
+    *fifo_c = c;
+    if (c >= expected_bytes) return true;
   }
   return false;
 }
@@ -976,6 +986,10 @@ struct trig_run_stats_t {
   uint32_t glitch_bytes = 0;   // the value that first read (last glitch)
   uint32_t glitch_sample = 0;  // 1-based sample index of the last glitch
   uint8_t  quiet_mode = 0;     // TrigQuietMode used by the last line (0 busy, 1 wfi, 2 sleep)
+  int32_t  io_error = 0;       // driver code of the failing FIFO count / read (result -6)
+  uint32_t fifo_status = 0;    // FIFO_STATUS register (0x0000) read at abort: bit13 OFLOW, bit14 UFLOW
+  uint32_t read_max_us = 0;    // longest readfifo_block() (poll-exit to data in hand)
+  uint32_t leftover_count = 0; // AMBIT_DIAG_TRIGGER only: FIFO_BYTE_COUNT != 0 right after a read
   uint32_t sleepq_rejects = 0; // esp_light_sleep_start() returned != ESP_OK (did not sleep)
   uint32_t sleepq_min_us = 0;  // shortest / longest measured sleep (0 = none attempted)
   uint32_t sleepq_max_us = 0;
@@ -1022,6 +1036,32 @@ static void trig_quiet_wfi(uint32_t us){
   const uint32_t waited = (uint32_t)(esp_timer_get_time() - t0);
   if (g_trig_stats.sleepq_min_us == 0 || waited < g_trig_stats.sleepq_min_us) g_trig_stats.sleepq_min_us = waited;
   if (waited > g_trig_stats.sleepq_max_us) g_trig_stats.sleepq_max_us = waited;
+}
+
+#ifdef AMBIT_DIAG_TRIGGER
+static uint32_t g_diag_overflow_at = 0;
+void diag_overflow_at(uint32_t n){
+  g_diag_overflow_at = n;
+  Serial.printf("tovf: FIFO will be overflowed before sample %u of the next arrunt%s\n", n, n ? "" : " (disarmed)");
+  Serial.flush();
+}
+#endif
+static void trig_overflow_injection(void){
+#ifdef AMBIT_DIAG_TRIGGER
+  if (g_diag_overflow_at != 0 && g_trig_stats.samples + 1 == g_diag_overflow_at){
+    g_diag_overflow_at = 0;
+    for (uint8_t i = 0; i < 31; i++){                 // 31 x 24 B = 744 B > 640 B FIFO
+      digitalWrite(10, HIGH); delayMicroseconds(kTrigPulseUs); digitalWrite(10, LOW);
+      delayMicroseconds(600);                          // let each sequence finish (~410 us)
+    }
+  }
+#endif
+}
+
+// At an abort, capture FIFO_STATUS (0x0000) so tstat can show OFLOW/UFLOW and the count.
+static void trig_record_fifo_status(void){
+  const int32_t st = adpd.read_reg(jii::adpd6000::reg::kFifoStatus);
+  g_trig_stats.fifo_status = st < 0 ? 0xFFFFFFFFu : (uint32_t)st;
 }
 
 static bool trig_edge_suppressed(void){
@@ -1194,7 +1234,16 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
 
         // ── one edge, one sequence, one µs-bounded readout ──
         if (!trig_fire_and_wait(expected_readout_bytes, &t_trig, &fifo_c)){
-          _func_ret = ARR_TRIG_LOST_TRIGGER;     // never store a partial / desynced sample
+          if (g_trig_poll_rc == jii::adpd6000::kOutOfRange){
+            _func_ret = ARR_TRIG_FIFO_DESYNC;    // count > 640: the FIFO is not ours any more
+            g_trig_stats.residual_count++;
+            trig_record_fifo_status();
+          }else if (g_trig_poll_rc != jii::adpd6000::kOk){
+            _func_ret = ARR_TRIG_IO_ERROR;       // SPI fault on the count read
+            g_trig_stats.io_error = g_trig_poll_rc;
+          }else{
+            _func_ret = ARR_TRIG_LOST_TRIGGER;   // never store a partial / desynced sample
+          }
           goto cleanup;
         }
         g_trig_stats.samples++;
@@ -1228,11 +1277,28 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
             g_trig_stats.residual_count++;
             g_trig_stats.residual_bytes = again;
             g_trig_stats.residual_sample = counter + 1;
+            trig_record_fifo_status();
             _func_ret = ARR_TRIG_FIFO_DESYNC;
             goto cleanup;
           }
         }
-        adpd.readfifo(expected_readout, 3, ret);
+        // One SPI transaction for the whole readout (Phase 2). The return code is checked:
+        // a transport fault here would otherwise store zeros as data.
+        {
+          const int64_t t_read = esp_timer_get_time();
+          const int32_t rc = adpd.readfifo_block(expected_readout, 3, ret);
+          const uint32_t took = (uint32_t)(esp_timer_get_time() - t_read);
+          if (took > g_trig_stats.read_max_us) g_trig_stats.read_max_us = took;
+          if (rc != jii::adpd6000::kOk){
+            g_trig_stats.io_error = rc;
+            _func_ret = ARR_TRIG_IO_ERROR;
+            goto cleanup;
+          }
+#ifdef AMBIT_DIAG_TRIGGER
+          uint16_t left = 0;                        // gate V2: FIFO empty after every read
+          if (adpd.fifo_count(&left) == jii::adpd6000::kOk && left != 0) g_trig_stats.leftover_count++;
+#endif
+        }
 
         pam_store_type1_sample(ret, num_integration, _type, subsampling, counter, leaf_temp, buf_opt,
                                d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref);
@@ -1356,14 +1422,17 @@ void print_trig_stats(void){
   Serial.printf("tstat: result=%d samples=%u late=%u max_late_us=%u residual=%u "
                 "residual_bytes=%u residual_sample=%u count_glitches=%u glitch_bytes=%u "
                 "glitch_sample=%u park_hz=%u quiet_us=%u sleepq_us=%u "
-                "sleepq_rejects=%u sleepq_min_us=%u sleepq_max_us=%u wfi_us=%u quiet_mode=%u\n",
+                "sleepq_rejects=%u sleepq_min_us=%u sleepq_max_us=%u wfi_us=%u quiet_mode=%u "
+                "io_error=%d fifo_status=0x%04X read_max_us=%u leftover=%u\n",
                 g_trig_stats.result, g_trig_stats.samples, g_trig_stats.late_count,
                 g_trig_stats.max_late_us, g_trig_stats.residual_count,
                 g_trig_stats.residual_bytes, g_trig_stats.residual_sample,
                 g_trig_stats.count_glitches, g_trig_stats.glitch_bytes,
                 g_trig_stats.glitch_sample, g_trig_park_hz, g_trig_quiet_us, g_trig_sleepq_us,
                 g_trig_stats.sleepq_rejects, g_trig_stats.sleepq_min_us, g_trig_stats.sleepq_max_us,
-                g_trig_wfi_us, g_trig_stats.quiet_mode);
+                g_trig_wfi_us, g_trig_stats.quiet_mode,
+                g_trig_stats.io_error, g_trig_stats.fifo_status & 0xFFFF, g_trig_stats.read_max_us,
+                g_trig_stats.leftover_count);
   Serial.flush();
 }
 
@@ -1404,6 +1473,69 @@ void diag_set_slotc_timing(uint16_t lit, uint16_t width, uint16_t dark2, uint16_
   Serial.printf("tslotc: slot C LED_OFFSET=60 LIT_OFFSET=%u LED_WIDTH=%u DARK2=%u MIN_PERIOD=%u (integ 4)\n",
                 lit, width, dark2, period);
   Serial.flush();
+}
+
+// tblk,<N>,<freq> — gate V2: N sequences in EXT_SYNC at `freq`, odd ones read with the
+// per-value readfifo(), even ones with readfifo_block(). Both must give the same column
+// statistics (same chip, same target, interleaved in time) and leave the FIFO empty. The
+// unpack is identical by construction (MSB-first over the same byte stream); this catches
+// a transaction-length or ordering mistake on real data, including values > 65535
+// (raw sun sits near 65 8xx on this bench).
+int measure_block_read(uint16_t N, uint16_t freq){
+  if (N == 0) N = 400;
+  if (N > 4000) N = 4000;
+  if (freq == 0) freq = 500;
+  const uint8_t expected_readout = 8, expected_readout_bytes = 24;
+  const int64_t period_us = 1000000LL / freq;
+  const uint8_t num_active = diag_config(false, 4, 1);
+  g_trig_quiet_mode = TRIG_QUIET_BUSY;
+  ambit_boot_gesture_pause();
+  diag_arm(num_active);
+
+  // Welford per method per column
+  double mean[2][8] = {{0}}, m2[2][8] = {{0}};
+  uint32_t n[2] = {0, 0}, leftover[2] = {0, 0}, rc_err[2] = {0, 0}, big[2] = {0, 0};
+  uint32_t ret[8] = {0};
+  uint16_t fifo_c = 0;
+  int64_t next_trigger = esp_timer_get_time(), t_trig = 0;
+  uint16_t lost = 0;
+  uint32_t t_pv_max = 0, t_blk_max = 0;
+
+  for (uint16_t k = 0; k < N; k++){
+    while (esp_timer_get_time() < next_trigger) { }
+    if (!trig_fire_and_wait(expected_readout_bytes, &t_trig, &fifo_c)){ lost++; break; }
+    next_trigger = t_trig + period_us;
+    const uint8_t m = k & 1;                       // 0 = per-value, 1 = block
+    const int64_t t0 = esp_timer_get_time();
+    const int32_t rc = m ? adpd.readfifo_block(expected_readout, 3, ret)
+                         : adpd.readfifo(expected_readout, 3, ret);
+    const uint32_t took = (uint32_t)(esp_timer_get_time() - t0);
+    if (m){ if (took > t_blk_max) t_blk_max = took; } else { if (took > t_pv_max) t_pv_max = took; }
+    if (rc != jii::adpd6000::kOk){ rc_err[m]++; continue; }
+    uint16_t left = 0;
+    if (adpd.fifo_count(&left) == jii::adpd6000::kOk && left != 0){ leftover[m]++; diag_drain_bytes(left); }
+    n[m]++;
+    for (uint8_t c = 0; c < 8; c++){
+      if (ret[c] > 65535) big[m]++;
+      const double d = (double)ret[c] - mean[m][c];
+      mean[m][c] += d / n[m];
+      m2[m][c] += d * ((double)ret[c] - mean[m][c]);
+    }
+  }
+  diag_teardown();
+  ambit_boot_gesture_resume();
+
+  Serial.printf("tblk: N=%u freq=%u per-value n=%u block n=%u lost=%u rc_err=%u/%u leftover=%u/%u values>65535=%u/%u read_max_us=%u/%u\n",
+                N, freq, n[0], n[1], lost, rc_err[0], rc_err[1], leftover[0], leftover[1], big[0], big[1], t_pv_max, t_blk_max);
+  const char* names[8] = {"sun", "leaf", "s_dark", "s_lit", "r_dark", "r_lit", "s730", "r730"};
+  for (uint8_t c = 0; c < 8; c++){
+    const double sd0 = n[0] > 1 ? sqrt(m2[0][c] / (n[0] - 1)) : 0, sd1 = n[1] > 1 ? sqrt(m2[1][c] / (n[1] - 1)) : 0;
+    Serial.printf("tblk: %-7s per-value %10.1f sd %7.1f | block %10.1f sd %7.1f | dmean %+8.1f\n",
+                  names[c], mean[0][c], sd0, mean[1][c], sd1, mean[1][c] - mean[0][c]);
+  }
+  Serial.println("tblk end");
+  Serial.flush();
+  return (lost || rc_err[0] || rc_err[1]) ? -1 : 0;
 }
 
 // tinteg,<n> — on-chip integration (NUM_INT) of the ambient (A) and 730 (C) slots for BOTH
@@ -1495,7 +1627,7 @@ int measure_raw(uint8_t mode, uint16_t N, uint16_t freq){
       while (esp_timer_get_time() < next_trigger) { }
       if (!trig_fire_and_wait(expected_readout_bytes, &t_trig, &fifo_c)) break;
       next_trigger = t_trig + period_us;
-      adpd.readfifo(expected_readout, 3, ret);
+      if (adpd.readfifo_block(expected_readout, 3, ret) != jii::adpd6000::kOk) break;
       memcpy(buf + (size_t)got * 8, ret, sizeof(ret));
       got++;
     }
