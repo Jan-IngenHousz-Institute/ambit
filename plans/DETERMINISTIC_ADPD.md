@@ -5,7 +5,8 @@
 > things the plan did not anticipate: the BOOT-pin reset gesture fired by LED coupling, the
 > running ESP core degrading the 730 channel (fixed by sleeping the core through each
 > sequence), and a ≈21 % free-run time-base error (handed off, `plans/ADPD_OSC_TRIM.md`).**
-> Datasheet review in §10. What landed and where it deviates: §9. This document ports
+> Datasheet review in §10. What landed and where it deviates: §9. **Phase 3 is handed off:
+> `plans/PHASE3_HANDOFF.md`.** This document ports
 > the ideas from the abandoned `feature/arrun-deterministic-trigger` branch of the
 > pre-cleanroom repo (`LEGACY/ambit-IoT`, last commit 2026-07-03) onto today's single-image
 > firmware. Nothing from that branch was cherry-picked (no shared git history); the
@@ -219,7 +220,7 @@ late edges and max overshoot at 1, 10, 100, 1000 Hz — sizes the sleep margin).
 **Gate V2** — bit-exact vs per-value over ≥100 k samples including values > 65 000; overflow
 fault-injection aborts instead of hanging; `fifo_count()==0` after every read. **PASSED**, §8.
 
-### Phase 3 — Speed knobs
+### Phase 3 — Settle, characterise, harden (handoff: `plans/PHASE3_HANDOFF.md`, written 2026-09-03; the list below is the original and is superseded by that file)
 - `num_integration` on the ambient/730 slots is **not** a speed knob (V0: 13 µs for 1→4, §4.7).
   Expose it only if the SNR study below wants it; default stays 4, fluorescence stays integ=1.
 - Remove the deliberate `delay(2)` after `RUN()` in the triggered path only; keep `delay(5)`
