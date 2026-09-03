@@ -33,6 +33,12 @@ class ADPD6{
     int32_t fifo_count(uint16_t *count);
     uint16_t fifo_count();
     int32_t readfifo(uint16_t num_samples, uint8_t width, uint32_t* data);
+    // Same result as readfifo(), one SPI transaction: the FIFO is drained
+    // num_samples*width bytes in a single CS-low burst and unpacked MSB-first.
+    // readfifo() costs ~20 us of driver overhead PER VALUE (8 values = 160 us);
+    // this costs it once. Used by the triggered engine (plans/DETERMINISTIC_ADPD.md
+    // Phase 2); the free-run path keeps readfifo(). Returns the driver code.
+    int32_t readfifo_block(uint16_t num_samples, uint8_t width, uint32_t* data);
     bool chip_check = false;
     struct system_config sys_config;
     struct ts_led led_config;

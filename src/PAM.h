@@ -62,7 +62,8 @@ enum ArrTriggerResult {
     ARR_TRIG_BAD_LINE     = -2,   // total N outside 1..MAX_DATACLASS_SIZE-1, or freq == 0
     ARR_TRIG_NOMEM        = -3,   // dataclass allocation failed
     ARR_TRIG_LOST_TRIGGER = -4,   // an edge produced no full readout within the per-sample bound
-    ARR_TRIG_FIFO_DESYNC  = -5,   // FIFO held more than the one sequence the edge asked for
+    ARR_TRIG_FIFO_DESYNC  = -5,   // FIFO held more than the one sequence the edge asked for (or overflowed)
+    ARR_TRIG_IO_ERROR     = -6,   // SPI/driver error on FIFO_BYTE_COUNT or the FIFO read
 };
 int run_arr_trigger_validate(uint8_t length, uint8_t* arr);
 // Owned by ambit-1.ino (the ISR lives there): the BOOT-pin reset gesture is paused for
@@ -97,6 +98,12 @@ void diag_set_wfi_us(uint32_t us);
 void diag_set_slotc_timing(uint16_t lit, uint16_t width, uint16_t dark2, uint16_t period);
 // tinteg,<n>: NUM_INT of slots A and C for both engines (production 4).
 void diag_set_integ(uint8_t n);
+// tovf,<n>: before sample n of the next run_arr_trigger(), fire 31 extra edges unread so
+// the 640-byte FIFO overflows — the run must abort with -5, never hang (gate V2).
+void diag_overflow_at(uint32_t n);
+// tblk,<N>,<freq>: N EXT_SYNC sequences, alternating per-value readfifo() and
+// readfifo_block(); reports per-column stats for both and the leftover-byte count (gate V2).
+int measure_block_read(uint16_t N, uint16_t freq);
 // traw,<mode>,<N>,<freq>: dump N raw readouts (sun, leaf, s_dark, s_lit, r_dark, r_lit,
 // s730, r730) as CSV; mode 0 = free-run at freq, 1 = EXT_SYNC paced at freq. For the
 // "why is s_630 9 % higher in EXT_SYNC" question: which raw term moves.
