@@ -65,6 +65,10 @@ enum ArrTriggerResult {
     ARR_TRIG_FIFO_DESYNC  = -5,   // FIFO held more than the one sequence the edge asked for
 };
 int run_arr_trigger_validate(uint8_t length, uint8_t* arr);
+// Owned by ambit-1.ino (the ISR lives there): the BOOT-pin reset gesture is paused for
+// the duration of a triggered run, see the definition for why.
+void ambit_boot_gesture_pause(void);
+void ambit_boot_gesture_resume(void);
 int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt,
                     bool json_output = false, bool retain = false);
 
@@ -79,6 +83,24 @@ int measure_idle(bool farred, uint8_t integ, uint8_t gate);
 int measure_first_ratio(uint16_t reps, uint16_t N, uint16_t freq, uint8_t integ);
 // tstat: pacing statistics of the last run_arr_trigger() (gate V1j).
 void print_trig_stats(void);
+// tdrop,<n>: skip the n-th edge of the next run_arr_trigger() (gates V1g/V1h). 0 disarms.
+void diag_drop_edge(uint32_t n);
+// tpark,<hz>: parked internal period used while EXT_SYNC drives the chip (default 10).
+void diag_set_park_hz(uint32_t hz);
+// tquiet,<us>: SPI-silent wait after each edge before the first FIFO poll (0 = off).
+void diag_set_quiet_us(uint32_t us);
+// tsleepq,<us>: light-sleep the core for <us> after each edge (0 = off).
+void diag_set_sleepq_us(uint32_t us);
+// twfi,<us>: block on a one-shot timer (idle task / WFI) for <us> after each edge (0 = off).
+void diag_set_wfi_us(uint32_t us);
+// tslotc,<lit>,<width>,<dark2>,<period>: re-time slot C for both engines (production 72,19,90,58).
+void diag_set_slotc_timing(uint16_t lit, uint16_t width, uint16_t dark2, uint16_t period);
+// tinteg,<n>: NUM_INT of slots A and C for both engines (production 4).
+void diag_set_integ(uint8_t n);
+// traw,<mode>,<N>,<freq>: dump N raw readouts (sun, leaf, s_dark, s_lit, r_dark, r_lit,
+// s730, r730) as CSV; mode 0 = free-run at freq, 1 = EXT_SYNC paced at freq. For the
+// "why is s_630 9 % higher in EXT_SYNC" question: which raw term moves.
+int measure_raw(uint8_t mode, uint16_t N, uint16_t freq);
 #endif
 
 // ── Async (trigger/poll/fetch) result holder — parallel measurement protocol ──
