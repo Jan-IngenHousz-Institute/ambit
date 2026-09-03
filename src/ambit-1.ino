@@ -46,6 +46,23 @@ void ARDUINO_ISR_ATTR RB_toggle(){
 }
 
 
+/* Pause / resume the BOOT-pin reset gesture around a measurement.
+ * V1 bench (plans/DETERMINISTIC_ADPD.md §8): every triggered run at 100 Hz (and 90 Hz)
+ * reset the ESP within ~250 ms with nothing printed — RB_toggle's esp_restart(). GPIO9 is
+ * a bare BOOT input on the 45 k internal pull-up, and the LED-driver current edges of a
+ * 10 ms-period sequence land exactly in the ISR's 8-12 ms toggle window, so an awake
+ * core counts them as button toggles. Free-run mostly sleeps through the pulses, the
+ * triggered engine is awake for every one. Same treatment as ambit_light_sleep(): drop
+ * the interrupt while it cannot be trusted, re-arm with a fresh count afterwards. */
+void ambit_boot_gesture_pause(){
+    detachInterrupt(BOOT_PIN);
+}
+void ambit_boot_gesture_resume(){
+    RB.counter = 0;
+    RB.previous_toggle_t = millis();
+    attachInterrupt(BOOT_PIN, RB_toggle, CHANGE);
+}
+
 void ambit_light_sleep(){
     detachInterrupt(BOOT_PIN);
     gpio_sleep_set_direction(GPIO_NUM_9, GPIO_MODE_INPUT);

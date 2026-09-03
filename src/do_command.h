@@ -359,6 +359,49 @@ void do_command(char *choose){
     case hash("tstat"):     // pacing stats of the last arrunt (V1j)
       print_trig_stats();
       break;
+
+    case hash("tdrop"):     // tdrop,<n>: lose edge n of the next arrunt (V1g/V1h)
+      diag_drop_edge((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tpark"):     // tpark,<hz>: parked TIMESLOT_PERIOD during arrunt (r_730 noise experiment)
+      diag_set_park_hz((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tslotc"):    // tslotc,<lit>,<width>,<dark2>,<period>: slot-C timing experiment
+    {
+      uint16_t lit    = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t width  = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t dark2  = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t period = (uint16_t) Serial_Input_Long(",", 10);
+      diag_set_slotc_timing(lit ? lit : 72, width ? width : 19, dark2 ? dark2 : 90, period ? period : 58);
+    }
+      break;
+
+    case hash("tinteg"):    // tinteg,<n>: slots A/C integration for both engines
+      diag_set_integ((uint8_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("twfi"):      // twfi,<us>: core idle via WFI through the sequence
+      diag_set_wfi_us((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tsleepq"):   // tsleepq,<us>: light-sleep through the sequence (slot-C noise experiment)
+      diag_set_sleepq_us((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tquiet"):    // tquiet,<us>: SPI-silent wait after the edge (slot-C noise experiment)
+      diag_set_quiet_us((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("traw"):      // traw,<mode 0 free-run|1 ext-sync>,<N>,<freq>: raw dark/lit dump
+    {
+      uint8_t  mode = (uint8_t)  Serial_Input_Long(",", 10);
+      uint16_t N    = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t freq = (uint16_t) Serial_Input_Long(",", 10);
+      measure_raw(mode, N, freq);
+    }
+      break;
 #endif
 
 

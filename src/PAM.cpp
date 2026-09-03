@@ -1,5 +1,8 @@
 #include "PAM.h"
 #include "nvs1.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char* TAG = "PAM";
 static bool measure_temp = true;
@@ -814,9 +817,69 @@ static constexpr int64_t kTrigSleepMarginPct = 2;
 // adpd_trigger() pulse is one tick wide and can straddle a boundary. Five ticks costs
 // nothing at any rate this path can reach (plan §5 invariant 8).
 static constexpr uint32_t kTrigPulseUs = 5;
+
+// ── Core-quiet window (plan §5 invariant 11, §8 sessions 8-9) ────────────────────
+// A running ESP core couples into the ADPD's 730 nm slot: with the core busy-waiting
+// through the sequence r_730 spread is 2.4x free-run and its mean 1.6 % low, s_730 2x,
+// and the fluor dark level shifts ~12 counts. With the core light-sleeping through the
+// sequence every one of those differences vanishes (free-run only ever looked clean
+// because run_arr_type1 sleeps between FIFO drains). Neither SPI silence nor slot
+// timing nor integration changes it. So after each edge the engine takes the core
+// off the bus and off the clock for ~t_seq:
+//   LIGHT_SLEEP  requested kTrigQuietSleepReqUs -> actual ~820-880 µs on the C3 (the
+//                SDK refuses shorter requests and adds ~300 µs entry/exit). Full parity.
+//   WFI          task blocked on a one-shot esp_timer, idle task halts the core clock.
+//                ~half the improvement (r_730 sd 63-71 vs 88 busy vs 40 asleep), µs cost.
+//   BUSY         only when even WFI does not fit; never chosen for freq <= 1 kHz.
+// Chosen per line from the period: sleep if the period leaves room for the worst-case
+// sleep plus the read-out, else WFI. The diag knobs (tsleepq/twfi/tquiet) override.
+enum TrigQuietMode : uint8_t { TRIG_QUIET_BUSY = 0, TRIG_QUIET_WFI = 1, TRIG_QUIET_SLEEP = 2 };
+static constexpr uint32_t kTrigQuietSleepReqUs   = 500;   // requested; actual ~820-880 µs
+static constexpr int64_t  kTrigQuietSleepCostUs  = 950;   // worst observed actual + margin
+static constexpr uint32_t kTrigQuietWfiUs        = 450;   // ~t_seq(410 µs) + margin
+static constexpr int64_t  kTrigReadBudgetUs      = 350;   // poll + 8-value read + store
+static TrigQuietMode g_trig_quiet_mode = TRIG_QUIET_BUSY;  // set per line in run_arr_trigger
+
+static TrigQuietMode trig_pick_quiet_mode(int64_t period_us){
+  if (period_us >= kTrigQuietSleepCostUs + kTrigReadBudgetUs) return TRIG_QUIET_SLEEP;   // <= ~750 Hz
+  if (period_us >= (int64_t)kTrigQuietWfiUs + kTrigReadBudgetUs) return TRIG_QUIET_WFI;  // <= ~1.25 kHz
+  return TRIG_QUIET_BUSY;
+}
 // Settle after RUN() in EXT_SYNC before the first edge (run_trigger_spacer's
 // value; Phase 3 measures whether it can go).
 static constexpr uint32_t kTrigArmSettleMs = 5;
+// An edge counts as late only beyond this. The busy-wait exits at >= next_trigger
+// and the timestamp is taken a call later, so every edge reads 8-9 µs "late" by
+// construction (V1 bench: max_late_us 8-9 at every rate). Real overshoot — a sleep
+// wake that missed the margin — is tens to thousands of µs.
+static constexpr uint32_t kTrigLateThresholdUs = 50;
+// Internal TIMESLOT_PERIOD parked while EXT_SYNC drives the sequencer (plan §4.3).
+// Variable rather than constant so the `tpark` diagnostic can test whether the
+// parked period influences anything in EXT_SYNC (V1 saw 3x more r_730 noise than
+// free-run; the datasheet says the period counter is bypassed).
+static uint32_t g_trig_park_hz = 10;
+// Quiet interval after the edge before the first FIFO_BYTE_COUNT poll. 0 = poll from the
+// edge (the V0/V1 behaviour). Experiment knob (`tquiet`): the raw dumps showed slot-C
+// channel-2 noise tracks ESP SPI activity during the sequence — free-run with the ESP
+// asleep gives r_730 sd ≈ 40, any engine that polls the count through the sequence
+// gives ≈ 85–105 — so a blind wait of ≈ t_seq with the bus silent is the test.
+static uint32_t g_trig_quiet_us = 0;
+// Experiment knob (`tsleepq`): light-sleep the ESP for this long right after the edge,
+// so the core is asleep while the ADPD sequence runs. SPI silence alone did not change
+// the slot-C noise (quiet 0..400 µs: r_730 sd 78-96, free-run with a sleeping core 42),
+// which leaves "core awake" as the remaining difference. 0 = off.
+static uint32_t g_trig_sleepq_us = 0;
+// Experiment knob (`twfi`): block the task on a one-shot esp_timer for this long after the
+// edge, so the scheduler runs the idle task (wait-for-interrupt, core clock halted) instead
+// of a busy-wait. Light sleep with the core asleep removed the slot-C noise entirely
+// (r_730 sd 88 -> 40 = free-run) but is refused below ~1 ms of requested sleep, which
+// caps the rate near 400 Hz; WFI has µs-level entry cost. 0 = off.
+static uint32_t g_trig_wfi_us = 0;
+static esp_timer_handle_t g_trig_wfi_timer = NULL;
+static TaskHandle_t g_trig_wfi_task = NULL;
+static void trig_wfi_timer_cb(void*){
+  if (g_trig_wfi_task) xTaskNotifyGive(g_trig_wfi_task);
+}
 
 // Far-red lines run num_ts(9): the FIFO is complete after ts0..ts2, but the six
 // illumination-only slots (ts3..ts8, `repeats` pulses each, 0 FIFO bytes) are
@@ -860,11 +923,29 @@ static void trig_disarm_ext_sync(void){
 
 // Fire one edge and wait, µs-bounded, for `expected_bytes` in the FIFO. Returns
 // true with *fifo_c set when the sequence landed; false on a lost edge.
+static bool trig_edge_suppressed(void);   // AMBIT_DIAG_TRIGGER fault injection; false in release
+static void trig_quiet_sleep(uint32_t req_us);   // light-sleep the core through the sequence
+static void trig_quiet_wfi(uint32_t us);         // block the task on a one-shot timer (idle -> WFI)
+static void trig_sleep_through_sequence(void);   // tsleepq knob
+static void trig_wfi_through_sequence(void);     // twfi knob
 static bool trig_fire_and_wait(uint8_t expected_bytes, int64_t* t_trig, uint16_t* fifo_c){
   *t_trig = esp_timer_get_time();
-  digitalWrite(10, HIGH);
-  delayMicroseconds(kTrigPulseUs);
-  digitalWrite(10, LOW);
+  if (!trig_edge_suppressed()){
+    digitalWrite(10, HIGH);
+    delayMicroseconds(kTrigPulseUs);
+    digitalWrite(10, LOW);
+  }
+  if (g_trig_sleepq_us || g_trig_wfi_us || g_trig_quiet_us){   // diag overrides
+    if (g_trig_sleepq_us) trig_sleep_through_sequence();
+    if (g_trig_wfi_us) trig_wfi_through_sequence();
+    if (g_trig_quiet_us){
+      while ((uint32_t)(esp_timer_get_time() - *t_trig) < g_trig_quiet_us) { }
+    }
+  }else if (g_trig_quiet_mode == TRIG_QUIET_SLEEP){
+    trig_quiet_sleep(kTrigQuietSleepReqUs);
+  }else if (g_trig_quiet_mode == TRIG_QUIET_WFI){
+    trig_quiet_wfi(kTrigQuietWfiUs);
+  }
   *fifo_c = 0;
   while ((uint32_t)(esp_timer_get_time() - *t_trig) < kTrigSampleTimeoutUs){
     *fifo_c = adpd.fifo_count();
@@ -889,9 +970,69 @@ struct trig_run_stats_t {
   uint32_t late_count = 0;     // edges fired after their planned instant
   uint32_t max_late_us = 0;    // worst overshoot of the planned instant
   uint32_t residual_count = 0; // FIFO held more than one sequence after an edge (=> abort)
+  uint32_t residual_bytes = 0; // the byte count that caused the abort
+  uint32_t residual_sample = 0;// 1-based sample index at which it happened
+  uint32_t count_glitches = 0; // FIFO_BYTE_COUNT read != expected once, == expected on re-read
+  uint32_t glitch_bytes = 0;   // the value that first read (last glitch)
+  uint32_t glitch_sample = 0;  // 1-based sample index of the last glitch
+  uint8_t  quiet_mode = 0;     // TrigQuietMode used by the last line (0 busy, 1 wfi, 2 sleep)
+  uint32_t sleepq_rejects = 0; // esp_light_sleep_start() returned != ESP_OK (did not sleep)
+  uint32_t sleepq_min_us = 0;  // shortest / longest measured sleep (0 = none attempted)
+  uint32_t sleepq_max_us = 0;
   int      result = 0;         // ArrTriggerResult of the run
 };
 static trig_run_stats_t g_trig_stats;
+
+#ifdef AMBIT_DIAG_TRIGGER
+// Fault injection for gates V1g/V1h: `tdrop,<n>` makes the n-th edge (1-based) of the
+// next run_arr_trigger() a no-op — the wait then times out exactly as a lost edge would
+// — so the abort reply and the EXT_SYNC teardown can be exercised on the bench. An
+// over-requested rate cannot provoke this: the loop simply runs at the ceiling.
+// One-shot: cleared when it fires. 0 = disarmed.
+static uint32_t g_diag_drop_edge = 0;
+void diag_drop_edge(uint32_t n){
+  g_diag_drop_edge = n;
+  Serial.printf("tdrop: edge %u of the next arrunt will be skipped%s\n", n, n ? "" : " (disarmed)");
+  Serial.flush();
+}
+#endif
+
+static void trig_quiet_sleep(uint32_t req_us){
+  const int64_t t0 = esp_timer_get_time();
+  esp_sleep_enable_timer_wakeup(req_us);
+  const esp_err_t rc = esp_light_sleep_start();       // GPIO10 is held LOW through sleep (arm)
+  const uint32_t slept = (uint32_t)(esp_timer_get_time() - t0);
+  if (rc != ESP_OK) g_trig_stats.sleepq_rejects++;
+  if (g_trig_stats.sleepq_min_us == 0 || slept < g_trig_stats.sleepq_min_us) g_trig_stats.sleepq_min_us = slept;
+  if (slept > g_trig_stats.sleepq_max_us) g_trig_stats.sleepq_max_us = slept;
+}
+static void trig_sleep_through_sequence(void){ trig_quiet_sleep(g_trig_sleepq_us); }
+
+static void trig_wfi_through_sequence(void){ trig_quiet_wfi(g_trig_wfi_us); }
+static void trig_quiet_wfi(uint32_t us){
+  if (g_trig_wfi_timer == NULL){
+    const esp_timer_create_args_t args = { .callback = trig_wfi_timer_cb, .arg = NULL,
+                                           .dispatch_method = ESP_TIMER_TASK, .name = "trig_wfi" };
+    if (esp_timer_create(&args, &g_trig_wfi_timer) != ESP_OK) return;
+  }
+  g_trig_wfi_task = xTaskGetCurrentTaskHandle();
+  const int64_t t0 = esp_timer_get_time();
+  esp_timer_start_once(g_trig_wfi_timer, us);
+  ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));          // idle task runs WFI meanwhile
+  const uint32_t waited = (uint32_t)(esp_timer_get_time() - t0);
+  if (g_trig_stats.sleepq_min_us == 0 || waited < g_trig_stats.sleepq_min_us) g_trig_stats.sleepq_min_us = waited;
+  if (waited > g_trig_stats.sleepq_max_us) g_trig_stats.sleepq_max_us = waited;
+}
+
+static bool trig_edge_suppressed(void){
+#ifdef AMBIT_DIAG_TRIGGER
+  if (g_diag_drop_edge != 0 && g_trig_stats.samples + 1 == g_diag_drop_edge){
+    g_diag_drop_edge = 0;
+    return true;
+  }
+#endif
+  return false;
+}
 
 // Boundary check for the triggered engine (plan §6 Phase 1). The free-run path
 // lets dataclass::init fail on an oversized N and returns -1 leaking its eight
@@ -978,6 +1119,7 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
   env_timer1 = millis();
 
   adpd.STOP();
+  ambit_boot_gesture_pause();          // LED edges at ~100 Hz spoof the BOOT reset gesture (§8)
   trig_arm_ext_sync();
   ext_sync_on = true;
   adpd_mode = ADPD_CONFIG_MODE::ARRAY_SLOW;
@@ -990,10 +1132,12 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
       // Park the internal period at 100 ms. EXT_SYNC gates the timer (tidle shows
       // zero self-triggers), but if that ever failed the leak would be slow and
       // visible rather than a kHz pulse train (plan §4.3).
-      adpd.run_freq(10);
+      adpd.run_freq(g_trig_park_hz);
       adpd.clear_fifo();
       period_us = 1000000LL / freq;        // freq > 0: validated above
       period_ms_int = (1000/freq);
+      g_trig_quiet_mode = trig_pick_quiet_mode(period_us);
+      g_trig_stats.quiet_mode = g_trig_quiet_mode;
       // Env cadence identical to run_arr_type1: the env stream is part of the frozen
       // wire. JSON gets exactly one env per array; the others resample every 2 s on
       // slow (< ~50 Hz), low-actinic lines.
@@ -1055,9 +1199,9 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
         }
         g_trig_stats.samples++;
         if (t_trig > next_trigger){
-          g_trig_stats.late_count++;
-          if ((uint32_t)(t_trig - next_trigger) > g_trig_stats.max_late_us)
-            g_trig_stats.max_late_us = (uint32_t)(t_trig - next_trigger);
+          const uint32_t late_us = (uint32_t)(t_trig - next_trigger);
+          if (late_us > kTrigLateThresholdUs) g_trig_stats.late_count++;
+          if (late_us > g_trig_stats.max_late_us) g_trig_stats.max_late_us = late_us;
         }
         // Pace the next edge from THIS edge, not from the read, so the mean interval
         // is exactly 1/freq; the far-red floor keeps the edge out of the LED tail.
@@ -1069,10 +1213,24 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
         // (tidle rules out self-triggering) or a FIFO we did not own. That is a
         // desync, and the datasheet specifies CLEAR_FIFO "while not operating", so
         // the run aborts instead of clearing in GO mode (plan §4.1, §9).
+        // FIFO_BYTE_COUNT is a register the chip updates while we read it over SPI;
+        // one inconsistent value is a read glitch (V1: a single != at sample 1 of a
+        // type-2 line), a persistent one is real extra data. Re-read once.
         if (fifo_c != expected_readout_bytes){
-          g_trig_stats.residual_count++;
-          _func_ret = ARR_TRIG_FIFO_DESYNC;
-          goto cleanup;
+          delayMicroseconds(5);
+          const uint16_t again = adpd.fifo_count();
+          if (again == expected_readout_bytes){
+            g_trig_stats.count_glitches++;
+            g_trig_stats.glitch_bytes = fifo_c;
+            g_trig_stats.glitch_sample = counter + 1;
+            fifo_c = again;
+          }else{
+            g_trig_stats.residual_count++;
+            g_trig_stats.residual_bytes = again;
+            g_trig_stats.residual_sample = counter + 1;
+            _func_ret = ARR_TRIG_FIFO_DESYNC;
+            goto cleanup;
+          }
         }
         adpd.readfifo(expected_readout, 3, ret);
 
@@ -1114,10 +1272,12 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
 cleanup:
   // Single exit for every path: bad alloc, lost edge, desync, interrupt, completion.
   g_trig_stats.result = _func_ret;
+  g_trig_quiet_mode = TRIG_QUIET_BUSY;   // per-line state; tseq/tidle/tratio must not inherit it
   adpd.STOP();
   if (ext_sync_on){
     trig_disarm_ext_sync();
     adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
+    ambit_boot_gesture_resume();
   }
   if (_func_ret != ARR_TRIG_OK){
     if (!led_persist) AS_LED_OFF();
@@ -1163,6 +1323,7 @@ static uint8_t diag_config(bool farred, uint8_t integ, uint8_t frrep){
 }
 
 static void diag_arm(uint8_t num_active){
+  g_trig_quiet_mode = TRIG_QUIET_BUSY;   // measure the chip, not a sleep
   trig_arm_ext_sync();
   adpd.clear_fifo();
   adpd.run_freq(10);          // 100 ms park: if gating failed, ~10 self-triggers/s, visible
@@ -1192,10 +1353,168 @@ static void diag_drain_bytes(uint16_t n){
 // come from light-sleep overshoot (RC slow clock) or a requested rate above the
 // ceiling; a residual means a FIFO desync (the run aborted with -5).
 void print_trig_stats(void){
-  Serial.printf("tstat: result=%d samples=%u late=%u max_late_us=%u residual=%u\n",
+  Serial.printf("tstat: result=%d samples=%u late=%u max_late_us=%u residual=%u "
+                "residual_bytes=%u residual_sample=%u count_glitches=%u glitch_bytes=%u "
+                "glitch_sample=%u park_hz=%u quiet_us=%u sleepq_us=%u "
+                "sleepq_rejects=%u sleepq_min_us=%u sleepq_max_us=%u wfi_us=%u quiet_mode=%u\n",
                 g_trig_stats.result, g_trig_stats.samples, g_trig_stats.late_count,
-                g_trig_stats.max_late_us, g_trig_stats.residual_count);
+                g_trig_stats.max_late_us, g_trig_stats.residual_count,
+                g_trig_stats.residual_bytes, g_trig_stats.residual_sample,
+                g_trig_stats.count_glitches, g_trig_stats.glitch_bytes,
+                g_trig_stats.glitch_sample, g_trig_park_hz, g_trig_quiet_us, g_trig_sleepq_us,
+                g_trig_stats.sleepq_rejects, g_trig_stats.sleepq_min_us, g_trig_stats.sleepq_max_us,
+                g_trig_wfi_us, g_trig_stats.quiet_mode);
   Serial.flush();
+}
+
+// tsleepq,<us> — light-sleep the core for <us> right after each edge (experiment).
+void diag_set_sleepq_us(uint32_t us){
+  g_trig_sleepq_us = us;
+  Serial.printf("tsleepq: %u us of light sleep after each edge\n", g_trig_sleepq_us);
+  Serial.flush();
+}
+
+// tslotc,<lit>,<width>,<dark2>,<period> — re-time slot C (the 730 nm reflectance slot) on
+// the live chip and leave it in place for BOTH engines until the next conf_slow_FR_1().
+// Hypothesis under test (plan §8): slot C's lit samples start 12 µs after LED-on
+// (LED_OFFSET 60, LIT_OFFSET 72) while the IR photodiode rise is ~10 µs (DS Table 15),
+// so they sit on the knee; an asynchronous sync edge shifts the LED/ADC phase and the
+// knee turns that into the two-level r_730 spread. Production values: 72,19,90,58.
+// The datasheet's IR set is LED_WIDTH 36, LIT 10 µs after LED-on, DARK2 after LED-off +
+// tD_FALL (40 µs for IR).
+void diag_set_slotc_timing(uint16_t lit, uint16_t width, uint16_t dark2, uint16_t period){
+  adpd.STOP();
+  // Same optics as conf_slow_FR_1() programs for slot C: LED2 (730) at I720 on driver 2,
+  // driver 1 off, gains IR / IRRef. preset_config_3 writes led_config/SNR_config to the
+  // slot, so they must hold slot-C values first.
+  adpd.led_config.driver1_current = 0;
+  adpd.led_config.led1_channel = LED_A;
+  adpd.led_config.driver2_current = adpd_current_config.I720;
+  adpd.led_config.led2_channel = LED_A;
+  adpd.SNR_config.TIA_gain_CH1 = adpd_gains_config.IR;
+  adpd.SNR_config.TIA_gain_CH2 = adpd_gains_config.IRRef;
+  adpd.preset_config_3(2, 4);                 // production slot C, then override the timing
+  adpd.DI_config.LIT_OFFSET = lit;
+  adpd.DI_config.LED_pulse_width = width;
+  adpd.DI_config.DARK_OFFSET2 = dark2;
+  adpd.DI_config.period_min = period;
+  adpd.ts_setup(jii::adpd6000::Slot::C, &(adpd.DI_config));
+  adpd.num_ts(3);
+  adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;  // both engines now run with this slot C
+  Serial.printf("tslotc: slot C LED_OFFSET=60 LIT_OFFSET=%u LED_WIDTH=%u DARK2=%u MIN_PERIOD=%u (integ 4)\n",
+                lit, width, dark2, period);
+  Serial.flush();
+}
+
+// tinteg,<n> — on-chip integration (NUM_INT) of the ambient (A) and 730 (C) slots for BOTH
+// engines until the next conf_slow_FR_1(); production is 4, the fluor slot stays 1. The
+// slot-C spread in EXT_SYNC survives every ESP-side change and every slot-C timing change;
+// the one thing slots A/C share and slot B (unaffected) does not is NUM_INT=4. Values scale
+// with n, compare sd/mean.
+void diag_set_integ(uint8_t n){
+  if (n == 0) n = 4;
+  adpd.STOP();
+  adpd.repeats_only(0, n, 1);
+  adpd.repeats_only(2, n, 1);
+  adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
+  Serial.printf("tinteg: slots A and C NUM_INT=%u (fluor slot stays 1)\n", n);
+  Serial.flush();
+}
+
+// twfi,<us> — block on a one-shot timer (idle task -> WFI) for <us> after each edge.
+void diag_set_wfi_us(uint32_t us){
+  g_trig_wfi_us = us;
+  Serial.printf("twfi: %u us blocked on a timer (core idle/WFI) after each edge\n", g_trig_wfi_us);
+  Serial.flush();
+}
+
+// tquiet,<us> — blind wait after the edge before the first fifo_count() poll.
+void diag_set_quiet_us(uint32_t us){
+  g_trig_quiet_us = us;
+  Serial.printf("tquiet: %u us of SPI silence after each edge\n", g_trig_quiet_us);
+  Serial.flush();
+}
+
+// tpark,<hz> — set the parked internal TIMESLOT_PERIOD used by run_arr_trigger
+// (default 10 Hz). Experiment knob for the r_730 noise question; 0 restores 10.
+void diag_set_park_hz(uint32_t hz){
+  g_trig_park_hz = hz ? hz : 10;
+  Serial.printf("tpark: parked period now %u Hz\n", g_trig_park_hz);
+  Serial.flush();
+}
+
+// traw,<mode>,<N>,<freq> — raw readouts, standard type-1 config (num_ts=3, amb/730
+// integ 4), no calibration, no calc_signal. mode 0: free-run at `freq` (the chip's own
+// RC time base); mode 1: EXT_SYNC paced at `freq`. Buffered, printed after the run so
+// the UART cannot disturb the acquisition. Columns: idx,sun,leaf,s_dark,s_lit,r_dark,
+// r_lit,s730,r730. Purpose: V1 saw s_630 +9 % in EXT_SYNC with r_630 equal — this shows
+// whether dark, lit or both moved, per channel.
+int measure_raw(uint8_t mode, uint16_t N, uint16_t freq){
+  if (N == 0) N = 50;
+  if (N > 300) N = 300;
+  if (freq == 0) freq = 200;
+  const uint8_t expected_readout = 8, expected_readout_bytes = 24;
+  uint32_t* buf = new uint32_t[(size_t)N * 8];
+  if (buf == NULL){ Serial.println("traw: no memory"); return -1; }
+  uint16_t got = 0;
+  uint32_t ret[8] = {0};
+
+  adpd.STOP();
+  conf_slow_FR_1();
+  adpd.num_ts(3);
+  AS_LED_OFF(); AS_LED_Current(0);
+
+  if (mode == 0){
+    adpd.run_freq(freq);
+    adpd.clear_fifo();
+    adpd.RUN();
+    delay(2);
+    const int64_t t0 = esp_timer_get_time();
+    while (got < N && (esp_timer_get_time() - t0) < 20000000LL){
+      uint16_t fifo_c = adpd.fifo_count();
+      while (fifo_c >= expected_readout_bytes && got < N){
+        adpd.readfifo(expected_readout, 3, ret);
+        fifo_c -= expected_readout_bytes;
+        memcpy(buf + (size_t)got * 8, ret, sizeof(ret));
+        got++;
+      }
+    }
+    adpd.STOP();
+  }else{
+    ambit_boot_gesture_pause();
+    trig_arm_ext_sync();
+    adpd.clear_fifo();
+    adpd.run_freq(g_trig_park_hz);
+    adpd.RUN();
+    delay(kTrigArmSettleMs);
+    const int64_t period_us = 1000000LL / freq;
+    g_trig_quiet_mode = trig_pick_quiet_mode(period_us);
+    int64_t next_trigger = esp_timer_get_time(), t_trig = 0;
+    uint16_t fifo_c = 0;
+    while (got < N){
+      while (esp_timer_get_time() < next_trigger) { }
+      if (!trig_fire_and_wait(expected_readout_bytes, &t_trig, &fifo_c)) break;
+      next_trigger = t_trig + period_us;
+      adpd.readfifo(expected_readout, 3, ret);
+      memcpy(buf + (size_t)got * 8, ret, sizeof(ret));
+      got++;
+    }
+    trig_disarm_ext_sync();
+    adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
+    ambit_boot_gesture_resume();
+    g_trig_quiet_mode = TRIG_QUIET_BUSY;
+  }
+
+  Serial.printf("traw: mode=%u freq=%u N=%u got=%u\n", mode, freq, N, got);
+  Serial.println("idx,sun,leaf,s_dark,s_lit,r_dark,r_lit,s730,r730");
+  for (uint16_t i = 0; i < got; i++){
+    const uint32_t* r = buf + (size_t)i * 8;
+    Serial.printf("%u,%u,%u,%u,%u,%u,%u,%u,%u\n", i, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]);
+  }
+  Serial.println("traw end");
+  Serial.flush();
+  delete[] buf;
+  return got == N ? 0 : -1;
 }
 
 // tseq,<reps>,<farred>,<integ>[,<frrep>] — per-sequence execution time. One edge
@@ -1313,6 +1632,7 @@ int measure_first_ratio(uint16_t reps, uint16_t N, uint16_t freq, uint8_t integ)
   const uint8_t expected_readout = 8, expected_readout_bytes = 24;
   const int64_t period_us = 1000000LL / freq;
   const uint8_t num_active = diag_config(false, integ, 1);
+  g_trig_quiet_mode = TRIG_QUIET_BUSY;
   trig_arm_ext_sync();
 
   uint32_t ret[8] = {0};
