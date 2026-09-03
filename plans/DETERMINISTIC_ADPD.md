@@ -1,7 +1,7 @@
 # Branch plan: `deterministic-adpd` — exact-N triggered ADPD acquisition
 
-> Status (2026-09-03): **Phases 0, 1 and 2 landed on `deterministic-adpd`; V0, V1 (except V1a,
-> scope on GPIO10, TODO) and V2 passed on the bench.** Ten bench sessions (§8) found and closed three
+> Status (2026-09-03): **Phases 0–3 landed on `deterministic-adpd`; V0, V1 (except V1a, scope on
+> GPIO10, TODO), V2 and V3 passed on the bench** (second unit `AD88` for Phase 3, §8). Ten bench sessions (§8) found and closed three
 > things the plan did not anticipate: the BOOT-pin reset gesture fired by LED coupling, the
 > running ESP core degrading the 730 channel (fixed by sleeping the core through each
 > sequence), and a ≈21 % free-run time-base error (handed off, `plans/ADPD_OSC_TRIM.md`).**
@@ -220,7 +220,7 @@ late edges and max overshoot at 1, 10, 100, 1000 Hz — sizes the sleep margin).
 **Gate V2** — bit-exact vs per-value over ≥100 k samples including values > 65 000; overflow
 fault-injection aborts instead of hanging; `fifo_count()==0` after every read. **PASSED**, §8.
 
-### Phase 3 — Settle, characterise, harden (handoff: `plans/PHASE3_HANDOFF.md`, written 2026-09-03; the list below is the original and is superseded by that file)
+### Phase 3 — Settle, characterise, harden — DONE 2026-09-03 (executed from `plans/PHASE3_HANDOFF.md`; results in §8; the list below is the original)
 - `num_integration` on the ambient/730 slots is **not** a speed knob (V0: 13 µs for 1→4, §4.7).
   Expose it only if the SNR study below wants it; default stays 4, fluorescence stays integ=1.
 - Remove the deliberate `delay(2)` after `RUN()` in the triggered path only; keep `delay(5)`
@@ -509,6 +509,22 @@ PASS on all three criteria.**
 Ceiling after Phase 2: ≥ 2 kHz exact-count (chip limit ≈ 2.3 kHz from t_seq); it was ≈1.6 kHz
 with the per-value read.
 
+**Phase 3 — 2026-09-03, second unit `AD88` (COM29, CH9102 bridge, direct USB), FW
+`1.2.0-5-g535c2e3` + Phase 3 knobs. Driver `p3_bench.py` (plans warm/idle/idlew/fr/arm/plot/base/v3).**
+
+| Item | Result |
+|---|---|
+| 1.1 transient, is it time-based? | After 240 s idle, `twarm 0`: r_630 −4.6 %, +5.2 %, then clean. `twarm 100` (100 ms wait before the first edge): −2.5 %, +4.8 %, then clean. A `reboot` after 15 s idle shows nothing. **Per-sequence, not time-based.** First run after the flash (≈2 min idle): +3.4 %, +2.9 %. |
+| 1.1 fix | `kTrigWarmupSequences` = 3 discarded sequences fired after arming the first line of every run (`tstat warmup_seqs=3`, ≈1.5 ms per run). Invariant 2 now reads edges == stored + warm-up. Verification after 240 s idle: first stored sample +0.0 % with 3 warm-ups (all six first samples within 0.1 %); control run with `twarmn 0` after the same idle: −3.5 %, +5.0 %, then clean. **PASS** |
+| 1.2 far-red tail (`tseqfr`, delay sweep until edges are lost) | repeats 1: clean 2.6 / lossy 2.5 ms; 2: 5.0 / 4.8; 4: 9.5 / 9.25; 40: 100 / 98 ms. Fit 2.55 ms + 2.47 ms·(n−1). Old model 1000+2200·n was 25 % long at n=1 and **10 % short at n=40** (a 10 Hz far-red line had ≈1 % of its period spare). New floor = measured × 1.10; far-red cap at n=1 moves 312 → 356 Hz; 10 Hz far-red now runs at ≈9.2 Hz (TIMING shows it) until the RC trim lands and margin can shrink |
+| 1.3 arm settle | 5 ms and 1 ms: clean first samples, 3/3 runs each; 0 ms: `ERROR arrunt -4` 3/3 (first edge lost). Kept 5 ms (per line, unit margin) |
+| 1.4 PLOTTING hot path | `arrunt1` 200 Hz: `late=499 max_late_us=1374`; 500 Hz: `max_late_us=4381`; 50 Hz: `late=0`. An 80-char line is ≈7 ms at 115200. **Cap: `arrunt1` above 50 Hz is refused with −7** (`ARR_TRIG_PLOT_RATE`); `arrunt2`/JSON unaffected |
+| 1.5 over-requested rate | still a user decision (silent cap at the ceiling vs reject); unchanged |
+| 1.6 SNR (fluorescent paper in front of the detector, static target; F = s_630/r_630 per sample, SNR = mean/sd; engines alternated, two repeats per rate) | **F identical between engines** at every rate (0.0954–0.0959, engine difference ≤ 0.1 %). SNR_F: 10 Hz free-run 151/173 vs triggered 165/134 (equal within scatter); 200 Hz 130/109 vs **151/143**; 500 Hz 101/99 vs **141/131**; 1 kHz free-run **reboots the ESP (2/2)**, triggered 110/121. The triggered engine is never worse and is 30–40 % better at 200–500 Hz, where free-run's sleep cadence leaves the core awake for part of the sequences. Integration on slots A/C does not touch the fluor slot (fixed NUM_INT 1), so no knob is exposed — item closed |
+| 1.7 gate V3 (50 × N=1999 at 2 kHz ≈ 100 k samples) | 99 950 samples, 0 bad runs, residual 0, io_error 0, leftover 0; 39 late edges (0.04 %), worst 67 µs = 13 % of the 500 µs period — over the 10 % target set in the handoff, only in the busy band at 2 kHz; r_630 stepped +3.6 % mid-gate when the fluorescent paper was placed (reference PD sees reflected 630 nm). **PASS with the lateness note** |
+| free-run `arrun` at 1 kHz resets the ESP | `arrun2,1,0,1,0,3,232,3,232,0,1` → `rst:0x3` silent reset, 2/2 on `AD88`. Mechanism: at 1 kHz `run_arr_type1` light-sleeps `light_sleep_time·8` = 8 ms between FIFO drains, so the awake bursts (and the LED edges they catch on GPIO9) are 8–9 ms apart — inside the BOOT gesture's 8–12 ms toggle window. Same bug as §4.9, different rate; added to `plans/ADPD_OSC_TRIM.md` item B |
+| 1.8 baselines between engines | `traw` s_dark free-run 17 084 / 17 081 vs EXT_SYNC 17 081 / 17 075; lit−dark −268.8 / −268.6 vs −264.3 / −266.8 (sd/√n ≈ 2). **Engines agree; `fluor_offset` baselines can stay free-run** |
+
 ## 9. Implementation notes (what landed 2026-09-02)
 
 Files: `platformio.ini`, `src/PAM.{h,cpp}`, `src/core.{h,cpp}`, `src/do_command.h`,
@@ -566,9 +582,12 @@ Files: `platformio.ini`, `src/PAM.{h,cpp}`, `src/core.{h,cpp}`, `src/do_command.
   scratchpad (`v1*_bench.py`); they are ≈100 lines of pyserial each and trivial to recreate:
   open COM61 at 115200, wait for the boot banner, send a line, read until `Data sent` /
   `ERROR` / `tstat:` or an `ESP-ROM:` banner, summarise the `Data:` arrays.
-- **Open before Phase 2**: V1a on the scope when the trace is opened; measure the far-red tail
-  and replace the provisional floor; re-measure the free-run-vs-triggered dark offset with the
-  quiet mode on (expected to be gone); Phase 3 warm-up policy for the post-idle transient.
+- **Phase 3 (2026-09-03):** warm-up sequences (`kTrigWarmupSequences` 3, `twarmn` knob);
+  far-red floor from measurement (`trig_farred_sequence_us` = 1.10 × (2550 + 2470·(n−1)) µs,
+  `tseqfr` sweep diagnostic); PLOTTING rate cap −7 (`kTrigPlotMaxHz` 50); `twarm`/`tarm` knobs;
+  `tstat` gained `warm_ms arm_ms warmup_seqs`. Arm settle kept at 5 ms (measured floor 1 ms).
+- **Open:** V1a on the scope when the trace is opened; 1.5 over-rate policy (user); 1.6 SNR only
+  with a leaf; Phase 4 needs a cmd id from the Ambyte repo.
 
 ## 10. Datasheet review (2026-09-02)
 

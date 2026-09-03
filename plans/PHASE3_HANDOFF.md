@@ -1,6 +1,8 @@
 # Handoff: Phase 3 of `plans/DETERMINISTIC_ADPD.md` — settle, characterise, and harden `arrunt`
 
-> Status: **not started.** Written 2026-09-03 after Phases 0–2 passed their gates on the bench.
+> Status: **executed 2026-09-03 on unit `AD88`** (results in `plans/DETERMINISTIC_ADPD.md` §8, Phase 3
+> table). Items 1.1–1.4, 1.6–1.8 closed; 1.5 (over-rate policy) is a user decision; V1a still TODO.
+> Kept as the record of method. Originally written 2026-09-03 after Phases 0–2 passed their gates.
 > Read `plans/DETERMINISTIC_ADPD.md` first: the status line, §4 (learnings 7–10), §5 (invariants
 > 8–12), §8 (bench sessions, all numbers), §9 (what landed), §10 (datasheet review). This file
 > tells you what Phase 3 is *now*, item by item, with the experiment, the commands, the pass

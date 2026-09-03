@@ -123,6 +123,15 @@ but it is exposed whenever the core is awake at the wrong moment.
 `ambit_boot_gesture_pause()` / `ambit_boot_gesture_resume()` in `src/ambit-1.ino`
 (detach the interrupt, re-attach with a fresh count), called around `run_arr_trigger()`.
 
+## Second reproduction (2026-09-03, unit `AD88`, no FFC connected, GPIO9 floating on the 45 k pull-up)
+
+Free-run `arrun2,1,0,1,0,3,232,3,232,0,1` (1 kHz, N=1000) reset the ESP 2 out of 2 times, while the
+same line through the triggered engine (gesture paused) completed. Mechanism: at 1 kHz
+`run_arr_type1` sleeps `light_sleep_time × 8000 µs` = 8 ms between FIFO drains, so its awake
+bursts — and the LED edges the awake core catches on GPIO9 — recur every 8–9 ms, inside the
+8–12 ms window. So the exposure is not only "≈100 Hz lines": any free-run line whose wake cadence
+lands in the window trips it. The reproduction line above is the quickest regression check.
+
 ## What `main` needs
 
 Call the same pair around `run_arr_type1()` (and `run_trigger_spacer()` / `MPF()`, which also
