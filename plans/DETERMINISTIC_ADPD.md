@@ -107,8 +107,12 @@ recorded only in code comments on that branch; **no V0 timing numbers were ever 
    Ambyte's remote reset), and LED edges at a 10 ms period match the ISR's 8–12 ms toggle
    window. Free-run sleeps through most pulses; the triggered engine caught every one. The
    gesture is paused for the duration of a triggered run.
-10. **First samples after idle are a three-sample transient** (r_630 −16 %, +7 %, +0.6 %), in
-    both engines. Phase 3 owns a warm-up sequence or a documented discard count.
+10. **First samples after idle are a two-to-three-sequence transient** (r_630 −16 %/+7 % after a
+    cold start, −4.6 %/+5.2 % after 4 min idle; leaf up to +18 %), in both engines, on every
+    channel. Per-sequence, not time-based (a 100 ms wait does not help), absent back to back and
+    at line boundaries inside a run. Fixed in the triggered engine by three discarded warm-up
+    sequences with the LED drivers at zero current — dark sequences settle it as well as lit ones,
+    so the front end, not the LED drivers, is what settles.
 7. **Sequence time and ceiling — measured at V0 (§8), superseding the earlier estimate.**
    `t_seq` = 410 µs (amb/730 integ 1) / 423 µs (integ 4) at `num_ts=3`; the 26 µs spread is
    one `fifo_count()` poll (20 µs), so the chip's own jitter is below the resolution of
@@ -131,7 +135,9 @@ recorded only in code comments on that branch; **no V0 timing numbers were ever 
 1. **Ambyte wire format byte-frozen** — layout *and* channel presence (`sun/leaf` only when
    `subsampling>0`, `730` only when `has_730`), all three stream shapes (type-1, type-1+farred,
    type-2). Gate: `plans/HW_CONFORMANCE.md`.
-2. **Deterministic count** — sequences == edges == stored == N, zero tolerance, every rate.
+2. **Deterministic count** — lit sequences == stored == N, zero tolerance, every rate. The three
+   warm-up sequences at the start of a run are fired with the LED drivers at zero current and
+   are never stored (§4.10).
 3. **Guaranteed teardown on every exit** — single-exit cleanup restoring `GPIO0_cfg=0`,
    `EXT_SYNC_EN=0`, `SYNC_GPIO`, `adpd_mode=ARRAY_MODE1`, ADPD `STOP()`, LED off unless persist,
    and all 8 dataclass buffers freed. A leftover `EXT_SYNC_EN=1` silently breaks the next
@@ -529,10 +535,12 @@ with the per-value read.
 | 1.2 far-red tail (`tseqfr`, delay sweep until edges are lost) | repeats 1: clean 2.6 / lossy 2.5 ms; 2: 5.0 / 4.8; 4: 9.5 / 9.25; 40: 100 / 98 ms. Fit 2.55 ms + 2.47 ms·(n−1). Old model 1000+2200·n was 25 % long at n=1 and **10 % short at n=40** (a 10 Hz far-red line had ≈1 % of its period spare). New floor = measured × 1.10; far-red cap at n=1 moves 312 → 356 Hz; 10 Hz far-red now runs at ≈9.2 Hz (TIMING shows it) until the RC trim lands and margin can shrink |
 | 1.3 arm settle | 5 ms and 1 ms: clean first samples, 3/3 runs each; 0 ms: `ERROR arrunt -4` 3/3 (first edge lost). Kept 5 ms (per line, unit margin) |
 | 1.4 PLOTTING hot path | `arrunt1` 200 Hz: `late=499 max_late_us=1374`; 500 Hz: `max_late_us=4381`; 50 Hz: `late=0`. An 80-char line is ≈7 ms at 115200. **Cap: `arrunt1` above 50 Hz is refused with −7** (`ARR_TRIG_PLOT_RATE`); `arrunt2`/JSON unaffected |
-| 1.5 over-requested rate | still a user decision (silent cap at the ceiling vs reject); unchanged |
+| 1.5 over-requested rate | **Decided 2026-09-03: refuse.** `kTrigMaxHz` = 2000 (the highest rate verified exact-count at V3; chip ≈ 2.3 kHz); a line above it returns `ARR_TRIG_RATE_LIMIT` (−8) from `run_arr_trigger_validate()` before anything fires. Verification: 2500 Hz → −8, 2000 Hz → runs (§8 below) |
 | 1.6 SNR (fluorescent paper in front of the detector, static target; F = s_630/r_630 per sample, SNR = mean/sd; engines alternated, two repeats per rate) | **F identical between engines** at every rate (0.0954–0.0959, engine difference ≤ 0.1 %). SNR_F: 10 Hz free-run 151/173 vs triggered 165/134 (equal within scatter); 200 Hz 130/109 vs **151/143**; 500 Hz 101/99 vs **141/131**; 1 kHz free-run **reboots the ESP (2/2)**, triggered 110/121. The triggered engine is never worse and is 30–40 % better at 200–500 Hz, where free-run's sleep cadence leaves the core awake for part of the sequences. Integration on slots A/C does not touch the fluor slot (fixed NUM_INT 1), so no knob is exposed — item closed |
 | 1.7 gate V3 (50 × N=1999 at 2 kHz ≈ 100 k samples) | 99 950 samples, 0 bad runs, residual 0, io_error 0, leftover 0; 39 late edges (0.04 %), worst 67 µs = 13 % of the 500 µs period — over the 10 % target set in the handoff, only in the busy band at 2 kHz; r_630 stepped +3.6 % mid-gate when the fluorescent paper was placed (reference PD sees reflected 630 nm). **PASS with the lateness note** |
 | free-run `arrun` at 1 kHz resets the ESP | `arrun2,1,0,1,0,3,232,3,232,0,1` → `rst:0x3` silent reset, 2/2 on `AD88`. Mechanism: at 1 kHz `run_arr_type1` light-sleeps `light_sleep_time·8` = 8 ms between FIFO drains, so the awake bursts (and the LED edges they catch on GPIO9) are 8–9 ms apart — inside the BOOT gesture's 8–12 ms toggle window. Same bug as §4.9, different rate; added to `plans/ADPD_OSC_TRIM.md` item B |
+| 1.1 follow-up (user questions): transient between lines? warm-up without light? | Three-line protocol (200 @ 50 Hz dark, 1000 @ 1 kHz actinic 100, 200 @ 50 Hz dark), back-to-back ×2 and after 240 s idle: every segment's first samples within ±0.5 % of its own median on r_630, s_630, sun — **no transient at line boundaries**. What the boundaries do show is LED physics, identical for both engines: at 1 kHz r_630 drifts −0.9 % over the 1 s line (LED heating, sd 6.7 vs 1.1) and recovers during the next line; actinic 100 shifts s_630 −3 % on the paper. **Dark warm-up** (LED drivers at zero current during the 3 warm-up sequences, 240 s idle): r_630 0.0 %, s_630 −0.2 %, r_730 0.0 %, leaf +1.2 %, sun +0.6 % on the first sample — as good as lit warm-up; the settling is in the front end. Control without warm-up after the same idle: r_630 −3.5 %/+5.0 %, s_630 −7.1 %, r_730 +7.1 %, **leaf +17.8 %**. Adopted as production (`kTrigWarmupDark`): the leaf receives no light before its first stored sample. Verified with the production defaults after another 240 s idle: first-sample deviations r_630 0.0 %, s_630 −0.9 %, leaf +0.1 %, sun +0.4 %, s_730 0.0 %, r_730 0.0 % (`tstat warmup_seqs=3 warm_dark=1`). Residual: sun (ambient) first sample −3.6 % in one of three idle runs; that channel carries room-light flicker (sd 8–9 vs 2–3 for the others) so it is inconclusive |
+| 1.5 verification | 2500 Hz → `ERROR arrunt -8`; 2000 Hz → 500 stored |
 | 1.8 baselines between engines | `traw` s_dark free-run 17 084 / 17 081 vs EXT_SYNC 17 081 / 17 075; lit−dark −268.8 / −268.6 vs −264.3 / −266.8 (sd/√n ≈ 2). **Engines agree; `fluor_offset` baselines can stay free-run** |
 
 ## 9. Implementation notes (what landed 2026-09-02)
@@ -596,8 +604,11 @@ Files: `platformio.ini`, `src/PAM.{h,cpp}`, `src/core.{h,cpp}`, `src/do_command.
   far-red floor from measurement (`trig_farred_sequence_us` = 1.10 × (2550 + 2470·(n−1)) µs,
   `tseqfr` sweep diagnostic); PLOTTING rate cap −7 (`kTrigPlotMaxHz` 50); `twarm`/`tarm` knobs;
   `tstat` gained `warm_ms arm_ms warmup_seqs`. Arm settle kept at 5 ms (measured floor 1 ms).
-- **Open:** V1a on the scope when the trace is opened; 1.5 over-rate policy (user); 1.6 SNR only
-  with a leaf; Phase 4 needs a cmd id from the Ambyte repo.
+- **1.5 (2026-09-03):** rates above `kTrigMaxHz` (2000) refused with −8 (`ARR_TRIG_RATE_LIMIT`).
+- **1.1 follow-up (2026-09-03):** warm-up sequences run dark (`kTrigWarmupDark`,
+  `trig_set_led_currents()` zeroes the LED power registers of slots B..I in standby and restores
+  I620 / I720 / IR afterwards); `twarmdark` knob; `tstat` gained `warm_dark`.
+- **Open:** V1a on the scope when the trace is opened; Phase 4 needs a cmd id from the Ambyte repo.
 
 ## 10. Datasheet review (2026-09-02)
 

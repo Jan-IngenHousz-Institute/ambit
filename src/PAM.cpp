@@ -1070,12 +1070,13 @@ static uint32_t g_trig_arm_ms  = kTrigArmSettleMs;
 
 // ── Warm-up sequences (plan §4.10, PHASE3_HANDOFF 1.1) ──────────────────────────
 // After minutes of idle the first two sequences of a run read off on every channel
-// (r_630 −4.6 % then +5.2 %, bench 2026-09-03), in both engines, and a 100 ms wait
-// before the first edge does NOT remove it — it is per-sequence, not time-based.
-// Back-to-back runs never show it. So the run fires kTrigWarmupSequences extra edges
-// after arming its first line, reads and discards them, then starts storing. They are
-// edges the leaf receives but not samples the host gets: invariant 2 reads
-// "edges == stored + warm-up". Cost ≈ 3 × (t_seq + read) ≈ 1.5 ms per run.
+// (r_630 −4.6 % then +5.2 %, leaf +17.8 %, bench 2026-09-03), in both engines, and a
+// 100 ms wait before the first edge does NOT remove it — it is per-sequence, not
+// time-based. Back-to-back runs and line boundaries inside a run never show it. So the
+// run fires kTrigWarmupSequences extra edges after arming its first line, with the LED
+// drivers at zero current (kTrigWarmupDark), reads and discards them, then starts
+// storing. The leaf sees no light before its first stored sample; invariant 2 reads
+// "lit sequences == stored". Cost ≈ 3 × (t_seq + read) + 2 arm cycles ≈ 12 ms per run.
 static constexpr uint8_t kTrigWarmupSequences = 3;
 
 // PLOTTING (arrunt1) prints one ~80-character line per sample and flushes it: ≈7 ms at
@@ -1084,7 +1085,36 @@ static constexpr uint8_t kTrigWarmupSequences = 3;
 // be exact, so the line is refused (−7) instead of silently mistimed; arrunt2 dumps after
 // the run and has no cap.
 static constexpr uint16_t kTrigPlotMaxHz = 50;
+
+// Highest rate a line may ask for. Above it the loop would still count exactly but every
+// edge fires late and the run silently completes at the ceiling (5 kHz request → 1.54 kHz
+// measured, V1). User decision 2026-09-03: refuse (−8) rather than mistime. 2 kHz is the
+// highest rate verified exact-count (gate V3: 100 k samples, worst lateness 67 µs); the chip
+// itself tops out near 2.3 kHz (t_seq ≈ 410 µs).
+static constexpr uint16_t kTrigMaxHz = 2000;
 static uint8_t g_trig_warmup_n = kTrigWarmupSequences;   // `twarmn` knob for verification
+// The warm-up sequences run with every LED driver at zero current, so the sample receives no
+// light before its first stored sample (user requirement: never pulse the leaf without a
+// measurement). Bench 2026-09-03 (`twarmdark`, unit AD88, 240 s idle): dark warm-up settles
+// every channel exactly as well as lit warm-up (first samples within 1 % vs −3.5/+5 % r_630,
+// +17.8 % leaf, +7 % r_730 without warm-up) — the settling is in the front end, not the LED
+// drivers. Cost: two extra STOP/RUN cycles (≈2 × arm settle) at the start of a run.
+static constexpr bool kTrigWarmupDark = true;
+static uint8_t g_trig_warm_dark = kTrigWarmupDark ? 1 : 0;   // `twarmdark` knob for experiments
+
+// LED power registers of the measuring slots: B (630, driver 1 = I620), C (730, driver 2 = I720),
+// D..I (far-red, driver 2 = IR). Written in standby only.
+static void trig_set_led_currents(bool on){
+  using namespace jii::adpd6000;
+  uint16_t v;
+  v = on ? (uint16_t) adpd_current_config.I620 : 0;          // slot B: driver1 bits [6:0]
+  adpd.write_reg(reg::for_slot(reg::kLedPower12A, Slot::B), &v);
+  v = on ? (uint16_t)(adpd_current_config.I720 << 8) : 0;    // slot C: driver2 bits [14:8]
+  adpd.write_reg(reg::for_slot(reg::kLedPower12A, Slot::C), &v);
+  v = on ? (uint16_t)(adpd_current_config.IR << 8) : 0;      // far-red slots D..I: driver2
+  for (uint8_t sl = (uint8_t) Slot::D; sl <= (uint8_t) Slot::I; sl++)
+    adpd.write_reg(reg::for_slot(reg::kLedPower12A, static_cast<Slot>(sl)), &v);
+}
 static esp_timer_handle_t g_trig_wfi_timer = NULL;
 static TaskHandle_t g_trig_wfi_task = NULL;
 static void trig_wfi_timer_cb(void*){
@@ -1303,6 +1333,7 @@ static int validate_trigger_protocol(uint8_t length, uint8_t* arr,
     const uint16_t num_ptx = line[3] + (line[2] << 8);
     const uint16_t freq    = line[5] + (line[4] << 8);
     if (num_ptx > 0 && freq == 0) return ARR_TRIG_BAD_LINE;
+    if (num_ptx > 0 && freq > kTrigMaxHz) return ARR_TRIG_RATE_LIMIT;
     if (num_ptx > 0 && CONNECTION_TYPE == CONNECTION_TYPES::PLOTTING && freq > kTrigPlotMaxHz)
       return ARR_TRIG_PLOT_RATE;
   }
@@ -1450,6 +1481,9 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
       delay(g_trig_arm_ms);
       if (g_trig_warm_ms) delay(g_trig_warm_ms);   // Phase 3 1.1 experiment (time-based: refuted)
       if (!warmed_up){                     // first active line of the run: discard the settling sequences
+        if (g_trig_warm_dark && g_trig_warmup_n){   // experiment: warm up with the LEDs dark
+          adpd.STOP(); trig_set_led_currents(false); adpd.RUN(); delay(g_trig_arm_ms);
+        }
         for (uint8_t w = 0; w < g_trig_warmup_n; w++){
           if (!trig_fire_and_wait(expected_readout_bytes, &t_trig, &fifo_c)){
             _func_ret = (g_trig_poll_rc == jii::adpd6000::kOk) ? ARR_TRIG_LOST_TRIGGER : ARR_TRIG_IO_ERROR;
@@ -1462,6 +1496,9 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
           g_trig_stats.warmup_seqs++;
           // far-red: do not re-trigger into the illumination tail
           if (farred_floor){ while (esp_timer_get_time() - t_trig < farred_floor) { } }
+        }
+        if (g_trig_warm_dark && g_trig_warmup_n){   // restore the currents, re-arm
+          adpd.STOP(); trig_set_led_currents(true); adpd.RUN(); delay(g_trig_arm_ms);
         }
         warmed_up = true;
       }
@@ -1678,7 +1715,7 @@ void print_trig_stats(void){
                 "residual_bytes=%u residual_sample=%u count_glitches=%u glitch_bytes=%u "
                 "glitch_sample=%u park_hz=%u quiet_us=%u sleepq_us=%u "
                 "sleepq_rejects=%u sleepq_min_us=%u sleepq_max_us=%u wfi_us=%u quiet_mode=%u "
-                "io_error=%d fifo_status=0x%04X read_max_us=%u leftover=%u warm_ms=%u arm_ms=%u warmup_seqs=%u\n",
+                "io_error=%d fifo_status=0x%04X read_max_us=%u leftover=%u warm_ms=%u arm_ms=%u warmup_seqs=%u warm_dark=%u\n",
                 g_trig_stats.result, g_trig_stats.samples, g_trig_stats.late_count,
                 g_trig_stats.max_late_us, g_trig_stats.residual_count,
                 g_trig_stats.residual_bytes, g_trig_stats.residual_sample,
@@ -1687,7 +1724,7 @@ void print_trig_stats(void){
                 g_trig_stats.sleepq_rejects, g_trig_stats.sleepq_min_us, g_trig_stats.sleepq_max_us,
                 g_trig_wfi_us, g_trig_stats.quiet_mode,
                 g_trig_stats.io_error, g_trig_stats.fifo_status & 0xFFFF, g_trig_stats.read_max_us,
-                g_trig_stats.leftover_count, g_trig_warm_ms, g_trig_arm_ms, g_trig_stats.warmup_seqs);
+                g_trig_stats.leftover_count, g_trig_warm_ms, g_trig_arm_ms, g_trig_stats.warmup_seqs, g_trig_warm_dark);
   Serial.flush();
 }
 
@@ -1825,6 +1862,12 @@ void diag_set_warm_ms(uint32_t ms){
 void diag_set_warmup_n(uint8_t n){
   g_trig_warmup_n = n;
   Serial.printf("twarmn: %u warm-up sequences per run\n", g_trig_warmup_n);
+  Serial.flush();
+}
+// twarmdark,<0|1> — warm-up sequences with the LED drivers at zero current (experiment).
+void diag_set_warm_dark(uint8_t on){
+  g_trig_warm_dark = on ? 1 : 0;
+  Serial.printf("twarmdark: warm-up sequences %s\n", g_trig_warm_dark ? "with LEDs dark" : "with LEDs on (production)");
   Serial.flush();
 }
 // tarm,<ms> — arm settle after RUN() (production 5 ms).

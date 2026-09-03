@@ -69,6 +69,7 @@ enum ArrTriggerResult {
     ARR_TRIG_FIFO_DESYNC  = -5,   // FIFO held more than the one sequence the edge asked for (or overflowed)
     ARR_TRIG_IO_ERROR     = -6,   // SPI/driver error on FIFO_BYTE_COUNT or the FIFO read
     ARR_TRIG_PLOT_RATE    = -7,   // PLOTTING sink (arrunt1) asked above kTrigPlotMaxHz
+    ARR_TRIG_RATE_LIMIT   = -8,   // freq above kTrigMaxHz: refused rather than silently run at the ceiling
 };
 int run_arr_trigger_validate(uint8_t length, uint8_t* arr);
 // Owned by ambit-1.ino (the ISR lives there): the BOOT-pin reset gesture is paused for
@@ -114,6 +115,7 @@ int measure_block_read(uint16_t N, uint16_t freq);
 void diag_set_warm_ms(uint32_t ms);
 void diag_set_arm_ms(uint32_t ms);
 void diag_set_warmup_n(uint8_t n);   // twarmn,<n>: warm-up sequences per run (production 3)
+void diag_set_warm_dark(uint8_t on);  // twarmdark,<0|1>: warm-up sequences with the LED drivers at zero current
 int measure_farred_tail(uint8_t frrep, uint32_t start_us, uint32_t step_us, uint16_t reps);
 // traw,<mode>,<N>,<freq>: dump N raw readouts (sun, leaf, s_dark, s_lit, r_dark, r_lit,
 // s730, r730) as CSV; mode 0 = free-run at freq, 1 = EXT_SYNC paced at freq. For the

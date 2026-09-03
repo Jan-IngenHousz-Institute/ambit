@@ -357,6 +357,10 @@ void do_command(char *choose){
       diag_set_warmup_n((uint8_t) Serial_Input_Long(",", 10));
       break;
 
+    case hash("twarmdark"): // twarmdark,<0|1>: warm-up with LEDs dark (Phase 3 1.1 follow-up)
+      diag_set_warm_dark((uint8_t) Serial_Input_Long(",", 10));
+      break;
+
     case hash("tarm"):      // tarm,<ms>: arm settle after RUN() (Phase 3 1.3)
       diag_set_arm_ms((uint32_t) Serial_Input_Long(",", 10));
       break;
