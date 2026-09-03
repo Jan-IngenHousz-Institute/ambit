@@ -6,8 +6,8 @@
 // mode is intentionally unreachable — it had no live consumer.
 //
 // Measurement commands beyond arrun (q/mpf as one streamed JSON value per
-// envelope position) are added once D6 — the app's exact in-envelope measurement
-// shape — is settled.
+// envelope position) remain separate work. D6 for arrun is resolved by the
+// canonical ambit.trace/3 measurement object emitted from PAM.cpp.
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include "openjii_proto.h"
@@ -19,6 +19,7 @@
 #include "config.h"
 #include "PAM.h"
 #include "core.h"
+#include "trace_v3.h"
 
 extern ADPD6 adpd;   // defined in ambit-1.ino
 
@@ -28,6 +29,28 @@ static void cmd_hello(const String& args, JsonVariant root) {
   root["device"]  = "Ambit";
   root["version"] = AMBIT_FW_VERSION;   // build-injected, same source as cmd 33/2 and text hello
   root["name"]    = ambit_calibration_local.ambit_name;
+}
+
+// INFO — the openJII generic-device identity contract, sent as
+// `{"command":"INFO"}` by the platform's identifyDevice() second probe and
+// answered as a bare `{"status":"success","data":{...}}` line (openjii_proto).
+// This is the probe that decides whether a phone/PC on the USB console gets the
+// Ambit driver: the first probe (`hello`) completes on the first '\n' it sees,
+// so a boot banner (DTR/RTS reset on port open) or a "BAD COMMAND" reply to a
+// half-eaten wake line makes it miss, and INFO is the only fallback before the
+// host gives up and binds a raw generic connector. Field names are the host's
+// GenericInfoResponse; device_type must lowercase to a known family ("ambit").
+// device_id is the eFuse MAC in the same uppercase colon form as the trace's
+// sensor_id so both identify the same unit. Keep the line short: the ambyte's
+// `uart_query` bench tool caps a reply line at 255 bytes, and a dev build's
+// git-describe version string is long.
+static void cmd_INFO(const String& args, JsonVariant root) {
+  char sensor_id[18];
+  ambit_trace_v3::format_sensor_id(ESP.getEfuseMac(), sensor_id);
+  root["device_name"]      = ambit_calibration_local.ambit_name;
+  root["device_type"]      = "ambit";
+  root["device_id"]        = sensor_id;
+  root["firmware_version"] = AMBIT_FW_VERSION;
 }
 
 static void cmd_temp(const String& args, JsonVariant root) {
@@ -108,8 +131,8 @@ static_assert(!valid_arrun_shape(17, 136), "oversized arrun must be rejected");
 static_assert(!valid_arrun_shape(1, 128), "arrun byte count must match len");
 
 // arrun,<len>,<persist>,<8*len array bytes> — runs an array-mode measurement and
-// emits one JSON object {"env":[..],"s_630":[..],...}. run_arr_type1's json_output
-// path writes it to Serial, which IS the openJII output stream in the cloud build.
+// emits one canonical ambit.trace/3 object. run_arr_type1's json_output path
+// writes it to Serial, which is the stream owned by the openJII envelope writer.
 static void cmd_arrun(const String& args, Print& out) {
   long requested_len = arg_long(args, 0);
   uint8_t persist = (uint8_t) arg_long(args, 1);
@@ -126,6 +149,16 @@ static void cmd_arrun(const String& args, Print& out) {
     return;
   }
 
+  ambit_trace_v3::RunCounts counts;
+  if (!ambit_trace_v3::validate_run_protocol(
+          arr, len, MAX_DATACLASS_SIZE - 1U, &counts)) {
+    // A stream handler owes the envelope exactly one complete value. Reject
+    // decoded semantic errors before configuration or measurement so failures
+    // cannot divide by zero or leave a missing/partial set element.
+    out.print("{\"error\":\"bad_arrun\"}");
+    return;
+  }
+
   if (!adpd_gains_config.init)   adpd_gains_config.init = true;
   if (!adpd_current_config.init) adpd_current_config.init = true;
   if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1) {
@@ -133,7 +166,11 @@ static void cmd_arrun(const String& args, Print& out) {
     adpd_mode = ADPD_CONFIG_MODE::ARRAY_MODE1;
   }
   CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;   // no inline plotting; JSON emitted at the end
-  run_arr_type1(len, arr, persist, false, true);  // json_output -> writes the JSON object to Serial
+  if (run_arr_type1(len, arr, persist, false, true) != 0) {
+    // run_arr_type1 emits nothing until a successful run is serialized, so an
+    // allocation/measurement failure can still fulfill the one-value contract.
+    out.print("{\"error\":\"bad_arrun\"}");
+  }
 }
 
 // ── config setters (snapshot: ack with the applied values; command-as-root) ──
@@ -179,6 +216,7 @@ static void cmd_get_gains(const String& args, JsonVariant root) {
 void frontend_json_register() {
   ojii::identity({ "Ambit", AMBIT_FW_VERSION, AMBIT_FW_VERSION });
   ojii::on("hello",   cmd_hello);
+  ojii::on("INFO",    cmd_INFO);    // identifyDevice() probe 2 ({"command":"INFO"})
   ojii::on("temp",    cmd_temp);
   ojii::on("get_par", cmd_get_par);
   ojii::on("PAR",     cmd_PAR);

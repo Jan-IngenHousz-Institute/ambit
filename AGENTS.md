@@ -60,7 +60,10 @@ wire bytes → [adapter: decode + undo wire conventions] → normalized args →
   - `src/do_command.h` — text/console verbs (`hash()` dispatch switch). This is the
     dialect the openJII platform's ambit driver and the Calibratron actually speak.
   - `src/frontend_json.cpp` — openJII envelope handlers (snapshot tree-builders +
-    streamed `arrun`), registered from `setup()`.
+    streamed `arrun`), registered from `setup()`. Also owns `INFO`, the reply to
+    the app's `{"command":"INFO"}` identification probe (bare `{"status":…}` line,
+    no frame token — see `openjii_proto.h`). The app binds the Ambit driver only
+    if `hello` or `INFO` classifies the device; keep both answering.
 - `lib/openjii_proto/` — device-agnostic openJII serial protocol module. Devices
   register snapshot/stream handlers; `busy()`/`reset()` exist for router coexistence.
   Bare-line LINE mode is intentionally unreachable in this firmware (no live consumer;

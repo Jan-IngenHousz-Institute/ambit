@@ -9,6 +9,16 @@
 // envelope writer, and the receiver. Measurement/STREAM commands (one streamed
 // JSON value per envelope position) are a separate API added once D6 is settled.
 //
+// A third request shape is the openJII generic-device command object,
+// `{"command":"<name>"[,"params":"<comma-args>"]}`, answered with ONE bare line
+// `{"status":"success","data":<payload>}` / `{"status":"error","error":"<code>"}`
+// and no frame token. The platform's identifyDevice() sends `{"command":"INFO"}`
+// as its second discovery probe and parses each reply line with JSON.parse, so a
+// device that wants to be recognised by the openJII app must register an "INFO"
+// snapshot handler (fields: device_name, device_type, device_id,
+// firmware_version, ...). Command names resolve through the same snapshot/stream
+// tables as the envelope.
+//
 // Single-image note: the module no longer owns the whole read loop. The device's
 // main loop routes by first byte and feeds poll() only printable traffic (the
 // binary FSM path must never reach it — poll() consumes bytes and silently drops

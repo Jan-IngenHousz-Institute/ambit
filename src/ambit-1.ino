@@ -237,7 +237,17 @@ void loop(){
          * still selected and emit FSM wake traffic at a text host. Verbs that
          * set their own sink still override this. */
         CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
-        Serial_Input_Chars(choose, ":,", 200, sizeof(choose) - 1);
+        /* '\n' ends the command token too. Without it the token was framed by
+         * the 200 ms silence alone (Serial_Input_Chars skips CR/LF), so a
+         * second line arriving inside that window was glued onto the first:
+         * the openJII app's `hello\r\n` immediately followed by its
+         * `{"command":"INFO"}\n` probe became the token `hello{"command"` ->
+         * BAD COMMAND, and the JSON never reached the envelope router. Same
+         * for the ambyte's `uart_query` priming newline 50 ms ahead of its
+         * payload. Verb handlers still read their comma args with their own
+         * terminators/timeouts, and do_command() already ignores an empty or
+         * non-alphanumeric token quietly, so a bare newline stays silent. */
+        Serial_Input_Chars(choose, ":,\n", 200, sizeof(choose) - 1);
         do_command(choose);
         host_last_activity_ms = millis();
 

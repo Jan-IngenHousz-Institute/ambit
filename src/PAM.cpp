@@ -1,5 +1,11 @@
 #include "PAM.h"
 #include "nvs1.h"
+#include "trace_v3.h"
+
+#include <esp_rom_crc.h>
+#include <new>
+#include <stdio.h>
+#include <string.h>
 
 static const char* TAG = "PAM";
 static bool measure_temp = true;
@@ -130,34 +136,15 @@ uint32_t arr_line_parse_type1(uint8_t* line, uint8_t* num1, uint16_t* num2, uint
 
 
 
-int run_preprocess_type1(uint8_t length, uint8_t* arr, uint16_t* data_counter){
-    uint8_t pc = 0;
-    uint8_t _type = 0;
-    uint8_t para1, actinic, subsampling = 0;
-    uint16_t num_ptx = 0, freq = 0;
-    uint16_t _data_counter[4] = {0};
-
-    while (pc < length){
-      _type = *(arr + pc * 8);
-      if ((_type == 1) || (_type == 2)){
-        arr_line_parse_type1(arr + pc * 8, &para1, &num_ptx, &freq, &actinic, &subsampling, _data_counter);
-        ESP_LOGV(TAG, "Run type:%d, number:%d, freq: %d, actinic: %d, subfactor %d", _type, num_ptx, freq, actinic, subsampling);
-        for (uint8_t i = 0; i < 4; i++) data_counter[i] += _data_counter[i];
-      }
-      pc += 1;
-    }
-    return 0;
-}
-
-// Shared output sink for a completed run: stream the 7 channel buffers over the
-// active CONNECTION_TYPE. COMPUTER -> ASCII send_serial; AMBYTE -> binary FSM
-// (env retried once; sun/leaf/730 only when present). Extracted verbatim from the
-// per-run send block so every run path (sweep #4) shares one copy. Wire-touching:
-// re-run HW_CONFORMANCE.md after changing it.
+// Shared output sink for a completed run. COMPUTER keeps its legacy ASCII
+// channels; AMBYTE streams the frozen arrays 0..7 followed by additive env-time
+// array 8 when supplied. Wire-touching: re-run HW_CONFORMANCE.md after changing
+// this function.
 static void pam_send_results(dataclass* d_env, dataclass* d_fluor, dataclass* d_fluoRef,
                              dataclass* d_sun, dataclass* d_leaf, dataclass* d_730,
-                             dataclass* d_730Ref, dataclass* d_timing, uint8_t subsampling,
-                             bool has_730, bool allow_interrupt){
+                             dataclass* d_730Ref, dataclass* d_timing,
+                             dataclass* d_env_time, uint8_t subsampling, bool has_730,
+                             bool allow_interrupt){
   if (CONNECTION_TYPE == CONNECTION_TYPES::COMPUTER){
     d_env->send_serial("env");
     d_fluor->send_serial("s_630");
@@ -191,6 +178,10 @@ static void pam_send_results(dataclass* d_env, dataclass* d_fluor, dataclass* d_
       }
     }
     if (d_timing != NULL) d_timing->fsm_send_array(7, 4, 0);   // Change 3: TIMING block
+    // Array 8 is deliberately appended after every frozen 0..7 array. Existing
+    // hosts already ignore unknown indices, while v3 hosts gain device-recorded
+    // env offsets without any byte changing in the shipped arrays.
+    if (d_env_time != NULL) d_env_time->fsm_send_array(8, 4, 0);
   }
 }
 
@@ -199,11 +190,12 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
 }
 
 // ── Async result holder (parallel trigger/poll/fetch protocol) ──────────────
-// Holds the eight result buffers of one retained run plus the metadata
+// Holds the nine result buffers of one retained run plus the metadata
 // pam_send_results() needs, until the host FETCHes them. One run at a time.
 struct ambit_async_result_t {
   dataclass *d_env = NULL, *d_fluor = NULL, *d_fluoRef = NULL, *d_sun = NULL,
-            *d_leaf = NULL, *d_730 = NULL, *d_730Ref = NULL, *d_timing = NULL;
+            *d_leaf = NULL, *d_730 = NULL, *d_730Ref = NULL, *d_timing = NULL,
+            *d_env_time = NULL;
   uint8_t subsampling = 0;
   bool    has_730 = false;
   bool    allow_interrupt = false;
@@ -211,54 +203,217 @@ struct ambit_async_result_t {
 };
 static ambit_async_result_t g_async;
 
+// Every run owns these heap objects until a retained run explicitly transfers
+// them to g_async. This guard covers object-allocation and dataclass::init()
+// failures without duplicating a fragile nine-pointer cleanup at each return.
+struct pam_run_buffers_t {
+  dataclass *d_env, *d_fluor, *d_fluoRef, *d_sun, *d_leaf, *d_730,
+            *d_730Ref, *d_timing, *d_env_time;
+
+  pam_run_buffers_t()
+      : d_env(new (std::nothrow) dataclass),
+        d_fluor(new (std::nothrow) dataclass),
+        d_fluoRef(new (std::nothrow) dataclass),
+        d_sun(new (std::nothrow) dataclass),
+        d_leaf(new (std::nothrow) dataclass),
+        d_730(new (std::nothrow) dataclass),
+        d_730Ref(new (std::nothrow) dataclass),
+        d_timing(new (std::nothrow) dataclass),
+        d_env_time(new (std::nothrow) dataclass) {}
+
+  ~pam_run_buffers_t() {
+    delete d_env;    delete d_fluor;  delete d_fluoRef;
+    delete d_sun;    delete d_leaf;   delete d_730;
+    delete d_730Ref; delete d_timing; delete d_env_time;
+  }
+
+  bool allocated() const {
+    return d_env != NULL && d_fluor != NULL && d_fluoRef != NULL &&
+           d_sun != NULL && d_leaf != NULL && d_730 != NULL &&
+           d_730Ref != NULL && d_timing != NULL && d_env_time != NULL;
+  }
+
+  void release() {
+    d_env = NULL;    d_fluor = NULL;  d_fluoRef = NULL;
+    d_sun = NULL;    d_leaf = NULL;   d_730 = NULL;
+    d_730Ref = NULL; d_timing = NULL; d_env_time = NULL;
+  }
+};
+
 void ambit_async_clear(void){
   delete g_async.d_env;    delete g_async.d_fluor;  delete g_async.d_fluoRef;
   delete g_async.d_sun;    delete g_async.d_leaf;   delete g_async.d_730;
-  delete g_async.d_730Ref; delete g_async.d_timing;
+  delete g_async.d_730Ref; delete g_async.d_timing; delete g_async.d_env_time;
   g_async = ambit_async_result_t();   // re-init all pointers to NULL, state IDLE
 }
 
 uint8_t ambit_async_get_state(void){ return g_async.state; }
 
 
-// openJII env channel: fw_new stores leaf temp as centi-degC in the low 16 bits.
-// Used only on the json_output path (arrun via the JSON envelope).
-static void send_env_json(dataclass* d){
-  Serial.print("\"env\":[");
-  if (d->available){
-    uint16_t n = d->get_length();
-    for (uint16_t i = 0; i < n; i++){
-      uint32_t raw = d->pop();
-      float temp = (int16_t)(raw & 0xFFFF) / 100.0f;
-      if (i > 0) Serial.print(',');
-      Serial.printf("{\"temp_c\":%.2f}", temp);
+static void print_json_string(const char* value, size_t max_length){
+  Serial.print('"');
+  for (size_t i = 0; i < max_length && value[i] != '\0'; ++i){
+    const uint8_t c = static_cast<uint8_t>(value[i]);
+    if (c == '"' || c == '\\'){
+      Serial.print('\\');
+      Serial.print(static_cast<char>(c));
+    }else if (c < 0x20){
+      Serial.printf("\\u%04x", c);
+    }else{
+      Serial.print(static_cast<char>(c));
     }
+  }
+  Serial.print('"');
+}
+
+// Contract time numbers have at most 0.1 ms precision and never use exponent
+// notation. Render four decimals, then remove only insignificant trailing zeros.
+static void print_trace_time(double value){
+  char text[32];
+  ambit_trace_v3::format_time(value, text);
+  Serial.print(text);
+}
+
+static void send_count_values(dataclass* data){
+  Serial.print("\"v\":[");
+  const uint16_t count = data->get_length();
+  for (uint16_t i = 0; i < count; ++i){
+    if (i > 0) Serial.print(',');
+    Serial.print(ambit_trace_v3::clamp_count(data->pop()));
   }
   Serial.print(']');
 }
 
-// openJII derived channel: fluo = s_630 / r_630 (signal / reference), one float
-// per sample. Computed on-device only for the JSON path because the openJII sink
-// consumes the JSON verbatim and does no math. MUST run BEFORE d_fluor / d_fluoRef are
-// drained by send_json(): it reads arr[] directly and relies on read_ptr == 0 (nothing
-// popped yet). den == 0 -> 0 (calc_signal floors the reference at 0 when dark dominates).
-static void send_fluo_json(dataclass* num, dataclass* den){
-  Serial.print("\"fluo\":[");
-  if (num->available && den->available){
-    uint16_t n = num->get_length();
-    uint16_t m = den->get_length();
-    if (m < n) n = m;                     // defensive: emit only paired samples
-    for (uint16_t i = 0; i < n; i++){
-      if (i > 0) Serial.print(',');
-      uint32_t d = den->arr[i];
-      if (d == 0) Serial.print('0');
-      else Serial.printf("%.5f", (double)num->arr[i] / (double)d);
-    }
+static void send_series_clock(const uint8_t* protocol, uint8_t segment_count,
+                              ambit_trace_v3::SeriesClock clock,
+                              uint16_t value_count){
+  const double tick_factor = static_cast<double>(ambit_calibration_local.tick_factor);
+  const ambit_trace_v3::TimeModel model = ambit_trace_v3::analyze_time_model(
+      protocol, segment_count, clock, tick_factor, value_count);
+  if (model.regular){
+    Serial.print("\"t0\":"); print_trace_time(model.t0);
+    Serial.print(",\"dt\":"); print_trace_time(model.dt);
+  }else{
+    Serial.print("\"t\":[");
+    ambit_trace_v3::for_each_time(
+        protocol, segment_count, clock, tick_factor, value_count,
+        [](uint16_t index, double value){
+          if (index > 0) Serial.print(',');
+          print_trace_time(value);
+        });
+    Serial.print(']');
+  }
+}
+
+static void send_count_series(const char* name, dataclass* data,
+                              const uint8_t* protocol, uint8_t segment_count,
+                              ambit_trace_v3::SeriesClock clock){
+  const uint16_t value_count = data->get_length();
+  Serial.print('"'); Serial.print(name); Serial.print("\":{\"u\":\"count\",");
+  send_series_clock(protocol, segment_count, clock, value_count);
+  Serial.print(',');
+  send_count_values(data);
+  Serial.print('}');
+}
+
+static void send_leaf_temp_series(dataclass* env, dataclass* env_time){
+  uint16_t count = env->get_length();
+  const uint16_t time_count = env_time->get_length();
+  if (time_count < count) count = time_count;
+
+  Serial.print("\"leaf_temp\":{\"u\":\"Cel\",\"t\":[");
+  for (uint16_t i = 0; i < count; ++i){
+    if (i > 0) Serial.print(',');
+    print_trace_time(static_cast<double>(env_time->pop()) / 1000.0);
+  }
+  Serial.print("],\"v\":[");
+  for (uint16_t i = 0; i < count; ++i){
+    if (i > 0) Serial.print(',');
+    const int16_t centi_c = static_cast<int16_t>(env->pop() & 0xFFFFU);
+    char value[16];
+    ambit_trace_v3::format_leaf_temp(centi_c, value);
+    Serial.print(value);
+  }
+  Serial.print("]}");
+}
+
+static void send_protocol_segments(const uint8_t* protocol, uint8_t segment_count){
+  Serial.print("\"segments\":[");
+  for (uint8_t i = 0; i < segment_count; ++i){
+    if (i > 0) Serial.print(',');
+    const ambit_trace_v3::Segment segment =
+        ambit_trace_v3::decode_segment(protocol + static_cast<uint16_t>(i) * 8U);
+    Serial.printf("{\"pulses\":%u,\"freq\":%u,\"actinic\":%u}",
+                  segment.pulses, segment.freq, segment.actinic);
   }
   Serial.print(']');
+}
+
+static void send_trace_v3_json(uint8_t segment_count, const uint8_t* protocol,
+                               uint32_t duration_ms, dataclass* d_env,
+                               dataclass* d_env_time, dataclass* d_fluor,
+                               dataclass* d_fluoRef, dataclass* d_sun,
+                               dataclass* d_leaf, dataclass* d_730,
+                               dataclass* d_730Ref){
+  static_assert(sizeof(ambit_calibration_info_t) == 140,
+                "cal_version must hash the frozen 140-byte calibration struct");
+  const uint32_t cal_version = esp_rom_crc32_le(
+      0, reinterpret_cast<const uint8_t*>(&ambit_calibration_local),
+      sizeof(ambit_calibration_local));
+  char sensor_id[18];
+  ambit_trace_v3::format_sensor_id(ESP.getEfuseMac(), sensor_id);
+
+  Serial.print("{\"schema\":\"ambit.trace/3\",\"sensor_id\":");
+  print_json_string(sensor_id, sizeof(sensor_id));
+  Serial.print(",\"device\":");
+  print_json_string(ambit_calibration_local.ambit_name,
+                    sizeof(ambit_calibration_local.ambit_name));
+  Serial.printf(",\"time\":{\"duration_ms\":%lu},\"protocol\":{",
+                static_cast<unsigned long>(duration_ms));
+  send_protocol_segments(protocol, segment_count);
+  Serial.printf(",\"cal_version\":\"%08lx\",\"tick_factor\":",
+                static_cast<unsigned long>(cal_version));
+  print_trace_time(ambit_calibration_local.tick_factor);
+  Serial.printf(",\"gains\":[%u,%u,%u,%u,%u,%u]},\"series\":{",
+                adpd_gains_config.Fluo, adpd_gains_config.FluoRef,
+                adpd_gains_config.IR, adpd_gains_config.IRRef,
+                adpd_gains_config.Sun, adpd_gains_config.Leaf);
+
+  send_count_series("fluo_630_signal", d_fluor, protocol, segment_count,
+                    ambit_trace_v3::SeriesClock::MAIN);
+  Serial.print(',');
+  send_count_series("fluo_630_ref", d_fluoRef, protocol, segment_count,
+                    ambit_trace_v3::SeriesClock::MAIN);
+  if (d_sun->available){
+    Serial.print(',');
+    send_count_series("ambient_sun_vis", d_sun, protocol, segment_count,
+                      ambit_trace_v3::SeriesClock::AMBIENT);
+  }
+  if (d_leaf->available){
+    Serial.print(',');
+    send_count_series("ambient_leaf_ir", d_leaf, protocol, segment_count,
+                      ambit_trace_v3::SeriesClock::AMBIENT);
+  }
+  if (d_730->available){
+    Serial.print(',');
+    send_count_series("refl_730_signal", d_730, protocol, segment_count,
+                      ambit_trace_v3::SeriesClock::REFLECTION);
+  }
+  if (d_730Ref->available){
+    Serial.print(',');
+    send_count_series("refl_730_ref", d_730Ref, protocol, segment_count,
+                      ambit_trace_v3::SeriesClock::REFLECTION);
+  }
+  Serial.print(',');
+  send_leaf_temp_series(d_env, d_env_time);
+  Serial.print("}}");
 }
 
 int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt, bool json_output, bool retain){
+  ambit_trace_v3::RunCounts run_counts;
+  if (!ambit_trace_v3::validate_run_protocol(
+          arr, length, MAX_DATACLASS_SIZE - 1U, &run_counts)) return -1;
+
   if (adpd_mode != ADPD_CONFIG_MODE::ARRAY_MODE1){
     conf_slow_FR_1();
     ESP_LOGW(TAG, "Run array was not configured!");
@@ -270,23 +425,31 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
   const unsigned int start_t0 = millis();
   const int64_t run_tick_begin = esp_timer_get_time();   // Change 3: TIMING - us at run start
 
-  // Run protocol preprecess, get storage size
-  uint16_t data_count[] = {0, 0, 0, 0};
-  if (run_preprocess_type1(length, arr, data_count) == -1) return -1;    // calculate data counts
+  // Validation above computed in uint32_t and proved every value fits the
+  // dataclass limit, so these narrowing conversions cannot wrap.
+  uint16_t data_count[] = {
+      static_cast<uint16_t>(run_counts.main),
+      static_cast<uint16_t>(run_counts.ambient),
+      static_cast<uint16_t>(run_counts.reflection),
+      0,
+  };
   ESP_LOGV(TAG, "Sample & Ref: %d, optionals: %d", data_count[0], data_count[1]);
 
-  dataclass *d_env = new dataclass; //
-  dataclass *d_fluor = new dataclass; // fluorescence signal
-  dataclass *d_fluoRef = new dataclass; // fluorescence reference
-
-  dataclass *d_sun = new dataclass; // sun-side ambient
-  dataclass *d_leaf = new dataclass;  // leaf-side ambient
-  dataclass *d_730 = new dataclass; // 730nm reflectance signal
-  dataclass *d_730Ref = new dataclass;  // 730nm reference
-  dataclass *d_timing = new dataclass;  // Change 3: [tick_begin, tick_end] controller ticks (us)
+  pam_run_buffers_t buffers;
+  if (!buffers.allocated()) return -1;
+  dataclass *d_env = buffers.d_env;
+  dataclass *d_fluor = buffers.d_fluor;       // fluorescence signal
+  dataclass *d_fluoRef = buffers.d_fluoRef;   // fluorescence reference
+  dataclass *d_sun = buffers.d_sun;           // sun-side ambient
+  dataclass *d_leaf = buffers.d_leaf;         // leaf-side ambient
+  dataclass *d_730 = buffers.d_730;           // 730nm reflectance signal
+  dataclass *d_730Ref = buffers.d_730Ref;     // 730nm reference
+  dataclass *d_timing = buffers.d_timing;     // run begin/end ticks
+  dataclass *d_env_time = buffers.d_env_time; // v3 env offsets from run start
 
 
   if (!(d_env->init(512))) return -1;
+  if (!(d_env_time->init(512))) return -1;
   if (!(d_timing->init(2))) return -1;
   if (!( (d_fluor->init(data_count[0])) && (d_fluoRef->init(data_count[0])) )) return -1;
   if (data_count[1] > 0){
@@ -323,6 +486,9 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
 
   _tmparr = PAM_get_env(4, start_t0);
   d_env->put(_tmparr);
+  // The contract anchors the pre-loop sample to run start. Later samples use
+  // the device clock directly, preserving their actual irregular cadence.
+  d_env_time->put(0);
   leaf_temp = (int16_t) (_tmparr & 0xFFFF) / 100.0;
 
 
@@ -335,14 +501,10 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
       adpd.run_freq(freq);
       adpd.clear_fifo();
       light_sleep_time = (1000/freq);
-      // JSON path: exactly ONE env temperature per array, sampled once at the start
-      // (the unconditional d_env->put() before this loop). No in-run 2 s resampling, so
-      // env is a single {"temp_c":..} for every array — fast or slow. All other paths
-      // keep the original cadence: that env stream is part of the FROZEN wire contract
-      // with the datalogger, so its bytes must not change. Runtime branch on
-      // json_output (was compile-time VARIANT_CLOUD) — same semantics per caller.
-      if (json_output) measure_temperature = false;
-      else measure_temperature = (light_sleep_time > 20) && measure_temp && actinic < 50;
+      // Direct/openJII and Ambyte runs deliberately share this cadence. Keeping
+      // separate policies made path A report one temperature while the same
+      // protocol over the FSM reported the run's irregular env series.
+      measure_temperature = (light_sleep_time > 20) && measure_temp && actinic < 50;
 
 
       if (_type == 1){ // use IR reflect
@@ -448,6 +610,7 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
           if (measure_temperature && (millis() - env_timer1 > 2000)){
             _tmparr = PAM_get_env(4, start_t0);
             d_env->put(_tmparr);
+            d_env_time->put(millis() - start_t0);
             leaf_temp = (int16_t) (_tmparr & 0xFFFF) / 100.0;
             env_timer1 = millis();
             esp_sleep_enable_timer_wakeup(1000);
@@ -479,20 +642,19 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
   };
 
 
-  if (json_output) {            // one JSON object: {"env":[..],"fluo":[..],"s_630":[..],...}
-    Serial.print('{');
-    send_env_json(d_env);
-    // fluo first: it reads d_fluor/d_fluoRef before send_json() drains them.
-    Serial.print(','); send_fluo_json(d_fluor, d_fluoRef);
-    Serial.print(','); d_fluor->send_json("s_630");
-    Serial.print(','); d_fluoRef->send_json("r_630");
-    if (d_sun->available)    { Serial.print(','); d_sun->send_json("sun"); }
-    if (d_leaf->available)   { Serial.print(','); d_leaf->send_json("leaf"); }
-    if (d_730->available)    { Serial.print(','); d_730->send_json("s_730"); }
-    if (d_730Ref->available) { Serial.print(','); d_730Ref->send_json("r_730"); }
-    Serial.print('}');
+  if (json_output) {
+    // Path A emits the canonical v3 measurement object directly. Capture the
+    // end tick before serialization so duration measures the sensor run, not
+    // UART JSON transfer time, and diff in int64 before narrowing.
+    const int64_t run_tick_end = esp_timer_get_time();
+    send_trace_v3_json(length, arr,
+                       ambit_trace_v3::duration_ms(run_tick_begin, run_tick_end),
+                       d_env, d_env_time, d_fluor, d_fluoRef, d_sun, d_leaf,
+                       d_730, d_730Ref);
   } else {
     d_timing->put((uint32_t) run_tick_begin);          // Change 3: run start tick (us)
+    // Keep the frozen idx-7 capture at its original point. The int64 diff is a
+    // path-A concern; moving this call earlier would perturb the binary value.
     d_timing->put((uint32_t) esp_timer_get_time());    //           run end tick (us)
     if (retain){
       // Parallel protocol: transfer ownership of the buffers to the async holder
@@ -500,22 +662,16 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_int
       g_async.d_env = d_env; g_async.d_fluor = d_fluor; g_async.d_fluoRef = d_fluoRef;
       g_async.d_sun = d_sun; g_async.d_leaf = d_leaf; g_async.d_730 = d_730;
       g_async.d_730Ref = d_730Ref; g_async.d_timing = d_timing;
+      g_async.d_env_time = d_env_time;
       g_async.subsampling = subsampling; g_async.has_730 = (data_count[2] > 0);
       g_async.allow_interrupt = allow_interrupt;
-      return 0;   // holder owns the buffers now — do NOT delete
+      buffers.release();  // holder owns the buffers now — do NOT delete
+      return 0;
     }
     pam_send_results(d_env, d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref,
-                     d_timing, subsampling, data_count[2] > 0, allow_interrupt);
+                     d_timing, d_env_time, subsampling, data_count[2] > 0,
+                     allow_interrupt);
   }
-
-  delete d_fluor;
-  delete d_fluoRef;
-  delete d_sun;
-  delete d_leaf;
-  delete d_730;
-  delete d_730Ref;
-  delete d_env;
-  delete d_timing;
 
   return 0;
 
@@ -545,7 +701,8 @@ int ambit_async_fetch(void){
   CONNECTION_TYPE = CONNECTION_TYPES::AMBYTE;
   pam_send_results(g_async.d_env, g_async.d_fluor, g_async.d_fluoRef, g_async.d_sun,
                    g_async.d_leaf, g_async.d_730, g_async.d_730Ref, g_async.d_timing,
-                   g_async.subsampling, g_async.has_730, g_async.allow_interrupt);
+                   g_async.d_env_time, g_async.subsampling, g_async.has_730,
+                   g_async.allow_interrupt);
   CONNECTION_TYPE = saved;
   ambit_async_clear();
   return 0;
@@ -718,7 +875,7 @@ int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8
   d_timing->put((uint32_t) run_tick_begin);          // Change 3: run start tick (us)
   d_timing->put((uint32_t) esp_timer_get_time());    //           run end tick (us)
   pam_send_results(d_env, d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref,
-                   d_timing, 1, true, interrrupt);
+                   d_timing, NULL, 1, true, interrrupt);
 
   _func_ret = 0;
   del_classes:
