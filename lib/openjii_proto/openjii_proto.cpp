@@ -194,10 +194,69 @@ void emit_payload_json(const String& label, Print& out) {
   serializeJson(doc, out);                   // strict JSON, all strings quoted
 }
 
+// ── generic command object (openJII generic-device contract) ────────────────
+// `{"command":"INFO"}` is what the openJII platform's identifyDevice() sends as
+// its second discovery probe (packages/iot/src/core/identify-device.ts), and
+// what its GenericDeviceDriver sends for every command. The reply contract is
+// one bare JSON line `{"status":"success"|"error", "data":..., "error":...}`
+// with NO frame token: the host parses each received line with JSON.parse and
+// looks for a "status" key, so the envelope form (`...}7A1E3AA1`) is unparseable
+// to it. Before this path existed the probe fell into the envelope writer,
+// which answered an empty `set` plus the frame token; the host timed out and
+// bound a raw generic connector, i.e. a phone on the USB console never got the
+// Ambit driver whenever the first `hello` probe had been polluted (boot banner
+// after a DTR/RTS reset on port open, "BAD COMMAND" for a half-eaten wake
+// line). The command name is looked up in the same snapshot/stream tables the
+// envelope uses; an optional string `params` is passed through as the
+// comma-args remainder.
+void handle_command(JsonVariantConst req, Print& out) {
+  const char* name = req["command"];
+  String cmd(name);
+  String args;
+  if (req["params"].is<const char*>()) args = req["params"].as<const char*>();
+
+  StreamFn sfn = find_stream(cmd);
+  if (sfn) {
+    out.print("{\"status\":\"success\",\"data\":");
+    sfn(args, out);
+    out.print("}\n");
+    return;
+  }
+  SnapshotFn fn = find(cmd);
+  if (!fn) {
+    // Serialise rather than splice: the echoed name is host input and may hold
+    // quotes/backslashes that would otherwise break the line for JSON.parse.
+    JsonDocument e;
+    e["status"] = "error";
+    e["error"] = "unknown_command";
+    e["command"] = cmd.c_str();
+    serializeJson(e, out);
+    out.print('\n');
+    return;
+  }
+  JsonDocument doc; JsonVariant root = doc.to<JsonVariant>();
+  fn(args, root);
+  // A handler reports failure by setting root["error"] (§9); surface it as the
+  // contract's status so the host does not have to look inside `data`.
+  bool failed = root.is<JsonObject>() && root["error"].is<const char*>();
+  out.print(failed ? "{\"status\":\"error\",\"error\":\"" : "{\"status\":\"success\",\"data\":");
+  if (failed) { out.print(root["error"].as<const char*>()); out.print("\",\"data\":"); }
+  serializeJson(doc, out);
+  out.print("}\n");
+}
+
 void handle_json(const String& doc_str, Print& out) {
   JsonDocument req;
   DeserializationError e = deserializeJson(req, doc_str);
   if (e) { err(out, "json_parse", "detail", e.c_str()); return; }
+
+  // Generic command object before the envelope: an envelope object never has a
+  // string `command` member (its list lives under `_protocol_set_`/`set`/any
+  // array-valued key), so the two shapes cannot collide.
+  if (req.is<JsonObjectConst>() && req["command"].is<const char*>()) {
+    handle_command(req.as<JsonVariantConst>(), out);
+    return;
+  }
 
   JsonArrayConst list = extract_list(req);
 

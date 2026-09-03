@@ -31,6 +31,30 @@ static void cmd_hello(const String& args, JsonVariant root) {
   root["name"]    = ambit_calibration_local.ambit_name;
 }
 
+// INFO — the openJII generic-device identity contract, sent as
+// `{"command":"INFO"}` by the platform's identifyDevice() second probe and
+// answered as a bare `{"status":"success","data":{...}}` line (openjii_proto).
+// This is the probe that decides whether a phone/PC on the USB console gets the
+// Ambit driver: the first probe (`hello`) completes on the first '\n' it sees,
+// so a boot banner (DTR/RTS reset on port open) or a "BAD COMMAND" reply to a
+// half-eaten wake line makes it miss, and INFO is the only fallback before the
+// host gives up and binds a raw generic connector. Field names are the host's
+// GenericInfoResponse; device_type must lowercase to a known family ("ambit").
+// device_id is the eFuse MAC in the same uppercase colon form as the trace's
+// sensor_id so both identify the same unit.
+static void cmd_INFO(const String& args, JsonVariant root) {
+  char sensor_id[18];
+  ambit_trace_v3::format_sensor_id(ESP.getEfuseMac(), sensor_id);
+  root["device_name"]      = ambit_calibration_local.ambit_name;
+  root["device_type"]      = "ambit";
+  root["device_id"]        = sensor_id;
+  root["device_version"]   = AMBIT_FW_VERSION;
+  root["firmware_version"] = AMBIT_FW_VERSION;
+  JsonArray caps = root["capabilities"].to<JsonArray>();
+  caps.add("hello"); caps.add("temp"); caps.add("get_par"); caps.add("PAR");
+  caps.add("arrun"); caps.add("ambit.trace/3");
+}
+
 static void cmd_temp(const String& args, JsonVariant root) {
   double leaf, ambient, reflect;
   int16_t a1, a2, a3, a4;
@@ -194,6 +218,7 @@ static void cmd_get_gains(const String& args, JsonVariant root) {
 void frontend_json_register() {
   ojii::identity({ "Ambit", AMBIT_FW_VERSION, AMBIT_FW_VERSION });
   ojii::on("hello",   cmd_hello);
+  ojii::on("INFO",    cmd_INFO);    // identifyDevice() probe 2 ({"command":"INFO"})
   ojii::on("temp",    cmd_temp);
   ojii::on("get_par", cmd_get_par);
   ojii::on("PAR",     cmd_PAR);

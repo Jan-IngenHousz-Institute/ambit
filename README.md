@@ -340,6 +340,14 @@ pio run
   not expose the runtime protocol.
 - JSON envelopes must begin with `{` or `[`. Bare printable input is interpreted
   as a legacy text-console command.
+- The openJII app identifies the device with two probes: `hello\r\n` (expects a
+  `NEW <name> Ready …` line) and then `{"command":"INFO"}\n` (expects one bare
+  JSON line with a `status` key and `data.device_type` = `ambit`). If the app
+  binds a "generic" device instead of an Ambit, send `{"command":"INFO"}` from a
+  terminal: the reply must be a single `{"status":"success","data":{…}}` line
+  with no `7A1E3AA1` frame token. A boot banner on the line before the `hello`
+  reply (the USB bridge's DTR/RTS toggling on port open can reset the board) is
+  expected; the INFO probe is what recovers from it.
 - After a partial JSON request, allow its one-second receive timeout or reset the
   device before switching protocols.
 

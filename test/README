@@ -15,6 +15,24 @@ c++ -std=c++11 -Wall -Wextra -Werror \
 python3 -m unittest discover -s test/release_process -p 'test_*.py' -v
 ```
 
+The openJII protocol module (`lib/openjii_proto`) has its own host suite. It
+compiles ArduinoJson in its Arduino flavour against the small shim in
+`tests/host_shim/Arduino.h`, so it needs the library PlatformIO fetched
+(`pio run` once, or `pio pkg install`):
+
+```sh
+c++ -std=c++11 -Wall -Wextra -Werror -DARDUINO=100 -DARDUINOJSON_ENABLE_PROGMEM=0 \
+  -Itests/host_shim -I.pio/libdeps/ambit/ArduinoJson/src -Ilib/openjii_proto \
+  tests/openjii_proto_host.cpp lib/openjii_proto/openjii_proto.cpp \
+  -o /tmp/ambit-host-tests/openjii_proto
+/tmp/ambit-host-tests/openjii_proto
+```
+
+It pins the reply shape of the openJII generic command object
+(`{"command":"INFO"}` → one bare `{"status":…}` line, no frame token) that the
+app's device identification depends on, and that the envelope forms still
+carry the frame token.
+
 Install the archive-hash-pinned release tooling, then run the exact installed
 GitHub release-plugin proof too:
 
