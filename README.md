@@ -339,7 +339,8 @@ pio run
 - Native USB CDC is disabled; attaching to an unrelated USB serial port will
   not expose the runtime protocol.
 - JSON envelopes must begin with `{` or `[`. Bare printable input is interpreted
-  as a legacy text-console command.
+  as a legacy text-console command; the command token ends at `:`, `,` or a
+  newline, so terminate every text line with `\n` (a bare newline is ignored).
 - The openJII app identifies the device with two probes: `hello\r\n` (expects a
   `NEW <name> Ready …` line) and then `{"command":"INFO"}\n` (expects one bare
   JSON line with a `status` key and `data.device_type` = `ambit`). If the app
