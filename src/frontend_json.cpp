@@ -41,18 +41,16 @@ static void cmd_hello(const String& args, JsonVariant root) {
 // host gives up and binds a raw generic connector. Field names are the host's
 // GenericInfoResponse; device_type must lowercase to a known family ("ambit").
 // device_id is the eFuse MAC in the same uppercase colon form as the trace's
-// sensor_id so both identify the same unit.
+// sensor_id so both identify the same unit. Keep the line short: the ambyte's
+// `uart_query` bench tool caps a reply line at 255 bytes, and a dev build's
+// git-describe version string is long.
 static void cmd_INFO(const String& args, JsonVariant root) {
   char sensor_id[18];
   ambit_trace_v3::format_sensor_id(ESP.getEfuseMac(), sensor_id);
   root["device_name"]      = ambit_calibration_local.ambit_name;
   root["device_type"]      = "ambit";
   root["device_id"]        = sensor_id;
-  root["device_version"]   = AMBIT_FW_VERSION;
   root["firmware_version"] = AMBIT_FW_VERSION;
-  JsonArray caps = root["capabilities"].to<JsonArray>();
-  caps.add("hello"); caps.add("temp"); caps.add("get_par"); caps.add("PAR");
-  caps.add("arrun"); caps.add("ambit.trace/3");
 }
 
 static void cmd_temp(const String& args, JsonVariant root) {
