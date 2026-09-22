@@ -265,7 +265,7 @@ and the new hardware checklist are required. See the RC integration note below.
 | Risk | Mitigation |
 |---|---|
 | Duplicated store logic drifts from `run_arr_type1` | Shared per-sample helper (Phase 1); V4 golden diff |
-| Default-swap changes fleet F values | Additive `arrunt` only; swap deferred (§6 Phase 5) |
+| Default-swap changes fleet F values | Later Phase 3 item 1.6 measured F parity after the quiet fix. Scoped RC rollout uses the sleep band; compare post-update telemetry and retain the production-unit reference-target gate |
 | EXT_SYNC left on after an early return | Single-exit cleanup; V1h read-back |
 | Far-red edge swallowed in the illumination tail | Period floor from V0 measurement; abort-on-lost-trigger backstop |
 | Silent errors (logging compiled out) | Explicit console/JSON error replies; return codes checked |
@@ -355,8 +355,9 @@ same session, `cmp_runs.py`):
 Slots A (ambient) and B (fluor) are unaffected; slot C (730 LED, driver 2) is. Rate-independent,
 so it is a property of EXT_SYNC operation, not of the pacing. Candidates: the parked 100 ms
 TIMESLOT_PERIOD (the datasheet says the period counter is bypassed; `tpark,<hz>` tests it) or
-per-edge sleep/wake settling of the 730 LED driver. **Must be resolved before the default swap
-(Phase 5): it changes the 730 reflectance SNR the fleet receives.**
+per-edge sleep/wake settling of the 730 LED driver. **Historical gate, resolved below by
+sessions 8–10 and the Phase 2 rate-band table:** sleep-band parity recovered; residual
+WFI noise was accepted for the documented high-rate use.
 
 Other observations: no first-sample spike in back-to-back runs (earlier manual runs, minutes
 apart, showed +30…+142 on r_630) → the spike is idle-time dependent, `tratio` to confirm; the
