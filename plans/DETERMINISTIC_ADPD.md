@@ -243,7 +243,16 @@ back-pressure guard band ≥1.5× `t_seq`; SNR integ=1 vs 4 with a pre-stated de
 byte-diff of `arrun` before vs after the branch (must be zero); `arrunt` vs `arrun` diff limited
 to payload values; async over-cap returns ERROR with flat heap.
 
-### Phase 5 — Merge; default swap is a separate decision
+### Phase 5 — Original merge/default-swap gate (updated for the 2026-09-22 RC)
+The bullets below record the original staging policy. For the scoped RC the user
+has requested deterministic existing commands. Later Phase 3 results 1.6 and 1.8
+show fluorescence parity and compatible free-run baselines after the quiet fix;
+these supersede the earlier ≈12-count offset concern. The observed experiment
+protocols use 1/10/100 Hz type-2 lines, all in the LIGHT_SLEEP band. This supports
+an RC validation rollout, not a claim of new bench qualification or approval to
+merge. The general high-rate WFI/BUSY caveats remain; gateway-first deployment
+and the new hardware checklist are required. See the RC integration note below.
+
 - Merge with `arrun` unchanged (PR title `feat(adpd): exact-N triggered acquisition (arrunt)`).
 - Update `HW_CONFORMANCE.md` with the V0–V4 captures.
 - **Do not repoint `arrun`.** Fixing over-pulsing changes the numeric F values the fleet
@@ -266,7 +275,7 @@ to payload values; async over-cap returns ERROR with flat heap.
 | Binary id collision with Ambyte | Agree the id in `ambit_protocol.h` first; Phase 4 only |
 | Core activity degrades the 730 channel | Inv. 11: sleep/WFI through the sequence; verified across 10 Hz–1 kHz (§8 session 10). Above ≈750 Hz only WFI fits, 730 noise ≈1.5× free-run there. **Accepted (2026-09-03): the 730 channel is not used in normal measurements**, so the residual high-rate penalty needs no hardware action; documented here only |
 | LED coupling into GPIO9 resets the ESP | Inv. 12: gesture paused during runs. `arrun` at 90–125 Hz is still exposed in the field: separate fix on `main` |
-| Baselines taken with the free-run engine | Phase 5: re-take `fluor_offset` baselines with the shipping engine (≈12-count dark offset measured before the quiet fix; re-measure after) |
+| Baselines taken with the free-run engine | Closed by Phase 3 item 1.8 after the quiet fix: engines agree; baselines can remain free-run. Preserve stored calibration during the RC rollout |
 
 ## 8. Bench results
 
