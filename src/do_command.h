@@ -44,6 +44,27 @@ static void report_spec_save(const char *what, esp_err_t err){
   else Serial.printf("%s save failed: %s\n", what, esp_err_to_name(err));
 }
 
+/* Both arrun and arrunt use exact-N EXT_SYNC pacing. Keep the console's
+ * 16-slot protocol and output modes, and report errors explicitly: logging is
+ * compiled out, so a silent failure looks like a hung device to the host. */
+static void console_arrunt(const char* command = "arrunt"){
+  long requested_len = Serial_Input_Long(",", 10);
+  uint8_t persist = (uint8_t) Serial_Input_Long(",", 10);
+  if (requested_len < 1 || requested_len > 16){
+    Serial.printf("ERROR %s %d\n", command, (int) ARR_TRIG_BAD_LINE);
+    return;
+  }
+  const uint8_t len = (uint8_t) requested_len;
+  uint8_t arr[128] = {0};
+  for (uint8_t i = 0; i < len; i++){
+    for (uint8_t j = 0; j < 8; j++){
+      arr[i * 8 + j] = (uint8_t) Serial_Input_Long(",", 10);
+    }
+  }
+  const int rc = core_run_array_triggered(16, arr, persist, false);
+  if (rc != ARR_TRIG_OK) Serial.printf("ERROR %s %d\n", command, rc);
+}
+
 void do_command(char *choose){
 
     int setting;
@@ -226,61 +247,152 @@ void do_command(char *choose){
 
 
     case hash("arrun"):
-     {
-      uint8_t len = (uint8_t) Serial_Input_Long(",", 10);
-      uint8_t persist = (uint8_t) Serial_Input_Long(",", 10);
-      uint8_t arr[128] = {0};
-      uint8_t tmp_8 = 0;
-      for (uint8_t i = 0; i < len; i++){
-        for (uint8_t j = 0; j < 8; j++){
-          arr[i * 8 + j] = (uint8_t) Serial_Input_Long(",", 10);
-        }
-      }
-
-      core_run_array(16, arr, persist, false);
-    }
-      break;  
+      console_arrunt("arrun");
+      break;
 
     case hash("arrun1"):
-     {
-      uint8_t len = (uint8_t) Serial_Input_Long(",", 10);
-      uint8_t persist = (uint8_t) Serial_Input_Long(",", 10);
-      uint8_t arr[128] = {0};
-      uint8_t tmp_8 = 0;
       CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
-
-
-      for (uint8_t i = 0; i < len; i++){
-        for (uint8_t j = 0; j < 8; j++){
-          arr[i * 8 + j] = (uint8_t) Serial_Input_Long(",", 10);
-        }
-      }
-
-      core_run_array(16, arr, persist, false);
-    }
+      console_arrunt("arrun1");
       Serial.println("Done");
       break;
 
-    // arrun2 — like arrun1 but COMPUTER mode. Runs the whole trace, then dumps
-    // each data array as one ASCII block ("Data:<tag>,Length:N\t v,v,...,")
-    // ending with "Data sent". No per-point streaming → no inter-point UART
-    // gaps, so it stays in sync on the ambyte (device-to-device) link.
+    // COMPUTER mode dumps each array after acquisition, avoiding per-point
+    // UART gaps while preserving the existing Data/Length text contract.
     case hash("arrun2"):
-     {
-      uint8_t len = (uint8_t) Serial_Input_Long(",", 10);
-      uint8_t persist = (uint8_t) Serial_Input_Long(",", 10);
-      uint8_t arr[128] = {0};
       CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
+      console_arrunt("arrun2");
+      break;
 
-      for (uint8_t i = 0; i < len; i++){
-        for (uint8_t j = 0; j < 8; j++){
-          arr[i * 8 + j] = (uint8_t) Serial_Input_Long(",", 10);
-        }
-      }
+    // arrunt = current CONNECTION_TYPE; arrunt1 = PLOTTING stream; arrunt2 = COMPUTER
+    // dump — the same three flavours as arrun / arrun1 / arrun2 (see console_arrunt).
+    case hash("arrunt"):
+      console_arrunt();
+      break;
 
-      core_run_array(16, arr, persist, false);
+    case hash("arrunt1"):
+      CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
+      console_arrunt();
+      Serial.println("Done");
+      break;
+
+    case hash("arrunt2"):
+      CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
+      console_arrunt();
+      break;
+
+#ifdef AMBIT_DIAG_TRIGGER
+    // Bench diagnostics for plans/DETERMINISTIC_ADPD.md (Phase 0 / gate V0, V1f).
+    // Branch-only: compiled out without -DAMBIT_DIAG_TRIGGER (platformio.ini).
+    case hash("tseq"):      // tseq,<reps>,<farred>,<integ>[,<frrep>]
+    {
+      uint16_t reps   = (uint16_t) Serial_Input_Long(",", 10);
+      uint8_t  farred = (uint8_t)  Serial_Input_Long(",", 10);
+      uint8_t  integ  = (uint8_t)  Serial_Input_Long(",", 10);
+      uint8_t  frrep  = (uint8_t)  Serial_Input_Long(",", 10);
+      measure_tseq(reps, farred != 0, integ, frrep);
     }
       break;
+
+    case hash("tidle"):     // tidle,<farred>,<integ>,<gate>
+    {
+      uint8_t farred = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t integ  = (uint8_t) Serial_Input_Long(",", 10);
+      uint8_t gate   = (uint8_t) Serial_Input_Long(",", 10);
+      measure_idle(farred != 0, integ, gate);
+    }
+      break;
+
+    case hash("tratio"):    // tratio,<reps>,<N>,<freq>,<integ>
+    {
+      uint16_t reps  = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t N     = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t freq  = (uint16_t) Serial_Input_Long(",", 10);
+      uint8_t  integ = (uint8_t)  Serial_Input_Long(",", 10);
+      measure_first_ratio(reps, N, freq, integ);
+    }
+      break;
+
+    case hash("tstat"):     // pacing stats of the last arrunt (V1j)
+      print_trig_stats();
+      break;
+
+    case hash("tdrop"):     // tdrop,<n>: lose edge n of the next arrunt (V1g/V1h)
+      diag_drop_edge((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tpark"):     // tpark,<hz>: parked TIMESLOT_PERIOD during arrunt (r_730 noise experiment)
+      diag_set_park_hz((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tslotc"):    // tslotc,<lit>,<width>,<dark2>,<period>: slot-C timing experiment
+    {
+      uint16_t lit    = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t width  = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t dark2  = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t period = (uint16_t) Serial_Input_Long(",", 10);
+      diag_set_slotc_timing(lit ? lit : 72, width ? width : 19, dark2 ? dark2 : 90, period ? period : 58);
+    }
+      break;
+
+    case hash("twarm"):     // twarm,<ms>: wait before the first edge of each line (Phase 3 1.1)
+      diag_set_warm_ms((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("twarmn"):    // twarmn,<n>: warm-up sequences per run (Phase 3 1.1)
+      diag_set_warmup_n((uint8_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tarm"):      // tarm,<ms>: arm settle after RUN() (Phase 3 1.3)
+      diag_set_arm_ms((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tseqfr"):    // tseqfr,<frrep>,<start_us>,<step_us>,<reps>: far-red tail sweep (Phase 3 1.2)
+    {
+      uint8_t  frrep = (uint8_t)  Serial_Input_Long(",", 10);
+      uint32_t start = (uint32_t) Serial_Input_Long(",", 10);
+      uint32_t step  = (uint32_t) Serial_Input_Long(",", 10);
+      uint16_t reps  = (uint16_t) Serial_Input_Long(",", 10);
+      measure_farred_tail(frrep, start, step, reps);
+    }
+      break;
+
+    case hash("tovf"):      // tovf,<n>: overflow the FIFO before sample n of the next arrunt (V2)
+      diag_overflow_at((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tblk"):      // tblk,<N>,<freq>: per-value vs block read comparison (V2)
+    {
+      uint16_t N    = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t freq = (uint16_t) Serial_Input_Long(",", 10);
+      measure_block_read(N, freq);
+    }
+      break;
+
+    case hash("tinteg"):    // tinteg,<n>: slots A/C integration for both engines
+      diag_set_integ((uint8_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("twfi"):      // twfi,<us>: core idle via WFI through the sequence
+      diag_set_wfi_us((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tsleepq"):   // tsleepq,<us>: light-sleep through the sequence (slot-C noise experiment)
+      diag_set_sleepq_us((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("tquiet"):    // tquiet,<us>: SPI-silent wait after the edge (slot-C noise experiment)
+      diag_set_quiet_us((uint32_t) Serial_Input_Long(",", 10));
+      break;
+
+    case hash("traw"):      // traw,<mode 0 free-run|1 ext-sync>,<N>,<freq>: raw dark/lit dump
+    {
+      uint8_t  mode = (uint8_t)  Serial_Input_Long(",", 10);
+      uint16_t N    = (uint16_t) Serial_Input_Long(",", 10);
+      uint16_t freq = (uint16_t) Serial_Input_Long(",", 10);
+      measure_raw(mode, N, freq);
+    }
+      break;
+#endif
 
 
       case hash("q"):
