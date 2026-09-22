@@ -43,7 +43,7 @@ int core_run_mpf(uint16_t length, uint8_t interval, bool change_act, uint8_t act
 // and "ensure config, then run" as core_run_array, but the ADPD is edge-driven
 // (EXT_SYNC) so exactly N sequences are emitted. Returns 0 or a negative
 // ArrTriggerResult (PAM.h); the adapter must reply explicitly on failure because
-// logging is compiled out. Additive: core_run_array / cmd 21 are untouched.
+// logging is compiled out. core_run_array / cmd 21 use this engine as well.
 int core_run_array_triggered(uint8_t len, uint8_t* arr, uint8_t persist, bool allow_interrupt,
                              bool json_output = false, bool retain = false);
 

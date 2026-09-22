@@ -65,7 +65,7 @@ dataclass::dataclass(){
 
 dataclass::~dataclass(void){
     ESP_LOGV(TAG, "DATACLASS destroied");    
-    if (dataclass::available) dataclass:clean();  
+    if (dataclass::available) dataclass::clean();
     return;
 };
 
