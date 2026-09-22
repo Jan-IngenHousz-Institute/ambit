@@ -148,6 +148,13 @@ jobs:
           LOCALAPPDATA: ${{ runner.temp }}/pio_build_root
         run: "${RUNNER_TEMP}/platformio/bin/pio run -e ambit"
 
+      - name: Compile and run openJII protocol contracts
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -DARDUINO=100 -DARDUINOJSON_ENABLE_PROGMEM=0 \
+            -Itests/host_shim -I.pio/libdeps/ambit/ArduinoJson/src -Ilib/openjii_proto \
+            tests/openjii_proto_host.cpp lib/openjii_proto/openjii_proto.cpp -o /tmp/openjii-proto-host
+          /tmp/openjii-proto-host
+
       - name: Verify version and assemble release assets
         env:
           FIRMWARE_VERSION: ${{ steps.preview.outputs.version }}

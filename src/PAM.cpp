@@ -147,7 +147,7 @@ static void pam_send_results(dataclass* d_env, dataclass* d_fluor, dataclass* d_
                              dataclass* d_sun, dataclass* d_leaf, dataclass* d_730,
                              dataclass* d_730Ref, dataclass* d_timing,
                              dataclass* d_env_time, uint8_t subsampling, bool has_730,
-                             bool allow_interrupt){
+                             bool allow_interrupt, dataclass* d_edge_time = NULL){
   if (CONNECTION_TYPE == CONNECTION_TYPES::COMPUTER){
     d_env->send_serial("env");
     d_fluor->send_serial("s_630");
@@ -185,6 +185,10 @@ static void pam_send_results(dataclass* d_env, dataclass* d_fluor, dataclass* d_
     // hosts already ignore unknown indices, while v3 hosts gain device-recorded
     // env offsets without any byte changing in the shipped arrays.
     if (d_env_time != NULL) d_env_time->fsm_send_array(8, 4, 0);
+    // Additive array 9: uint32 ESP trigger offsets in microseconds from run start.
+    // Arrays 0..8 keep their layouts. Upgrade the gateway decoder before enabling
+    // this firmware: old gateways reconstruct optical times from tick_factor.
+    if (d_edge_time != NULL) d_edge_time->fsm_send_array(9, 4, 0);
   }
 }
 
@@ -193,12 +197,12 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist){
 }
 
 // ── Async result holder (parallel trigger/poll/fetch protocol) ──────────────
-// Holds the nine result buffers of one retained run plus the metadata
+// Holds the nine legacy buffers plus optional recorded edge times and metadata
 // pam_send_results() needs, until the host FETCHes them. One run at a time.
 struct ambit_async_result_t {
   dataclass *d_env = NULL, *d_fluor = NULL, *d_fluoRef = NULL, *d_sun = NULL,
             *d_leaf = NULL, *d_730 = NULL, *d_730Ref = NULL, *d_timing = NULL,
-            *d_env_time = NULL;
+            *d_env_time = NULL, *d_edge_time = NULL;
   uint8_t subsampling = 0;
   bool    has_730 = false;
   bool    allow_interrupt = false;
@@ -208,12 +212,14 @@ static ambit_async_result_t g_async;
 
 // Every run owns these heap objects until a retained run explicitly transfers
 // them to g_async. This guard covers object-allocation and dataclass::init()
-// failures without duplicating a fragile nine-pointer cleanup at each return.
+// failures without duplicating pointer cleanup at each return. Edge times are
+// optional for bench free-run comparisons and included in production runs.
 struct pam_run_buffers_t {
   dataclass *d_env, *d_fluor, *d_fluoRef, *d_sun, *d_leaf, *d_730,
-            *d_730Ref, *d_timing, *d_env_time;
+            *d_730Ref, *d_timing, *d_env_time, *d_edge_time;
+  const bool record_edges;
 
-  pam_run_buffers_t()
+  explicit pam_run_buffers_t(bool edges = false)
       : d_env(new (std::nothrow) dataclass),
         d_fluor(new (std::nothrow) dataclass),
         d_fluoRef(new (std::nothrow) dataclass),
@@ -222,24 +228,27 @@ struct pam_run_buffers_t {
         d_730(new (std::nothrow) dataclass),
         d_730Ref(new (std::nothrow) dataclass),
         d_timing(new (std::nothrow) dataclass),
-        d_env_time(new (std::nothrow) dataclass) {}
+        d_env_time(new (std::nothrow) dataclass),
+        d_edge_time(edges ? new (std::nothrow) dataclass : NULL),
+        record_edges(edges) {}
 
   ~pam_run_buffers_t() {
     delete d_env;    delete d_fluor;  delete d_fluoRef;
     delete d_sun;    delete d_leaf;   delete d_730;
-    delete d_730Ref; delete d_timing; delete d_env_time;
+    delete d_730Ref; delete d_timing; delete d_env_time; delete d_edge_time;
   }
 
   bool allocated() const {
     return d_env != NULL && d_fluor != NULL && d_fluoRef != NULL &&
            d_sun != NULL && d_leaf != NULL && d_730 != NULL &&
-           d_730Ref != NULL && d_timing != NULL && d_env_time != NULL;
+           d_730Ref != NULL && d_timing != NULL && d_env_time != NULL &&
+           (!record_edges || d_edge_time != NULL);
   }
 
   void release() {
     d_env = NULL;    d_fluor = NULL;  d_fluoRef = NULL;
     d_sun = NULL;    d_leaf = NULL;   d_730 = NULL;
-    d_730Ref = NULL; d_timing = NULL; d_env_time = NULL;
+    d_730Ref = NULL; d_timing = NULL; d_env_time = NULL; d_edge_time = NULL;
   }
 };
 
@@ -247,6 +256,7 @@ void ambit_async_clear(void){
   delete g_async.d_env;    delete g_async.d_fluor;  delete g_async.d_fluoRef;
   delete g_async.d_sun;    delete g_async.d_leaf;   delete g_async.d_730;
   delete g_async.d_730Ref; delete g_async.d_timing; delete g_async.d_env_time;
+  delete g_async.d_edge_time;
   g_async = ambit_async_result_t();   // re-init all pointers to NULL, state IDLE
 }
 
@@ -494,7 +504,7 @@ static void pam_store_type1_sample(const uint32_t* ret, uint8_t num_integration,
 
 // Shared end-of-run sink for the array engines. Three mutually exclusive outputs,
 // json_output -> one canonical v3 object on Serial; retain -> hand the
-// nine buffers (including main's env offsets) to the async holder for FETCH; otherwise stream
+// result buffers (including env/edge offsets) to the async holder for FETCH; otherwise stream
 // them now via pam_send_results on the active CONNECTION_TYPE. Returns true when
 // buffer ownership moved to g_async — the caller must then NOT delete them.
 static bool pam_finish_results(dataclass* d_env, dataclass* d_fluor, dataclass* d_fluoRef,
@@ -517,20 +527,32 @@ static bool pam_finish_results(dataclass* d_env, dataclass* d_fluor, dataclass* 
   if (retain){
     // Parallel protocol: transfer ownership of the buffers to the async holder
     // instead of streaming + freeing. The host fetches them later (cmd 24).
+    ambit_async_clear(); // a direct retained caller may replace an unfetched run
     g_async.d_env = d_env; g_async.d_fluor = d_fluor; g_async.d_fluoRef = d_fluoRef;
     g_async.d_sun = d_sun; g_async.d_leaf = d_leaf; g_async.d_730 = d_730;
     g_async.d_730Ref = d_730Ref; g_async.d_timing = d_timing;
     g_async.d_env_time = d_env_time;
+    g_async.d_edge_time = edge_time;
+    g_async.state = AMBIT_ASYNC_DONE;
     g_async.subsampling = subsampling; g_async.has_730 = has_730;
     g_async.allow_interrupt = allow_interrupt;
     return true;
   }
   pam_send_results(d_env, d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref,
-                   d_timing, d_env_time, subsampling, has_730, allow_interrupt);
+                   d_timing, d_env_time, subsampling, has_730, allow_interrupt, edge_time);
   return false;
 }
 
+// Keep the existing entry point so text, JSON, cmd 21 and retained cmd 22 all
+// select the same deterministic engine without changing their wire commands.
 int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt, bool json_output, bool retain){
+  return run_arr_trigger(length, arr, led_persist, allow_interrupt, json_output, retain);
+}
+
+// Preserved for explicit bench comparisons; production array commands use the
+// entry point above. Calibration and legacy non-array measurements keep their
+// own acquisition paths.
+int run_arr_type1_freerun(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt, bool json_output, bool retain){
   ambit_trace_v3::RunCounts run_counts;
   if (!ambit_trace_v3::validate_run_protocol(
           arr, length, MAX_DATACLASS_SIZE - 1U, &run_counts)) return -1;
@@ -748,7 +770,7 @@ int ambit_async_fetch(void){
   pam_send_results(g_async.d_env, g_async.d_fluor, g_async.d_fluoRef, g_async.d_sun,
                    g_async.d_leaf, g_async.d_730, g_async.d_730Ref, g_async.d_timing,
                    g_async.d_env_time, g_async.subsampling, g_async.has_730,
-                   g_async.allow_interrupt);
+                   g_async.allow_interrupt, g_async.d_edge_time);
   CONNECTION_TYPE = saved;
   ambit_async_clear();
   return 0;
@@ -1336,12 +1358,10 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
   bool warmed_up = false;
   int _func_ret = ARR_TRIG_ABORT;
 
-  // JSON needs measured edge times: the free-run tick factor and requested
-  // rate cannot describe EXT_SYNC pacing, far-red floors or warm-up/setup gaps.
-  // Only this path allocates the extra <= 1999 * 4 bytes. Stack ownership also
-  // frees it on every goto-cleanup failure; it is never part of retained FSM data.
-  dataclass edge_time;
-  pam_run_buffers_t buffers;
+  // All triggered transports carry actual ESP edge times. The binary host gets
+  // additive array 9; JSON uses the same buffer directly. RAII covers allocation
+  // failures and transfers all ten buffers together for retained cmd 22/FETCH.
+  pam_run_buffers_t buffers(true);
   dataclass *d_env = buffers.d_env;
   dataclass *d_fluor = buffers.d_fluor;
   dataclass *d_fluoRef = buffers.d_fluoRef;
@@ -1351,10 +1371,11 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
   dataclass *d_730Ref = buffers.d_730Ref;
   dataclass *d_timing = buffers.d_timing;
   dataclass *d_env_time = buffers.d_env_time;
+  dataclass *edge_time = buffers.d_edge_time;
 
   _func_ret = ARR_TRIG_NOMEM;
   if (!buffers.allocated()) goto cleanup;
-  if (json_output && !edge_time.init(data_count[0])) goto cleanup;
+  if (!edge_time->init(data_count[0])) goto cleanup;
   if (!(d_env->init(512))) goto cleanup;
   if (!(d_env_time->init(512))) goto cleanup;
   if (!(d_timing->init(2))) goto cleanup;
@@ -1391,8 +1412,6 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
       adpd.clear_fifo();
       period_us = 1000000LL / freq;        // freq > 0: validated above
       period_ms_int = (1000/freq);
-      g_trig_quiet_mode = trig_pick_quiet_mode(period_us);
-      g_trig_stats.quiet_mode = g_trig_quiet_mode;
       // Match run_arr_type1 across transports: sample temperature every 2 s on
       // slow, low-actinic lines. Any pacing delay is visible in recorded edge times.
       measure_temperature = (period_ms_int > 20) && measure_temp && actinic < 50;
@@ -1414,6 +1433,8 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
       }
       expected_readout_bytes = expected_readout * 3;
       farred_floor = (farred == 1) ? trig_farred_sequence_us(_repeats) : 0;
+      g_trig_quiet_mode = trig_pick_quiet_mode(period_us > farred_floor ? period_us : farred_floor);
+      g_trig_stats.quiet_mode = g_trig_quiet_mode;
 
       if (actinic > 3){
         AS_LED_Current(actinic);
@@ -1530,7 +1551,7 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
 #endif
         }
 
-        if (json_output){
+        {
           const int64_t offset_us = t_trig - run_tick_begin;
           // Valid protocols fit within ~34 min at 1 Hz; still fail explicitly
           // if a diagnostic delay or stalled run exceeds the 71-min us range.
@@ -1538,7 +1559,7 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
             _func_ret = ARR_TRIG_ABORT;
             goto cleanup;
           }
-          edge_time.put(static_cast<uint32_t>(offset_us));
+          edge_time->put(static_cast<uint32_t>(offset_us));
         }
         pam_store_type1_sample(ret, num_integration, _type, subsampling, counter, leaf_temp, buf_opt,
                                d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref);
@@ -1574,7 +1595,7 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
   if (pam_finish_results(d_env, d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref,
                                            d_timing, d_env_time, length, arr, subsampling, data_count[2] > 0, allow_interrupt,
                                            json_output, retain, run_tick_begin,
-                                           json_output ? &edge_time : NULL)){
+                                           edge_time)){
     buffers.release();
   }
   _func_ret = ARR_TRIG_OK;

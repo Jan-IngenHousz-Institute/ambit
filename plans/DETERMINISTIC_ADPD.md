@@ -606,3 +606,17 @@ Sheet* Rev. 0 (Analog Devices; local copy `Projects/1.1 Ambit/0.8 Savedir/datash
 | Light-sleep wake timing | RTC slow clock = internal 136 kHz RC (or 32 kHz XTAL, not fitted) | Percent-level error → gap-scaled margin (inv. 10), `tstat` late-edge count |
 | Register writes in GO | "Register writes that affect operating modes cannot occur during go mode" | Code already brackets every `run_freq`/`num_ts`/`repeats_only` between STOP and RUN |
 | ESP logic levels vs ADPD input | ESP VOH ≥ 0.8·VDD; ADPD GPIO VIH ≥ 0.7·IOVDD | Direct drive is fine |
+
+
+### 2026-09-22 RC integration with main
+
+The experiment-validation RC enables EXT_SYNC for existing `arrun` and binary
+cmd 21/22 paths, per the request to preserve main and make acquisition
+deterministic. `arrunt` remains an alias and the free-run engine is retained as
+`run_arr_type1_freerun` for bench comparisons. Main's v3 schema, environmental
+sampling, calibration and serial routing stay in place. JSON and additive FSM
+array 9 carry measured ESP edge offsets; the retained result owns those offsets
+through FETCH. The paired Ambyte RC must be installed first to consume array 9
+instead of deriving a triggered time axis from the free-run tick factor.
+Physical conformance and pacing validation remain gates, not assumptions; see
+[the RC checklist](HW_CONFORMANCE.md#deterministic-default-rc-gate-2026-09-22-results-pending).

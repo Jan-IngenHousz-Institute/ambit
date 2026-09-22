@@ -45,6 +45,9 @@ int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist);
 // in the async holder so a later FETCH can stream them. Default false preserves
 // the legacy synchronous send+free lifecycle.
 int run_arr_type1(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt, bool json_output = false, bool retain = false);
+// Bench-only reference; normal run_arr_type1 now delegates to EXT_SYNC.
+int run_arr_type1_freerun(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt,
+                         bool json_output = false, bool retain = false);
 int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8_t act, bool interrrupt);
 
 // ── Exact-N triggered acquisition (plans/DETERMINISTIC_ADPD.md) ──────────────
@@ -52,8 +55,9 @@ int run_trigger_spacer(uint16_t length, uint8_t interval, bool change_act, uint8
 // calibration / storage / sinks (shared helpers), but the ADPD runs in EXT_SYNC so
 // every sample is one GPIO10 edge -> exactly one timeslot sequence. Emitted LED
 // sequences == edges == stored == num_ptx at every rate. `freq` is the software
-// pacing target (period 1/freq), not a free-run divider. Additive: arrun / cmd 21
-// keep the free-run engine until the calibration-gated default swap (plan §6 Ph.5).
+// pacing target (period 1/freq), not a free-run divider. arrun / cmd 21 / cmd 22
+// now use this engine too. Binary array 9 carries actual ESP edge times; paired
+// gateway support is required to preserve the v3 time axis after the default swap.
 // Returns ARR_TRIG_OK or a negative ArrTriggerResult. Logging is compiled out
 // (-DCORE_DEBUG_LEVEL=0), so every adapter must reply explicitly on failure.
 enum ArrTriggerResult {

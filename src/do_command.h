@@ -44,18 +44,14 @@ static void report_spec_save(const char *what, esp_err_t err){
   else Serial.printf("%s save failed: %s\n", what, esp_err_to_name(err));
 }
 
-/* arrunt / arrunt1 / arrunt2 share arrun's "<len>,<persist>,<8*len bytes>" line and
- * its "run all 16 slots, type-0 lines are skipped" call. The difference is the
- * engine: exact-N EXT_SYNC pacing (plans/DETERMINISTIC_ADPD.md) instead of the
- * free-run ADPD, so exactly num_ptx LED sequences fire per line. Failures get an
- * explicit "ERROR arrunt <code>" reply: -DCORE_DEBUG_LEVEL=0 compiles every log
- * away, and a silent failure looks like a hung device to the app / Calibratron.
- * Codes are ArrTriggerResult (PAM.h). */
-static void console_arrunt(void){
+/* Both arrun and arrunt use exact-N EXT_SYNC pacing. Keep the console's
+ * 16-slot protocol and output modes, and report errors explicitly: logging is
+ * compiled out, so a silent failure looks like a hung device to the host. */
+static void console_arrunt(const char* command = "arrunt"){
   long requested_len = Serial_Input_Long(",", 10);
   uint8_t persist = (uint8_t) Serial_Input_Long(",", 10);
   if (requested_len < 1 || requested_len > 16){
-    Serial.printf("ERROR arrunt %d\n", (int) ARR_TRIG_BAD_LINE);
+    Serial.printf("ERROR %s %d\n", command, (int) ARR_TRIG_BAD_LINE);
     return;
   }
   const uint8_t len = (uint8_t) requested_len;
@@ -66,7 +62,7 @@ static void console_arrunt(void){
     }
   }
   const int rc = core_run_array_triggered(16, arr, persist, false);
-  if (rc != ARR_TRIG_OK) Serial.printf("ERROR arrunt %d\n", rc);
+  if (rc != ARR_TRIG_OK) Serial.printf("ERROR %s %d\n", command, rc);
 }
 
 void do_command(char *choose){
@@ -251,60 +247,20 @@ void do_command(char *choose){
 
 
     case hash("arrun"):
-     {
-      uint8_t len = (uint8_t) Serial_Input_Long(",", 10);
-      uint8_t persist = (uint8_t) Serial_Input_Long(",", 10);
-      uint8_t arr[128] = {0};
-      uint8_t tmp_8 = 0;
-      for (uint8_t i = 0; i < len; i++){
-        for (uint8_t j = 0; j < 8; j++){
-          arr[i * 8 + j] = (uint8_t) Serial_Input_Long(",", 10);
-        }
-      }
-
-      core_run_array(16, arr, persist, false);
-    }
-      break;  
+      console_arrunt("arrun");
+      break;
 
     case hash("arrun1"):
-     {
-      uint8_t len = (uint8_t) Serial_Input_Long(",", 10);
-      uint8_t persist = (uint8_t) Serial_Input_Long(",", 10);
-      uint8_t arr[128] = {0};
-      uint8_t tmp_8 = 0;
       CONNECTION_TYPE = CONNECTION_TYPES::PLOTTING;
-
-
-      for (uint8_t i = 0; i < len; i++){
-        for (uint8_t j = 0; j < 8; j++){
-          arr[i * 8 + j] = (uint8_t) Serial_Input_Long(",", 10);
-        }
-      }
-
-      core_run_array(16, arr, persist, false);
-    }
+      console_arrunt("arrun1");
       Serial.println("Done");
       break;
 
-    // arrun2 — like arrun1 but COMPUTER mode. Runs the whole trace, then dumps
-    // each data array as one ASCII block ("Data:<tag>,Length:N\t v,v,...,")
-    // ending with "Data sent". No per-point streaming → no inter-point UART
-    // gaps, so it stays in sync on the ambyte (device-to-device) link.
+    // COMPUTER mode dumps each array after acquisition, avoiding per-point
+    // UART gaps while preserving the existing Data/Length text contract.
     case hash("arrun2"):
-     {
-      uint8_t len = (uint8_t) Serial_Input_Long(",", 10);
-      uint8_t persist = (uint8_t) Serial_Input_Long(",", 10);
-      uint8_t arr[128] = {0};
       CONNECTION_TYPE = CONNECTION_TYPES::COMPUTER;
-
-      for (uint8_t i = 0; i < len; i++){
-        for (uint8_t j = 0; j < 8; j++){
-          arr[i * 8 + j] = (uint8_t) Serial_Input_Long(",", 10);
-        }
-      }
-
-      core_run_array(16, arr, persist, false);
-    }
+      console_arrunt("arrun2");
       break;
 
     // arrunt = current CONNECTION_TYPE; arrunt1 = PLOTTING stream; arrunt2 = COMPUTER
