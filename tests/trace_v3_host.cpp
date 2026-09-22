@@ -64,6 +64,45 @@ int main() {
   assert(near(ambient.t0, 3.5 * 0.854));
   assert(near(ambient.dt, 8.0 * 0.854));
 
+  // EXT_SYNC edges include warm-up, a far-red floor slower than requested,
+  // inter-segment setup, and actual late edges. None use the free-run factor.
+  const uint8_t triggered[] = {
+      1, 1, 0, 10, 0, 10, 0, 2,
+      0, 0, 0, 99, 0, 0, 0, 0,
+      2, 0, 0, 2, 0, 200, 0, 1,
+      1, 0, 0, 2, 1, 244, 0, 0,
+  };
+  const uint32_t edges[] = {
+      250000, 360000, 470000, 580000, 690000, 800000, 910000, 1020000,
+      1130000, 1240000, 1400000, 1405100, 2000000, 2002050,
+  };
+  double recorded[14] = {};
+  const auto capture = [&](uint16_t index, double time) { recorded[index] = time; };
+  assert(ambit_trace_v3::for_each_recorded_time(
+      triggered, 4, SeriesClock::MAIN, edges, 14, 14, capture) == 14);
+  for (uint16_t i = 0; i < 14; ++i) assert(near(recorded[i], edges[i] / 1000000.0));
+  assert(ambit_trace_v3::for_each_recorded_time(
+      triggered, 4, SeriesClock::AMBIENT, edges, 14, 3, capture) == 3);
+  assert(near(recorded[0], 0.635));
+  assert(near(recorded[1], 1.4));
+  assert(near(recorded[2], 1.4051));
+  assert(ambit_trace_v3::for_each_recorded_time(
+      triggered, 4, SeriesClock::REFLECTION, edges, 14, 1, capture) == 1);
+  assert(near(recorded[0], 0.635));
+  // A partial final eight-pulse window has no averaged value. An interrupt in
+  // the next line emits only the values actually acquired in that line.
+  assert(ambit_trace_v3::for_each_recorded_time(
+      triggered, 4, SeriesClock::AMBIENT, edges, 7, 3, capture) == 0);
+  assert(ambit_trace_v3::for_each_recorded_time(
+      triggered, 4, SeriesClock::AMBIENT, edges, 11, 3, capture) == 2);
+  assert(near(recorded[1], 1.4));
+  // Use a wide sum for averaging: eight late-run offsets exceed uint32.
+  uint32_t late_edges[8];
+  for (uint16_t i = 0; i < 8; ++i) late_edges[i] = 3000000000U + i * 1000U;
+  assert(ambit_trace_v3::for_each_recorded_time(
+      triggered, 4, SeriesClock::AMBIENT, late_edges, 8, 1, capture) == 1);
+  assert(near(recorded[0], 3000.0035));
+
   ambit_trace_v3::RunCounts counts;
   const uint8_t valid_run[] = {1, 0, 0, 8, 0, 10, 0, 2};
   assert(ambit_trace_v3::validate_run_protocol(valid_run, 1, 1999, &counts));

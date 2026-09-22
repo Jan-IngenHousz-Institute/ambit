@@ -191,6 +191,41 @@ struct TimeModel {
   bool regular;
 };
 
+// Triggered acquisition is paced by the ESP clock, not the ADPD oscillator.
+// Use its recorded edges so far-red floors, late reads and segment setup gaps
+// remain visible. Optional values average eight pulses; their timestamp is the
+// mean of those same eight edges, including any irregular gaps within a window.
+// The input is a non-ring trace in acquisition order and is never consumed here:
+// all six optical series share it. An interrupted final window emits no value.
+template <typename Visitor>
+uint16_t for_each_recorded_time(const uint8_t* protocol, uint8_t segment_count,
+                                SeriesClock clock, const uint32_t* edge_us,
+                                uint16_t sample_count, uint16_t value_count,
+                                Visitor visitor) {
+  uint16_t emitted = 0;
+  uint32_t offset = 0;
+  if (edge_us == NULL) return 0;
+  for (uint8_t i = 0; i < segment_count && offset < sample_count; ++i) {
+    const Segment segment = decode_segment(protocol + static_cast<uint16_t>(i) * 8U);
+    if (!active(segment)) continue;
+    const uint32_t available = sample_count - offset;
+    const uint16_t acquired = available < segment.pulses
+                                  ? static_cast<uint16_t>(available) : segment.pulses;
+    if (point_count(segment, clock) != 0) {
+      const uint8_t width = effective_period_multiplier(segment, clock);
+      for (uint16_t point = 0; point + width <= acquired && emitted < value_count;
+           point += width) {
+        uint64_t sum = 0;
+        for (uint8_t j = 0; j < width; ++j) sum += edge_us[offset + point + j];
+        visitor(emitted++, static_cast<double>(sum) / (width * 1000000.0));
+      }
+    }
+    offset += segment.pulses;
+    if (emitted == value_count) break;
+  }
+  return emitted;
+}
+
 inline TimeModel analyze_time_model(const uint8_t* protocol, uint8_t segment_count,
                                     SeriesClock clock, double tick_factor,
                                     uint16_t value_count) {
