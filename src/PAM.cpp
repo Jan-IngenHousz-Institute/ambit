@@ -289,7 +289,18 @@ static void send_count_values(dataclass* data){
 
 static void send_series_clock(const uint8_t* protocol, uint8_t segment_count,
                               ambit_trace_v3::SeriesClock clock,
-                              uint16_t value_count){
+                              uint16_t value_count, dataclass* edge_time){
+  if (edge_time != NULL){
+    Serial.print("\"t\":[");
+    ambit_trace_v3::for_each_recorded_time(
+        protocol, segment_count, clock, edge_time->arr, edge_time->get_length(), value_count,
+        [](uint16_t index, double value){
+          if (index > 0) Serial.print(',');
+          print_trace_time(value);
+        });
+    Serial.print(']');
+    return;
+  }
   const double tick_factor = static_cast<double>(ambit_calibration_local.tick_factor);
   const ambit_trace_v3::TimeModel model = ambit_trace_v3::analyze_time_model(
       protocol, segment_count, clock, tick_factor, value_count);
@@ -310,10 +321,10 @@ static void send_series_clock(const uint8_t* protocol, uint8_t segment_count,
 
 static void send_count_series(const char* name, dataclass* data,
                               const uint8_t* protocol, uint8_t segment_count,
-                              ambit_trace_v3::SeriesClock clock){
+                              ambit_trace_v3::SeriesClock clock, dataclass* edge_time){
   const uint16_t value_count = data->get_length();
   Serial.print('"'); Serial.print(name); Serial.print("\":{\"u\":\"count\",");
-  send_series_clock(protocol, segment_count, clock, value_count);
+  send_series_clock(protocol, segment_count, clock, value_count, edge_time);
   Serial.print(',');
   send_count_values(data);
   Serial.print('}');
@@ -357,7 +368,7 @@ static void send_trace_v3_json(uint8_t segment_count, const uint8_t* protocol,
                                dataclass* d_env_time, dataclass* d_fluor,
                                dataclass* d_fluoRef, dataclass* d_sun,
                                dataclass* d_leaf, dataclass* d_730,
-                               dataclass* d_730Ref){
+                               dataclass* d_730Ref, dataclass* edge_time){
   static_assert(sizeof(ambit_calibration_info_t) == 140,
                 "cal_version must hash the frozen 140-byte calibration struct");
   const uint32_t cal_version = esp_rom_crc32_le(
@@ -383,29 +394,29 @@ static void send_trace_v3_json(uint8_t segment_count, const uint8_t* protocol,
                 adpd_gains_config.Sun, adpd_gains_config.Leaf);
 
   send_count_series("fluo_630_signal", d_fluor, protocol, segment_count,
-                    ambit_trace_v3::SeriesClock::MAIN);
+                    ambit_trace_v3::SeriesClock::MAIN, edge_time);
   Serial.print(',');
   send_count_series("fluo_630_ref", d_fluoRef, protocol, segment_count,
-                    ambit_trace_v3::SeriesClock::MAIN);
+                    ambit_trace_v3::SeriesClock::MAIN, edge_time);
   if (d_sun->available){
     Serial.print(',');
     send_count_series("ambient_sun_vis", d_sun, protocol, segment_count,
-                      ambit_trace_v3::SeriesClock::AMBIENT);
+                      ambit_trace_v3::SeriesClock::AMBIENT, edge_time);
   }
   if (d_leaf->available){
     Serial.print(',');
     send_count_series("ambient_leaf_ir", d_leaf, protocol, segment_count,
-                      ambit_trace_v3::SeriesClock::AMBIENT);
+                      ambit_trace_v3::SeriesClock::AMBIENT, edge_time);
   }
   if (d_730->available){
     Serial.print(',');
     send_count_series("refl_730_signal", d_730, protocol, segment_count,
-                      ambit_trace_v3::SeriesClock::REFLECTION);
+                      ambit_trace_v3::SeriesClock::REFLECTION, edge_time);
   }
   if (d_730Ref->available){
     Serial.print(',');
     send_count_series("refl_730_ref", d_730Ref, protocol, segment_count,
-                      ambit_trace_v3::SeriesClock::REFLECTION);
+                      ambit_trace_v3::SeriesClock::REFLECTION, edge_time);
   }
   Serial.print(',');
   send_leaf_temp_series(d_env, d_env_time);
@@ -490,14 +501,15 @@ static bool pam_finish_results(dataclass* d_env, dataclass* d_fluor, dataclass* 
                                dataclass* d_sun, dataclass* d_leaf, dataclass* d_730,
                                dataclass* d_730Ref, dataclass* d_timing, dataclass* d_env_time,
                                uint8_t length, const uint8_t* arr, uint8_t subsampling, bool has_730, bool allow_interrupt,
-                               bool json_output, bool retain, int64_t run_tick_begin){
+                               bool json_output, bool retain, int64_t run_tick_begin,
+                               dataclass* edge_time = NULL){
   if (json_output) {
     // Capture before serialization: duration covers acquisition, not UART transfer.
     const int64_t run_tick_end = esp_timer_get_time();
     send_trace_v3_json(length, arr,
                        ambit_trace_v3::duration_ms(run_tick_begin, run_tick_end),
                        d_env, d_env_time, d_fluor, d_fluoRef, d_sun, d_leaf,
-                       d_730, d_730Ref);
+                       d_730, d_730Ref, edge_time);
     return false;
   }
   d_timing->put((uint32_t) run_tick_begin);          // Change 3: run start tick (us)
@@ -1259,8 +1271,9 @@ static bool trig_edge_suppressed(void){
 // Share main's decoded protocol bounds with the triggered engine. In particular,
 // reject zero-rate/zero-count active lines and wide totals before allocating or
 // touching the chip; uint16 preprocessing alone could wrap an oversized trace.
-int run_arr_trigger_validate(uint8_t length, uint8_t* arr){
-  if (!ambit_trace_v3::validate_run_protocol(arr, length, MAX_DATACLASS_SIZE - 1U, NULL))
+static int validate_trigger_protocol(uint8_t length, uint8_t* arr,
+                                     ambit_trace_v3::RunCounts* counts){
+  if (!ambit_trace_v3::validate_run_protocol(arr, length, MAX_DATACLASS_SIZE - 1U, counts))
     return ARR_TRIG_BAD_LINE;
   for (uint8_t pc = 0; pc < length; pc++){
     const uint8_t* line = arr + pc * 8;
@@ -1274,9 +1287,14 @@ int run_arr_trigger_validate(uint8_t length, uint8_t* arr){
   return ARR_TRIG_OK;
 }
 
+int run_arr_trigger_validate(uint8_t length, uint8_t* arr){
+  return validate_trigger_protocol(length, arr, NULL);
+}
+
 int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_interrupt,
                     bool json_output, bool retain){
-  const int validation = run_arr_trigger_validate(length, arr);
+  ambit_trace_v3::RunCounts run_counts;
+  const int validation = validate_trigger_protocol(length, arr, &run_counts);
   g_trig_stats = trig_run_stats_t();
   g_trig_stats.result = validation;
   if (validation != ARR_TRIG_OK) return validation;
@@ -1289,8 +1307,6 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
   const unsigned int start_t0 = millis();
   const int64_t run_tick_begin = esp_timer_get_time();
 
-  ambit_trace_v3::RunCounts run_counts;
-  ambit_trace_v3::validate_run_protocol(arr, length, MAX_DATACLASS_SIZE - 1U, &run_counts);
   // The boundary check above proved that these totals fit the buffers.
   uint16_t data_count[] = {
       static_cast<uint16_t>(run_counts.main),
@@ -1320,6 +1336,11 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
   bool warmed_up = false;
   int _func_ret = ARR_TRIG_ABORT;
 
+  // JSON needs measured edge times: the free-run tick factor and requested
+  // rate cannot describe EXT_SYNC pacing, far-red floors or warm-up/setup gaps.
+  // Only this path allocates the extra <= 1999 * 4 bytes. Stack ownership also
+  // frees it on every goto-cleanup failure; it is never part of retained FSM data.
+  dataclass edge_time;
   pam_run_buffers_t buffers;
   dataclass *d_env = buffers.d_env;
   dataclass *d_fluor = buffers.d_fluor;
@@ -1333,6 +1354,7 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
 
   _func_ret = ARR_TRIG_NOMEM;
   if (!buffers.allocated()) goto cleanup;
+  if (json_output && !edge_time.init(data_count[0])) goto cleanup;
   if (!(d_env->init(512))) goto cleanup;
   if (!(d_env_time->init(512))) goto cleanup;
   if (!(d_timing->init(2))) goto cleanup;
@@ -1371,11 +1393,9 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
       period_ms_int = (1000/freq);
       g_trig_quiet_mode = trig_pick_quiet_mode(period_us);
       g_trig_stats.quiet_mode = g_trig_quiet_mode;
-      // Env cadence identical to run_arr_type1: the env stream is part of the frozen
-      // wire. JSON gets exactly one env per array; the others resample every 2 s on
-      // slow (< ~50 Hz), low-actinic lines.
-      if (json_output) measure_temperature = false;
-      else measure_temperature = (period_ms_int > 20) && measure_temp && actinic < 50;
+      // Match run_arr_type1 across transports: sample temperature every 2 s on
+      // slow, low-actinic lines. Any pacing delay is visible in recorded edge times.
+      measure_temperature = (period_ms_int > 20) && measure_temp && actinic < 50;
 
       if (_type == 1){
         if (farred == 1){
@@ -1510,6 +1530,16 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
 #endif
         }
 
+        if (json_output){
+          const int64_t offset_us = t_trig - run_tick_begin;
+          // Valid protocols fit within ~34 min at 1 Hz; still fail explicitly
+          // if a diagnostic delay or stalled run exceeds the 71-min us range.
+          if (offset_us < 0 || offset_us > UINT32_MAX){
+            _func_ret = ARR_TRIG_ABORT;
+            goto cleanup;
+          }
+          edge_time.put(static_cast<uint32_t>(offset_us));
+        }
         pam_store_type1_sample(ret, num_integration, _type, subsampling, counter, leaf_temp, buf_opt,
                                d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref);
         counter++;
@@ -1543,7 +1573,8 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
 
   if (pam_finish_results(d_env, d_fluor, d_fluoRef, d_sun, d_leaf, d_730, d_730Ref,
                                            d_timing, d_env_time, length, arr, subsampling, data_count[2] > 0, allow_interrupt,
-                                           json_output, retain, run_tick_begin)){
+                                           json_output, retain, run_tick_begin,
+                                           json_output ? &edge_time : NULL)){
     buffers.release();
   }
   _func_ret = ARR_TRIG_OK;

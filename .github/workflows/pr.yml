@@ -45,6 +45,13 @@ jobs:
       - name: Run release-boundary tests
         run: python3 -m unittest discover -s test/release_process -p 'test_*.py' -v
 
+      - name: Compile and run trace timing suite
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -Isrc \
+            tests/trace_v3_host.cpp \
+            -o "${RUNNER_TEMP}/ambit-host-tests/trace_v3"
+          "${RUNNER_TEMP}/ambit-host-tests/trace_v3"
+
   build:
     name: Build firmware
     needs: validate-pr
