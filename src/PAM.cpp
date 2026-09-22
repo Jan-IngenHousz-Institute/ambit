@@ -460,7 +460,7 @@ static void pam_store_type1_sample(const uint32_t* ret, uint8_t num_integration,
       if (counter % 8 == 7){
         d_sun->put(buf_opt[0]/8);
         d_leaf->put(buf_opt[1]/8);
-        if(_type == 1){d_730->put(buf_opt[2]/8);d_730Ref->put(buf_opt[3]/8);}                
+        if(_type == 1){d_730->put(buf_opt[2]/8);d_730Ref->put(buf_opt[3]/8);}
         for (uint8_t i = 0; i < 4; i++) buf_opt[i] = 0;
       }
     }
@@ -1289,8 +1289,15 @@ int run_arr_trigger(uint8_t length, uint8_t* arr, bool led_persist, bool allow_i
   const unsigned int start_t0 = millis();
   const int64_t run_tick_begin = esp_timer_get_time();
 
-  uint16_t data_count[] = {0, 0, 0, 0};
-  run_preprocess_type1(length, arr, data_count);
+  ambit_trace_v3::RunCounts run_counts;
+  ambit_trace_v3::validate_run_protocol(arr, length, MAX_DATACLASS_SIZE - 1U, &run_counts);
+  // The boundary check above proved that these totals fit the buffers.
+  uint16_t data_count[] = {
+      static_cast<uint16_t>(run_counts.main),
+      static_cast<uint16_t>(run_counts.ambient),
+      static_cast<uint16_t>(run_counts.reflection),
+      0,
+  };
 
   // Every local is declared before the first goto (single-exit cleanup).
   uint8_t pc = 0, _type = 0, farred = 0, actinic = 0, subsampling = 0;

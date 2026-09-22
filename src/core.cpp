@@ -47,4 +47,3 @@ int core_run_array_triggered(uint8_t len, uint8_t* arr, uint8_t persist, bool al
     core_ensure_array_config();
     return run_arr_trigger(len, arr, persist, allow_interrupt, json_output, retain);
 }
-
