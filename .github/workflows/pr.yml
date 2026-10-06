@@ -45,6 +45,13 @@ jobs:
       - name: Run release-boundary tests
         run: python3 -m unittest discover -s test/release_process -p 'test_*.py' -v
 
+      - name: Compile and run trace timing suite
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -Isrc \
+            tests/trace_v3_host.cpp \
+            -o "${RUNNER_TEMP}/ambit-host-tests/trace_v3"
+          "${RUNNER_TEMP}/ambit-host-tests/trace_v3"
+
   build:
     name: Build firmware
     needs: validate-pr
@@ -140,6 +147,13 @@ jobs:
           # OneDrive workaround); give it a sane root on the runner.
           LOCALAPPDATA: ${{ runner.temp }}/pio_build_root
         run: "${RUNNER_TEMP}/platformio/bin/pio run -e ambit"
+
+      - name: Compile and run openJII protocol contracts
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -DARDUINO=100 -DARDUINOJSON_ENABLE_PROGMEM=0 \
+            -Itests/host_shim -I.pio/libdeps/ambit/ArduinoJson/src -Ilib/openjii_proto \
+            tests/openjii_proto_host.cpp lib/openjii_proto/openjii_proto.cpp -o /tmp/openjii-proto-host
+          /tmp/openjii-proto-host
 
       - name: Verify version and assemble release assets
         env:

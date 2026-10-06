@@ -331,3 +331,37 @@ both halves):
 Passing both confirms the extracted `pam_send_results` reproduces the inline block exactly.
 The next sweep-#4 increments (`PamBuffers` RAII / `#11` leak fix, then `read_one_frame`)
 each get their own row here and must re-run A + B before being trusted.
+
+
+## Deterministic default RC gate (2026-09-22; results pending)
+
+`arrun`, JSON `arrun`, binary cmd 21 and retained cmd 22 now use EXT_SYNC.
+The free-run implementation remains a bench reference only. Existing array
+layouts 0–8 and calibration structs remain intact; array 9 is additive,
+uint32 microsecond offsets from the same ESP run start as array 7, one per
+stored optical sample. Three warm-up edges are discarded and excluded from 9.
+This is also a **timing semantics change**: old hosts reconstruct sample times
+using `tick_factor / freq`. Install the paired Ambyte decoder before this RC.
+Do not change the persisted calibration tick factor to compensate.
+
+- [ ] Compare framing/layout/checksums of arrays 0–8 against main. Array 9 must
+      follow 8, use four bytes per value, and match fluorescence sample count.
+- [ ] Run synchronous cmd 21 and cmd 22 → poll DONE → FETCH. Verify both return
+      valid traces with actual times; repeat FETCH/run cycles to detect retention
+      leaks. FETCH after consumption must report no pending result.
+- [ ] Confirm the upgraded gateway still emits main's v3 trace for old AMBITs,
+      including calibration identity and environment offsets.
+- [ ] On the new AMBIT, verify N counts and N increasing main-series times;
+      at 1 Hz, spacing is approximately 1 s (not 0.854 s). Last time must fit
+      within device duration. Test mixed rates, far-red minimum period and
+      segment setup gaps. Paired eight-sample values use mean edge times.
+- [ ] Run 20 Hz for 30 s with temperature enabled; inspect `tstat` late_count /
+      max_late_us and temperature-correlated intervals. Actual timestamps reveal
+      stalls but do not establish that the cadence is within tolerance.
+- [ ] Scope GPIO10 and optical output to verify stored count plus the documented
+      three warm-ups equals physical sequences; no autonomous extra sequences.
+- [ ] Preserve sensor IDs, calibration hashes and scheduled protocol names;
+      confirm both SS/MPF and spectral measurements continue after OTA.
+
+Remote inventory/telemetry validates only the checks it directly observes.
+It does not replace the physical-edge or raw-UART capture checks above.

@@ -8,3 +8,5 @@ package-lock.json
 .plans/
 graphify-out/
 data/
+__pycache__/
+*.py[cod]
