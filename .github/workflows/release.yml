@@ -12,22 +12,25 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Pinned to the qualified candidate of PR 6 (feat(trace): emit
-  # self-describing v3 measurements, squash-merged as 0e30079). Change only in
-  # a reviewed release-process PR for the next firmware.
+  # Pinned to the qualified candidate of PR 10 (feat(adpd): make array
+  # acquisition deterministic). Change only in a reviewed release-process PR for
+  # the next firmware.
   #
-  # Why 1.3.0: PR 6 is a `feat(...)` squash on top of v1.2.0, so commit-analyzer
-  # resolves minor. Its pr.yml run at the pinned head baked 1.3.0 into
-  # ambit-fw-v1.3.0.bin (title-derived, squash-merge keeps it in step with
-  # main's history), so the artifact and this tag agree.
-  EXPECTED_VERSION: 1.3.0
-  EXPECTED_TAG: v1.3.0
+  # Why 1.4.0: since v1.3.0, main carries PR 11 (`fix(mlx)`) and PR 10
+  # (`feat(adpd)`), so commit-analyzer resolves minor. PR 10's pr.yml run at the
+  # pinned head baked 1.4.0 into ambit-fw-v1.4.0.bin (title-derived; squash-merge
+  # keeps it in step with main's history), so the artifact and this tag agree.
+  # v1.3.1 was deliberately never released: the fleet goes from 1.3.0 straight
+  # to 1.4.0, which carries the MLX fix. Field-tested before release as
+  # v1.4.0-rc.3, byte-identical to the pinned artifact.
+  EXPECTED_VERSION: 1.4.0
+  EXPECTED_TAG: v1.4.0
   RELEASE_BRANCH: main
-  QUALIFIED_PR_NUMBER: 6
-  QUALIFIED_PR_HEAD_SHA: ${{ vars.AMBIT_V130_PR_HEAD_SHA }}
-  QUALIFIED_PR_RUN_ID: ${{ vars.AMBIT_V130_PR_RUN_ID }}
-  QUALIFIED_ARTIFACT_ID: ${{ vars.AMBIT_V130_ARTIFACT_ID }}
-  QUALIFIED_APP_SHA256: ${{ vars.AMBIT_V130_APP_SHA256 }}
+  QUALIFIED_PR_NUMBER: 10
+  QUALIFIED_PR_HEAD_SHA: ${{ vars.AMBIT_V140_PR_HEAD_SHA }}
+  QUALIFIED_PR_RUN_ID: ${{ vars.AMBIT_V140_PR_RUN_ID }}
+  QUALIFIED_ARTIFACT_ID: ${{ vars.AMBIT_V140_ARTIFACT_ID }}
+  QUALIFIED_APP_SHA256: ${{ vars.AMBIT_V140_APP_SHA256 }}
 
 jobs:
   stage-draft:
