@@ -135,6 +135,21 @@ void do_command(char *choose){
      }                                                
     break;  
 
+    case hash("mlxee"):     // mlxee,<reps>: MLX90632 EEPROM calibration block + boot constants
+      mlx_dump_eeprom((uint8_t) Serial_Input_Long(",", 10));
+      break;
+
+#ifdef AMBIT_DIAG_MLX
+    case hash("mlxfail"):   // mlxfail,<n>: fail the next n MLX register reads, then re-run mlx_init()
+    {
+      mlx_diag_fail_reads((uint16_t) Serial_Input_Long(",", 10));
+      const bool ok = mlx_init();
+      Serial.printf("mlxfail: init=%d valid=%d fail_reads_left=%u\n", ok, mlx_calibration_valid(),
+                    mlx_diag_fail_reads_left());
+    }
+      break;
+#endif
+
     case hash("mlx"):
     { 
       unsigned int timer = millis();
